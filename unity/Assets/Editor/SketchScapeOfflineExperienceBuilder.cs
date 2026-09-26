@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Gsplat;
 using UnityEditor;
@@ -54,10 +55,20 @@ public static class SketchScapeOfflineExperienceBuilder
 
         var objectRoot = new GameObject("Authored Objects").transform;
         objectRoot.SetParent(experienceRoot.transform, false);
+        var stagedRefs = new List<ImmersiveStagingDirector.StagedObjectRef>();
         foreach (var item in envelope.scene.objects)
         {
             GameObject instance = CreateAuthoredObject(objectRoot, item);
             AttachAttribution(instance, item.id, envelope.scene.meta.social);
+            stagedRefs.Add(new ImmersiveStagingDirector.StagedObjectRef { objectId = item.id, target = instance });
+        }
+
+        // Build Plan step 6 Part B: stage_immersive_reveal's output, if the
+        // compiled scene carries one (meta.staging). Absent entirely, the
+        // scene builds and loads exactly as before (graceful degradation).
+        if (StagingPlanParser.TryExtractStagingBlock(json, out string stagingBlock))
+        {
+            experienceRoot.AddComponent<ImmersiveStagingDirector>().Configure(stagingBlock, stagedRefs);
         }
 
         EditorSceneManager.SaveScene(scene, OutputScenePath);
