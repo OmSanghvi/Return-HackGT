@@ -4,14 +4,17 @@ using UnityEngine;
 namespace Return.UI
 {
     /// <summary>
-    /// ~60 warm glowing points wandering the portal ring on curl-ish Perlin noise, soft-blinking, repelled by
-    /// controllers within ~0.6m (see HubPointers) and drifting back after. A single ParticleSystem driven by
-    /// script (GetParticles/SetParticles each frame); additive soft-dot material.
+    /// ~60 warm glowing points wandering the portal ring on curl-ish Perlin noise, soft-blinking. Reacting to a
+    /// hand (see HubPointers): a hand held still for ~1s draws nearby fireflies into a gentle settle, a fast swing
+    /// scatters them hard over a wider radius, and otherwise they just get the short-range idle repel. A single
+    /// ParticleSystem driven by script (GetParticles/SetParticles each frame); additive soft-dot material.
     /// </summary>
     public class Fireflies : MonoBehaviour
     {
         const int Count = 60;
         const float RepelRadius = 0.6f, RepelForce = 1.2f, WanderSpeed = 0.15f;
+        const float SettleRadius = 1.2f, SettleForce = 0.6f, SettleStandoff = 0.15f; // stop short of the hand, don't land on it
+        const float ScatterRadius = 1f, ScatterForce = 2.5f;
 
         ParticleSystem _ps;
         ParticleSystem.Particle[] _buf;
@@ -67,7 +70,14 @@ namespace Return.UI
                 {
                     var d = pos - p.tip;
                     float dist = d.magnitude;
-                    if (dist < RepelRadius && dist > 0.001f) pos += d / dist * (RepelRadius - dist) * RepelForce * Time.deltaTime;
+                    if (p.speed > HubPointers.FastSpeed && dist < ScatterRadius && dist > 0.001f)
+                        // fast swing: a stronger push over a wider radius than the idle repel
+                        pos += d / dist * (ScatterRadius - dist) * ScatterForce * Time.deltaTime;
+                    else if (p.stillFor > HubPointers.StillTime && dist < SettleRadius && dist > SettleStandoff)
+                        // held still for a while: drift gently toward the hand, settling near it rather than on it
+                        pos -= d / dist * (dist - SettleStandoff) * SettleForce * Time.deltaTime;
+                    else if (dist < RepelRadius && dist > 0.001f)
+                        pos += d / dist * (RepelRadius - dist) * RepelForce * Time.deltaTime;
                 }
                 _pos[i] = pos;
 
