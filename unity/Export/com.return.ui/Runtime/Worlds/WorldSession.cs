@@ -12,6 +12,7 @@ namespace Return.UI
     public class WorldSession
     {
         readonly IWorldLoader _loader; readonly ScreenFade _fade; readonly Transform _head; readonly Action<bool> _hubVisible;
+        readonly PortalTransition _transition;
         public float fadeSeconds = 1.1f;
         public SessionState State { get; private set; } = SessionState.Hub;
         public Room Current { get; private set; }
@@ -19,20 +20,22 @@ namespace Return.UI
         /// <summary>0..1 while Loading.</summary>
         public float Progress { get; private set; }
 
-        public WorldSession(IWorldLoader loader, ScreenFade fade, Transform head, Action<bool> hubVisible)
-        { _loader = loader; _fade = fade; _head = head; _hubVisible = hubVisible; }
+        public WorldSession(IWorldLoader loader, ScreenFade fade, Transform head, Action<bool> hubVisible, PortalTransition transition = null)
+        { _loader = loader; _fade = fade; _head = head; _hubVisible = hubVisible; _transition = transition; }
 
         void Set(SessionState s) { State = s; StateChanged?.Invoke(s); }
 
         /// <summary>White-out for day paintings, deep blue for dusk ones (ReturnMotion.Enter).</summary>
         static Color FadeColor(Room r) => UIAssets.IsDusk(r.scene) ? (Color)ReturnColorsDusk.Canvas : Color.white;
 
-        public async Task EnterAsync(Room room)
+        /// <summary>portal is the arch that was activated; step-through visuals (glide + vignette) play around it if given.</summary>
+        public async Task EnterAsync(Room room, RoomPortal portal = null)
         {
             if (State != SessionState.Hub) return;
             Current = room; Progress = 0; Set(SessionState.Loading);
             try
             {
+                if (_transition != null) await _transition.EnterStep(portal, _head);
                 _fade.SetColor(FadeColor(room));
                 await _fade.FadeTo(1f, fadeSeconds);
                 _hubVisible(false);
@@ -44,6 +47,7 @@ namespace Return.UI
             {
                 Debug.LogError("Return: could not enter " + room.title + ": " + e);
                 await _loader.UnloadAsync(); _hubVisible(true); Current = null; Set(SessionState.Hub); await _fade.FadeTo(0f, fadeSeconds);
+                if (_transition != null) await _transition.ExitStep(_head); // undo the glide so a failed enter doesn't strand the rig mid-arch
             }
         }
 
@@ -56,6 +60,7 @@ namespace Return.UI
             _hubVisible(true);
             Current = null; Set(SessionState.Hub);
             await _fade.FadeTo(0f, fadeSeconds);
+            if (_transition != null) await _transition.ExitStep(_head);
         }
     }
 }
