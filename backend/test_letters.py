@@ -17,6 +17,7 @@ os.environ["SKETCHSCAPE_DATA_DIR"] = _temp_dir.name
 
 import jsonschema  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from PIL import Image  # noqa: E402
 
 import main  # noqa: E402
 
@@ -25,10 +26,13 @@ SCENE_SCHEMA = json.loads(
     (Path(__file__).resolve().parent.parent / "shared" / "scene.schema.json").read_text("utf-8")
 )
 
-A_PNG = (
-    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x02\x00\x00\x00\x02\x08\x02\x00\x00\x00\xfd\xd4\x9as"
-    b"\x00\x00\x00\nIDATx\x9cc\xf8\xcf\xc0\x00\x00\x00\x03\x00\x01\xf6\x178U\x00\x00\x00\x00IEND\xaeB`\x82"
-)
+def _make_png() -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (2, 2), (255, 255, 255)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+A_PNG = _make_png()
 
 
 def _tiny_png_file(name: str = "page.png"):
