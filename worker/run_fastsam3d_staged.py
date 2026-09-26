@@ -39,6 +39,8 @@ os.environ.update(
 )
 from sam3d_objects.pipeline.inference_pipeline import InferencePipeline
 
+from gaussian_ply_safety import sanitize_ply_opacity_file
+
 
 def env_path(name: str) -> Path:
     value = os.environ.get(name)
@@ -218,6 +220,9 @@ def main() -> None:
 
     output = OUTPUT_DIR / "fastsam3d_reconstruction.ply"
     gaussian.save_ply(output)
+    fixed = sanitize_ply_opacity_file(output)
+    if fixed:
+        print(f"Repaired {fixed} non-finite opacity value(s) in {output}")
     print(f"Saved: {output}")
 
 

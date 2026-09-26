@@ -22,6 +22,22 @@ from pydantic import BaseModel, Field, ValidationError
 _WORD_PATTERN = re.compile(r"[A-Za-z0-9']+")
 _QUOTE_PAIRS = (('"', '"'), ("“", "”"))
 
+# Sentence-initial capitalization is otherwise indistinguishable from a
+# proper noun by this deterministic, no-dependency checker (no POS tagger).
+# Only these closed-set function/greeting words get the sentence-start
+# exemption; any other capitalized word -- including one leading a sentence,
+# e.g. an invented name like "Percival visited." -- is still a violation.
+_SENTENCE_START_ALLOWED_WORDS = frozenset(
+    {
+        "the", "a", "an", "this", "that", "these", "those", "it", "its",
+        "i", "we", "you", "he", "she", "they",
+        "welcome", "yes", "no", "hello", "hi", "here", "there", "now", "today",
+        "and", "but", "so", "or", "yet", "also", "then",
+        "what", "who", "where", "when", "why", "how",
+        "let", "look", "notice", "come", "step", "take",
+    }
+)
+
 
 def _tokenize(text: str | None) -> set[str]:
     return {match.group(0).lower() for match in _WORD_PATTERN.finditer(text or "")}
@@ -62,7 +78,8 @@ def grounding_violations(text: str, facts: list[str], vocab: list[str]) -> list[
     The allowed set is the lower-cased word tokens of `facts` (fact text)
     plus `vocab` (contributor display names, element labels, the theme
     title, the persona name). A token in `text` is a violation when it's a
-    capitalized word that doesn't start a sentence, a token containing a
+    capitalized word (unless it's a common function/greeting word starting a
+    sentence -- see `_SENTENCE_START_ALLOWED_WORDS`), a token containing a
     digit, or a token inside a quoted span -- and its lower case isn't in
     the allowed set. Returns the list of violating tokens verbatim (empty
     means grounded).
@@ -82,10 +99,13 @@ def grounding_violations(text: str, facts: list[str], vocab: list[str]) -> list[
         token = match.group(0)
         if token.lower() in allowed:
             continue
-        is_capitalized_mid_sentence = token[:1].isupper() and match.start() not in sentence_starts
+        at_sentence_start = match.start() in sentence_starts
+        is_suspect_capitalized = token[:1].isupper() and not (
+            at_sentence_start and token.lower() in _SENTENCE_START_ALLOWED_WORDS
+        )
         has_digit = any(char.isdigit() for char in token)
         is_quoted = any(start <= match.start() < end for start, end in quoted_spans)
-        if is_capitalized_mid_sentence or has_digit or is_quoted:
+        if is_suspect_capitalized or has_digit or is_quoted:
             violations.append(token)
     return violations
 

@@ -13,6 +13,17 @@ python3 -m py_compile \
   "$ROOT/backend/blueprint_to_unity_cli.py" \
   "$ROOT/backend/auth.py" \
   "$ROOT/backend/upload_pipeline.py" \
+  "$ROOT/backend/room_tools.py" \
+  "$ROOT/backend/room_tools_cli.py" \
+  "$ROOT/backend/tour_author.py" \
+  "$ROOT/backend/tour_author_cli.py" \
+  "$ROOT/backend/tour_routes.py" \
+  "$ROOT/backend/guided_tour.py" \
+  "$ROOT/backend/guide.py" \
+  "$ROOT/backend/guide_tools.py" \
+  "$ROOT/backend/guide_validator.py" \
+  "$ROOT/backend/guide_model.py" \
+  "$ROOT/backend/guide_tts.py" \
   "$ROOT/backend/test_api.py" \
   "$ROOT/backend/test_storage.py" \
   "$ROOT/backend/test_subject_labeler.py" \
@@ -21,6 +32,10 @@ python3 -m py_compile \
   "$ROOT/backend/test_auth.py" \
   "$ROOT/backend/test_jobs.py" \
   "$ROOT/backend/test_gpu_worker.py" \
+  "$ROOT/backend/test_room_tools.py" \
+  "$ROOT/backend/test_tour_author.py" \
+  "$ROOT/backend/test_guided_tour.py" \
+  "$ROOT/backend/test_guide.py" \
   "$ROOT/scripts/smoke_test_aws_storage.py" \
   "$ROOT/scripts/export_unity_experience.py" \
   "$ROOT/scripts/check_collab_gates.py" \
@@ -28,8 +43,12 @@ python3 -m py_compile \
   "$ROOT/worker/segment_sam31_local.py" \
   "$ROOT/worker/gpu_dispatcher.py" \
   "$ROOT/worker/benchmark_concurrency.py" \
+  "$ROOT/worker/gaussian_ply_safety.py" \
+  "$ROOT/worker/run_fastsam3d_staged.py" \
+  "$ROOT/worker/worker_server.py" \
   "$ROOT/worker/test_segment_sam31_local.py" \
-  "$ROOT/worker/test_gpu_dispatcher.py"
+  "$ROOT/worker/test_gpu_dispatcher.py" \
+  "$ROOT/worker/test_gaussian_ply_safety.py"
 bash -n \
   "$ROOT/worker/bootstrap_fastsam3d.sh" \
   "$ROOT/worker/bootstrap_sam31_local.sh" \
@@ -53,7 +72,7 @@ python3 "$ROOT/scripts/check_collab_gates.py" --status
 if [[ -x "$ROOT/backend/.venv/bin/python" ]]; then
   (
     cd "$ROOT/backend"
-    .venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py test_scene_tools.py test_blueprint_to_unity.py test_auth.py test_jobs.py test_gpu_worker.py
+    .venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py test_scene_tools.py test_blueprint_to_unity.py test_auth.py test_jobs.py test_gpu_worker.py test_room_tools.py test_tour_author.py test_guided_tour.py test_guide.py
   )
   # worker/segment_sam31_local.py and gpu_dispatcher.py's testable functions
   # only need numpy/Pillow (already in backend/.venv via requirements.txt +
@@ -61,7 +80,7 @@ if [[ -x "$ROOT/backend/.venv/bin/python" ]]; then
   # lazily imported so these run on any CPU machine (Build Plan step 27).
   (
     cd "$ROOT/worker"
-    "$ROOT/backend/.venv/bin/python" -m unittest test_segment_sam31_local.py test_gpu_dispatcher.py
+    "$ROOT/backend/.venv/bin/python" -m unittest test_segment_sam31_local.py test_gpu_dispatcher.py test_gaussian_ply_safety.py
   )
 else
   echo "Python syntax checks passed. Create backend/.venv and install requirements-dev.txt (plus 'pip install numpy' for the worker tests) to run API + worker tests."
