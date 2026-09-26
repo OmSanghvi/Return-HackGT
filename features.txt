@@ -1,0 +1,235 @@
+SHARED ROOM — DEMO VIDEO FEATURE CHECKLIST
+Submitting one prototype to two tracks: Meta ("Bringing People Closer
+Together with AI") and the Immersive AR/VR track. Record one video; these are
+the features that sell the idea to each track's judges. Every feature below
+must be true in the mock-mode build used for recording — do not narrate a
+feature that only exists on paper.
+
+This is a RECORDING checklist, not a build plan. For the concrete,
+file-by-file plan that actually builds each feature below (and the
+.claude/skills/<name> skill that governs each step), see docs/BUILD_PLAN.md.
+Do not start recording until docs/BUILD_PLAN.md's relevant steps are done —
+this file only tells you what to show, not how to build it.
+
+=================================================================
+TRACK 1 — META: "BRINGING PEOPLE CLOSER TOGETHER WITH AI"
+Judging criteria: strengthens human connection, AI essential + well
+integrated, originality, strength of the demo.
+=================================================================
+
+1. TWO OR MORE REAL PEOPLE, ONE SHARED ARTIFACT
+   - Each contributor adds one meaningful object (a photo or a Notability
+     sketch) with a short memory/reason attached. The architecture supports
+     any number of contributors (min 2, see docs/ARCHITECTURE.md's
+     N-contributor section); the demo itself records exactly two —
+     Contributor A and Contributor B — because that's the clearest story in
+     2–3 minutes, not because the product is capped at two.
+   - Sell it as: not a group chat, not a photo album, not a feed post — a
+     private spatial scene that represents the relationship itself.
+
+2. AI DOES SOMETHING A PERSON DIDN'T SAY OUT LOUD
+   - The ConnectionInsight names a shared theme neither contributor stated
+     explicitly (e.g. "home and independence" from a childhood-kitchen
+     sketch + an old bicycle photo).
+   - The theme is FELT, not read: it comes through as a lighting shift, a
+     connecting light path/motif linking the contributed objects, and a
+     short spoken narration when the room is entered — deliberately not a
+     floating on-screen text card or HUD panel. Diegetic beats a caption.
+     This scales past two objects the same way — the motif links however
+     many contributions exist.
+   - Linger on this moment in the video — it is the single strongest proof
+     that AI, not a human, made the connection.
+   - State plainly which model powered NemoClaw's reasoning for it
+     (Llama-backed by default, Grok kept as a configured fallback runtime,
+     or "mock" if recording in mock mode) — never imply a live model ran
+     when it didn't.
+
+3. AI's REASONING IS PERCEIVABLE, NOT HIDDEN, NOT A CAPTION
+   - The theme, the explanation, and the placement rationale are expressed
+     through the scene itself (mood lighting, a connecting visual motif,
+     ambient sound, spoken narration) and per-object attribution cues
+     (a marker, material tint, or brief spoken intro) — not silently baked
+     into coordinates, and not a UI text overlay either.
+   - This directly answers "AI is essential and well-integrated" while
+     keeping the room feeling like a place, not an app.
+
+4. NEMOCLAW IS THE AGENT THAT PIONEERS THE CONNECTION, NOT A SINGLE API CALL
+   - Frame NemoClaw explicitly as an AI agent equipped with its own toolset
+     for authoring the room, not one prompt-in/coordinates-out function call.
+     Naming the tools in the write-up (and briefly on camera, if there's a
+     dev-mode log view) makes the "AI is essential and well-integrated"
+     criterion concrete instead of asserted:
+       - place_objects_in_scene — reasons about realistic room layout for
+         every contributed object and publishes the blueprint.
+       - read_sketch_layout — optionally reads a Notability sketch's own
+         spatial hints (e.g. "lamp is left of chair") to inform placement.
+       - stage_immersive_reveal — the agent choreographing the *emotional*
+         moment: reveal order, mood lighting, the connecting motif, spoken
+         narration timing, per-object haptic/sound signatures. This is the
+         tool that makes NemoClaw a director of the moment, not just an
+         interior-design function.
+       - trigger_unity_scene_update — pushes the finished, agent-authored
+         scene live via Unity MCP.
+   - NemoClaw's own reasoning runs on Llama by default (served via a
+     hosting provider since Meta retired its own Llama API preview in July
+     2026), with Grok kept as a switchable fallback runtime (a config
+     change, not a rebuild) for the alternate Resilience Commons framing.
+     Separately, the sketch → photo image-generation step uses the already-
+     built Azure OpenAI or free Hugging Face backend live, with Grok Imagine
+     as an option for the Resilience Commons framing — Meta Muse Image is
+     deliberately not used anywhere in this project (paid, no free tier).
+     The recorded demo runs on the free mock backend regardless; any paid
+     backend is only a small one-time verification pass, never the judged
+     path.
+   - The pitch line this earns: NemoClaw doesn't just place objects in a
+     room — it is the agent that notices the relationship between people's
+     contributions (two in the demo, more if a group grows the room later)
+     and stages the room so that relationship can be felt. That's the
+     "pioneer of the social connection" framing, and it's true of the actual
+     tool architecture, not just marketing language. See AGENT.md's
+     "NemoClaw integration" and "Immersive scene craft" sections.
+
+5. THE ROOM ATTRIBUTES EVERY CONTRIBUTOR
+   - Inside Unity, each object is visibly tied to its contributor through
+     staging (not a name-tag UI element) — a marker, material choice, or
+     spoken introduction.
+   - Show all contributed objects together in one explorable space, not
+     separate scenes per person — true whether there are two contributors
+     (the demo) or more (the architecture).
+
+6. EACH PERSON GETS ONE BOUNDED EDIT
+   - Demonstrate one contributor moving/scaling their own object through
+     the safe, structured scene-edit path (never raw code or an open
+     Unity console) — shows the room is theirs to shape, not just view.
+   - If time allows, do this edit with hand tracking (pinch to grab/place)
+     instead of a controller trigger — more intimate on camera, and a
+     capability specific to Quest hardware.
+   - Each object should have its own distinct haptic pulse and sound cue
+     tied to its interaction/animation, so a contributor recognizes their
+     object by feel as well as sight.
+
+7. ON A REAL META QUEST HEADSET
+   - Show the headset on a real head, even briefly. This is the strongest
+     "why Meta specifically" beat in the video — a spatial product on
+     Meta's own hardware, not a chatbot running in a browser tab.
+   - Record this with Quest's built-in Mixed Reality Capture (MRC) if it
+     comes out completely clean (wearer + in-headset view composited
+     automatically). If it doesn't work cleanly, use a plain screen
+     recording instead — a broken composite is worse than a simple capture.
+   - Optional closing beat: passthrough — the virtual room fading into the
+     contributor's real physical space. Cheap, Quest-specific, memorable.
+
+8. ONGOING, NOT ONE-TIME
+   - Mention (even in one sentence) that the room is meant to be revisited
+     and extended later — a third object, an anniversary update — turning
+     a single build into a running relationship artifact.
+   - The architecture already supports more than two contributors (a family
+     or friend group, not just a pair) — one sentence in the write-up is
+     enough; don't restructure the demo video around it. See
+     docs/ARCHITECTURE.md's N-contributor section and PROJECT_STATUS.md's
+     "Built for two, architected for more."
+
+9. HONEST ABOUT MOCK VS. LIVE
+   - State clearly that PIPELINE_MODE=mock and SKETCHSCAPE_IMAGE_GEN_BACKEND=mock
+     power the judged recording, and that the real GPU reconstruction
+     pipeline (SAM 3.1 + Fast-SAM3D on an NVIDIA L40S) has been separately
+     verified end-to-end. If a live image-gen pass was also verified (Azure
+     OpenAI, the free Hugging Face backend, or Grok Imagine for the
+     alternate framing — never Meta Muse Image, deliberately not used on
+     cost), mention it as a small one-time pass too. Frame this as a
+     strength: the product works with zero excuses and zero required
+     per-run cost at judging time.
+
+10. A SMALL RESPONSIBLE-AI TOUCH (if built, low effort)
+   - Contributor memory text is moderated with Llama Guard (Meta's
+     open-source PurpleLlama safety project, github.com/meta-llama/PurpleLlama)
+     before it reaches the composition step. One sentence in the write-up,
+     costs little to build, reads as deliberate rather than an afterthought.
+
+DEMO BEATS (2–3 min), Meta cut:
+  0:00–0:20  Who this is for + the connection problem (far apart, no good
+             way to share what something *means*).
+  0:20–0:50  Contributor A adds an object + memory; Contributor B adds theirs
+             (the demo uses two for clarity; the product supports more).
+  0:50–1:20  NemoClaw's connection insight lands in the room itself — mood
+             lighting shift, connecting motif, spoken narration — slow down
+             here; no on-screen text card.
+  1:20–2:10  Quest headset on a real head, walk the room, inspect both
+             objects (feel each one's haptic/sound signature if built), make
+             one edit (pinch/hand-tracking if built, controller otherwise).
+  2:10–2:40  Optional passthrough close; state why AI (NemoClaw's toolset,
+             specifically) was necessary.
+
+WRITE-UP MUST ANSWER:
+  - Who it's for: long-distance friends, couples, or family who want to
+    share meaning, not just updates.
+  - How it strengthens connection: one shared space none of the
+    contributors could have built alone, with an AI-authored explanation of
+    a relationship no one stated out loud.
+  - Why AI is essential: interpretation, connection-making, expression —
+    three things a shared photo album or file-share can't do.
+
+=================================================================
+TRACK 2 — IMMERSIVE AR/VR
+Judges here care about spatial execution: is this actually VR-native, does
+it use real 3D reconstruction, does it perform, is the interaction real.
+=================================================================
+
+1. REAL OBJECTS, REAL RECONSTRUCTION — NOT PRESET 3D MODELS
+   - Emphasize that each object is reconstructed from an actual photo (or a
+     hand-drawn Notability sketch) of a real physical thing, via SAM 3.1
+     segmentation + Fast-SAM3D Gaussian-splat reconstruction — not pulled
+     from a stock asset library.
+   - Verified end-to-end on an NVIDIA L40S: 70 seconds total (42s segment +
+     28s reconstruct), producing an 814k-vertex, 53 MB splat. Cite the real
+     number — it's a strong, concrete technical beat.
+
+2. TWO INPUT PATHS INTO THE SAME PIPELINE
+   - Photo path and Notability-sketch path (sketch → AI image generation →
+     photoreal image → same reconstruction pipeline) both land in the same
+     VR room. Show both if time allows — it doubles the "how did you make
+     that" reaction.
+
+3. GAUSSIAN-SPLAT RENDERING ON-DEVICE, NOT A PRE-BAKED VIDEO
+   - UnitySplats renders the real `.ply` splat live on Quest hardware
+     (Quest 3/3S, Android Vulkan, Unity 6, OpenXR, 72 Hz). This is real-time
+     rendering of a real object, not a 360 video or a photo dome.
+
+4. FULL VR INTERACTION, NOT A STATIC SCENE
+   - XRI 3.0.11 controller rig: walk the room (teleport or smooth
+     locomotion), inspect objects up close, and perform the bounded
+     move/scale edit with actual Quest controllers.
+
+5. GRACEFUL DEGRADATION, NO FAKE PLACEHOLDERS
+   - If a reconstruction fails, the object is skipped — the room never
+     shows a placeholder cube/capsule standing in for a failed object. Worth
+     a one-line mention: what ships in VR is always a real reconstruction,
+     never a stand-in.
+
+6. RUNS FULLY OFFLINE ON THE HEADSET AT DEMO TIME
+   - The shipped Unity player only calls the public backend API — no
+     runtime dependency on NemoClaw, Unity MCP, or AWS at judging time. The
+     VR experience itself is self-contained once the scene is compiled.
+
+DEMO BEATS TO ADD/EMPHASIZE FOR AN AR/VR-FOCUSED CUT:
+  - A few extra seconds on the raw photo/sketch next to the reconstructed
+    splat, before it goes into the room, to sell "this came from a real
+    object."
+  - A slow orbit or close-up inspection of one splat in VR to show
+    reconstruction fidelity, not just the wide room shot.
+  - Name the concrete pipeline (SAM 3.1 → Fast-SAM3D → Gaussian-splat →
+    UnitySplats → Quest) once, on screen or narrated, for technical judges.
+
+=================================================================
+SHARED GROUND RULES FOR BOTH CUTS
+=================================================================
+- Never claim a live model ran when the recording used PIPELINE_MODE=mock;
+  label mock output as mock, narrated or in a small metadata note if possible
+  (this labeling note is a technical caveat, not the connection theme itself —
+  the theme stays diegetic, see rule below).
+- The connection theme/explanation is never a floating UI text card or HUD
+  panel — express it through lighting, a connecting motif, sound, and
+  narration instead. See features 2 and 3 above.
+- Never show a placeholder primitive standing in for a failed reconstruction.
+- Keep the demo to one continuous story — do not cut between two different
+  pitches; only the framing/emphasis changes between the two track cuts.

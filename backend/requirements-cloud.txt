@@ -1,0 +1,5 @@
+-r requirements.txt
+# Optional: only needed when SKETCHSCAPE_STORAGE_BACKEND=dynamodb. The local
+# default JSON store needs none of these. boto3 is imported lazily so the base
+# install stays dependency-light.
+boto3>=1.34,<2.0

@@ -1,0 +1,6 @@
+-r requirements.txt
+# Starlette 1.x uses the separately packaged test client dependency.
+httpx2>=2.0,<3.0
+# Optional cloud backend, so the DynamoDB store's CRUD test path is exercisable
+# in a dev/CI environment. Runtime keeps boto3 optional (see requirements-cloud.txt).
+boto3>=1.34,<2.0

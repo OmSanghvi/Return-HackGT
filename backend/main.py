@@ -1,0 +1,1096 @@
+"""SketchScape's Unity-facing reconstruction API.
+
+This process deliberately does *not* load CUDA, SAM, or SAM 3D. It owns
+uploads, job state, scene JSON, and artifacts. A separate GPU worker receives
+one job at a time and writes the result manifest in ``worker_contract.json``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import secrets
+import sys
+import uuid
+from datetime import UTC, datetime
+from enum import StrEnum
+from pathlib import Path
+from typing import Annotated, Any, Literal
+
+from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel, Field
+
+from storage import create_store
+from artifact_store import create_artifact_store
+from subject_labeler import SubjectLabelError, create_subject_labeler
+
+
+DATA_ROOT = Path(os.environ.get("SKETCHSCAPE_DATA_DIR", "./data")).resolve()
+UPLOAD_ROOT = DATA_ROOT / "uploads"
+ARTIFACT_ROOT = DATA_ROOT / "artifacts"
+MAX_UPLOAD_BYTES = 16 * 1024 * 1024
+MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
+for directory in (UPLOAD_ROOT, ARTIFACT_ROOT):
+    directory.mkdir(parents=True, exist_ok=True)
+
+
+class JobStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    MASK_REVIEW = "mask_review"
+    COMPLETE = "complete"
+    FAILED = "failed"
+
+
+class AssetStatus(StrEnum):
+    PROCESSING = "processing"
+    READY = "ready"
+    MASK_REVIEW = "mask_review"
+    FAILED = "failed"
+
+
+class SceneObject(BaseModel):
+    id: str
+    type: str = Field(description="Semantic label or `gaussian_splat`.")
+    position: list[float] = Field(min_length=3, max_length=3)
+    rotation: list[float] = Field(default_factory=lambda: [0, 0, 0], min_length=3, max_length=3)
+    scale: list[float] = Field(min_length=3, max_length=3)
+    asset_url: str | None = None
+    source: Literal["placeholder", "sam3d"] = "placeholder"
+    actions: list[Literal["scale_by", "translate_by", "rotate_by"]] = Field(
+        default_factory=lambda: ["scale_by", "translate_by", "rotate_by"]
+    )
+
+
+class SceneDocument(BaseModel):
+    objects: list[SceneObject]
+    instructions: list[dict[str, Any]] = Field(default_factory=list)
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class SceneResponse(BaseModel):
+    status: Literal["complete"] = "complete"
+    scene: SceneDocument
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=500)
+
+
+class ProjectRecord(BaseModel):
+    project_id: str
+    name: str
+    description: str = ""
+    created_at: datetime
+    updated_at: datetime
+    asset_ids: list[str] = Field(default_factory=list)
+    blueprint_revisions: list[int] = Field(default_factory=list)
+    published_revision: int | None = None
+
+
+SubjectHintSource = Literal["user", "nemoclaw"]
+
+
+class ViewStatus(StrEnum):
+    PROCESSING = "processing"
+    READY = "ready"
+    MASK_REVIEW = "mask_review"
+    FAILED = "failed"
+
+
+class AssetView(BaseModel):
+    """Provenance record for one image/prompt submitted to SAM 3D.
+
+    A catalog asset may be built from multiple views of the same subject.
+    Each view tracks its own reconstruction job, mask, and artifact so the
+    authoring pipeline can later fuse them or select the best one.
+    """
+
+    view_index: int = Field(ge=0, description="0-based insertion order within the asset.")
+    image_key: str = Field(description="Storage key of the uploaded source image (relative to UPLOAD_ROOT).")
+    subject_hint: str | None = Field(default=None, max_length=100)
+    subject_hint_source: SubjectHintSource | None = None
+    reconstruction_job_id: str
+    status: ViewStatus = ViewStatus.PROCESSING
+    artifact_url: str | None = None
+    mask_url: str | None = None
+    preview_url: str | None = None
+    error: str | None = None
+    recorded_at: datetime
+
+
+class ProjectAsset(BaseModel):
+    asset_id: str
+    project_id: str
+    label: str
+    status: AssetStatus
+    # Legacy single-job convenience field — mirrors views[0].reconstruction_job_id
+    # when the asset was created via the single-view path. Multi-view assets set
+    # this to the first view's job ID. Always use `views` for provenance.
+    reconstruction_job_id: str
+    artifact_url: str | None = None
+    mask_url: str | None = None
+    preview_url: str | None = None
+    bounds: list[float] = Field(default_factory=lambda: [1.0, 1.0, 1.0], min_length=3, max_length=3)
+    suggested_scale: list[float] = Field(default_factory=lambda: [1.0, 1.0, 1.0], min_length=3, max_length=3)
+    error: str | None = None
+    views: list[AssetView] = Field(
+        default_factory=list,
+        description="Per-view reconstruction provenance. Empty for pre-provenance assets.",
+    )
+
+
+class AddAssetViewRequest(BaseModel):
+    """Register a new view (image + optional mask + subject hint) for an existing asset.
+
+    The view queues its own reconstruction job. The asset stays in PROCESSING
+    until at least one view reaches READY status.
+    """
+
+    subject_hint: str | None = Field(default=None, max_length=100)
+
+
+class ExperienceSettings(BaseModel):
+    mode: Literal["desktop", "ar", "vr", "ar_vr"] = "desktop"
+    theme: str = Field(min_length=1, max_length=200)
+    units: Literal["meters"] = "meters"
+
+
+class EnvironmentSettings(BaseModel):
+    lighting_preset: str = Field(default="neutral", max_length=80)
+    skybox: str | None = Field(default=None, max_length=200)
+    floor: bool = True
+    ambient_audio: str | None = Field(default=None, max_length=200)
+
+
+class BlueprintObject(BaseModel):
+    id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
+    asset_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
+    position: list[float] = Field(min_length=3, max_length=3)
+    rotation: list[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0], min_length=3, max_length=3)
+    scale: list[float] = Field(default_factory=lambda: [1.0, 1.0, 1.0], min_length=3, max_length=3)
+    interactions: list[Literal["highlight", "inspect", "scale", "translate", "rotate", "activate"]] = Field(
+        default_factory=list
+    )
+
+
+class PortalSettings(BaseModel):
+    id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
+    target_project_id: str = Field(min_length=1, max_length=80)
+    target_revision: int | None = Field(default=None, ge=1)
+    position: list[float] = Field(min_length=3, max_length=3)
+    rotation: list[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0], min_length=3, max_length=3)
+    scale: list[float] = Field(default_factory=lambda: [1.0, 1.0, 1.0], min_length=3, max_length=3)
+
+
+class NavigationSettings(BaseModel):
+    vr: Literal["teleport", "smooth", "none"] = "none"
+    ar: Literal["surface-placement", "world-anchor", "none"] = "none"
+
+
+class ExperienceBlueprintInput(BaseModel):
+    experience: ExperienceSettings
+    environment: EnvironmentSettings = Field(default_factory=EnvironmentSettings)
+    objects: list[BlueprintObject] = Field(min_length=1, max_length=200)
+    portals: list[PortalSettings] = Field(default_factory=list, max_length=20)
+    navigation: NavigationSettings = Field(default_factory=NavigationSettings)
+
+
+class ExperienceBlueprint(ExperienceBlueprintInput):
+    project_id: str
+    revision: int
+    created_at: datetime
+
+
+class PublicationRecord(BaseModel):
+    """An immutable record of one blueprint publication.
+
+    Publication history is append-only. Each publish appends a record so the
+    log always shows which revision was live at a given time; earlier records
+    are never rewritten.
+    """
+
+    project_id: str
+    revision: int
+    published_at: datetime
+
+
+class ReconstructionResponse(BaseModel):
+    job_id: str
+    status: JobStatus
+    poll_url: str
+    scene_url: str = "/v1/scene"
+
+
+class ReconstructionJob(ReconstructionResponse):
+    created_at: datetime
+    updated_at: datetime
+    original_filename: str
+    subject_hint: str | None = None
+    # "nemoclaw" when identify_subject supplied the SAM 3.1 prompt.
+    subject_hint_source: SubjectHintSource | None = None
+    subject_label_backend: str | None = None
+    project_id: str | None = None
+    asset_id: str | None = None
+    mask_url: str | None = None
+    artifact_url: str | None = None
+    error: str | None = None
+    scene: SceneDocument | None = None
+
+
+class SceneModificationRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=160)
+
+
+class SceneActionRequest(BaseModel):
+    """A bounded action shared by Unity runtime and authoring/MCP tools."""
+
+    target_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
+    action: Literal["scale_by", "translate_by", "rotate_by"]
+    value: list[float] = Field(min_length=3, max_length=3)
+
+
+class InteractiveObject(BaseModel):
+    id: str
+    name: str
+    type: str
+    actions: list[Literal["scale_by", "translate_by", "rotate_by"]]
+
+
+class InteractiveRegistryResponse(BaseModel):
+    interactives: list[InteractiveObject]
+
+
+class WorkerResult(BaseModel):
+    """Metadata sent by the private GPU worker after an inference attempt."""
+
+    status: Literal["complete", "mask_review", "failed"]
+    object_label: str = Field(default="gaussian_splat", max_length=80)
+    error: str | None = Field(default=None, max_length=500)
+
+
+def placeholder_scene(uploaded_filename: str = "sketch.png") -> SceneDocument:
+    return SceneDocument(
+        objects=[
+            SceneObject(id="tree_1", type="tree", position=[-2.1, 0, 7], scale=[1, 1, 1]),
+            SceneObject(id="house_1", type="house", position=[2.1, 0, 7.7], scale=[1.4, 1.4, 1.4]),
+        ],
+        meta={"source": "upload", "mode": "placeholder", "uploaded_filename": uploaded_filename},
+    )
+
+
+current_scene = placeholder_scene()
+# Reconstruction jobs remain process-local by design: a live inference cannot
+# survive an API restart, so persisting job state would be misleading. See
+# docs/INFRASTRUCTURE_ROADMAP.md for the S3/SQS durability slice.
+jobs: dict[str, ReconstructionJob] = {}
+job_inputs: dict[str, tuple[Path, Path | None]] = {}
+# Projects, catalog assets, blueprint revisions, and publication records are
+# durably persisted so authoring state survives an API restart. The backend is
+# selected by SKETCHSCAPE_STORAGE_BACKEND: the default single-process JSON store
+# for local/demo use, or DynamoDB for concurrency-safe cloud durability. Both
+# implement the same surface, so route handlers below are backend-agnostic.
+store = create_store(local_state_path=DATA_ROOT / "authoring-state.json")
+# Artifact store: PLY, mask, and preview files written by the GPU worker.
+# Defaults to the local filesystem; set SKETCHSCAPE_ARTIFACTS_BACKEND=s3 and
+# SKETCHSCAPE_ARTIFACTS_BUCKET=<name> to redirect writes to the provisioned S3
+# bucket (terraform output -raw artifacts_bucket).
+artifact_store = create_artifact_store(local_artifact_root=ARTIFACT_ROOT)
+# NemoClaw identify_subject: labels the object in an upload when the
+# contributor typed no subject_hint (Build Plan step 4a).
+# SKETCHSCAPE_SUBJECT_LABELER=mock (default offline) | nemoclaw
+subject_labeler = create_subject_labeler()
+# The first AWS deployment is deliberately one GPU and one reconstruction at a
+# time. A queue/DynamoDB design is appropriate for production, but allowing
+# concurrent 3D reconstructions on a 16 GB GPU would make both jobs fail.
+local_worker_lock = asyncio.Lock()
+
+app = FastAPI(title="SketchScape Reconstruction API", version="0.2.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.environ.get("SKETCHSCAPE_ALLOWED_ORIGINS", "*").split(","),
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+async def save_upload(upload: UploadFile, destination: Path, *, limit: int = MAX_UPLOAD_BYTES) -> None:
+    """Store a bounded upload without trusting the client filename."""
+    size = 0
+    with destination.open("wb") as output:
+        while chunk := await upload.read(1024 * 1024):
+            size += len(chunk)
+            if size > limit:
+                output.close()
+                destination.unlink(missing_ok=True)
+                raise HTTPException(413, f"File is larger than the {limit // 1024 // 1024} MB limit.")
+            output.write(chunk)
+    if not size:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(400, "The uploaded image is empty.")
+
+
+def image_extension(upload: UploadFile) -> str:
+    allowed = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+    try:
+        return allowed[upload.content_type or ""]
+    except KeyError as error:
+        raise HTTPException(415, "Use a PNG, JPEG, or WebP image.") from error
+
+
+def job_url(job_id: str) -> str:
+    return f"/v1/reconstructions/{job_id}"
+
+
+def get_project(project_id: str) -> ProjectRecord:
+    project = store.get_project(project_id)
+    if project is None:
+        raise HTTPException(404, "Unknown project.")
+    return project
+
+
+def sync_project_asset(job: ReconstructionJob) -> None:
+    if not job.asset_id:
+        return
+    asset = store.get_asset(job.asset_id)
+    if asset is None:
+        return
+
+    # Sync the matching AssetView first so per-view provenance is always current.
+    view = next((v for v in asset.views if v.reconstruction_job_id == job.job_id), None)
+    if view is not None:
+        view.artifact_url = job.artifact_url
+        view.mask_url = job.mask_url
+        view.error = job.error
+        if job.status == JobStatus.COMPLETE:
+            view.status = ViewStatus.READY
+        elif job.status == JobStatus.MASK_REVIEW:
+            view.status = ViewStatus.MASK_REVIEW
+        elif job.status == JobStatus.FAILED:
+            view.status = ViewStatus.FAILED
+        else:
+            view.status = ViewStatus.PROCESSING
+
+    # Promote top-level asset fields from the best available view.
+    # READY if any view succeeded; MASK_REVIEW if any view needs it (no success
+    # yet); FAILED if all views failed; PROCESSING otherwise.
+    if asset.views:
+        statuses = {v.status for v in asset.views}
+        if ViewStatus.READY in statuses:
+            asset.status = AssetStatus.READY
+            # Promote top-level artifact/mask from the first READY view so the
+            # legacy scene compiler always has a usable artifact_url.
+            first_ready = next(v for v in asset.views if v.status == ViewStatus.READY)
+            asset.artifact_url = first_ready.artifact_url
+            asset.mask_url = first_ready.mask_url
+            asset.error = None
+        elif ViewStatus.MASK_REVIEW in statuses:
+            asset.status = AssetStatus.MASK_REVIEW
+        elif all(v.status == ViewStatus.FAILED for v in asset.views):
+            asset.status = AssetStatus.FAILED
+            asset.error = asset.views[-1].error
+        # else: still PROCESSING
+    else:
+        # Pre-provenance asset (no views) — legacy single-job sync.
+        asset.artifact_url = job.artifact_url
+        asset.mask_url = job.mask_url
+        asset.error = job.error
+        if job.status == JobStatus.COMPLETE:
+            asset.status = AssetStatus.READY
+        elif job.status == JobStatus.MASK_REVIEW:
+            asset.status = AssetStatus.MASK_REVIEW
+        elif job.status == JobStatus.FAILED:
+            asset.status = AssetStatus.FAILED
+        else:
+            asset.status = AssetStatus.PROCESSING
+
+    store.save_asset(asset)
+    project = store.get_project(asset.project_id)
+    if project is not None:
+        project.updated_at = utc_now()
+        store.save_project(project)
+
+
+def compile_blueprint(blueprint: ExperienceBlueprint) -> SceneDocument:
+    scene_objects: list[SceneObject] = []
+    for item in blueprint.objects:
+        asset = store.get_asset(item.asset_id)
+        if asset is None:
+            raise HTTPException(422, f"Blueprint references unknown asset: {item.asset_id}")
+        scene_objects.append(
+            SceneObject(
+                id=item.id,
+                type=asset.label,
+                position=item.position.copy(),
+                rotation=item.rotation.copy(),
+                scale=item.scale.copy(),
+                asset_url=asset.artifact_url,
+                source="sam3d" if asset.artifact_url else "placeholder",
+                actions=[
+                    action
+                    for action in ("scale_by", "translate_by", "rotate_by")
+                    if action.removesuffix("_by") in item.interactions
+                ],
+            )
+        )
+    return SceneDocument(
+        objects=scene_objects,
+        instructions=[],
+        meta={
+            "pipeline": "experience-blueprint",
+            "project_id": blueprint.project_id,
+            "revision": blueprint.revision,
+            "experience": blueprint.experience.model_dump(),
+            "environment": blueprint.environment.model_dump(),
+            "navigation": blueprint.navigation.model_dump(),
+            "portals": [portal.model_dump() for portal in blueprint.portals],
+        },
+    )
+
+
+def worker_is_authorized(worker_token: str | None) -> bool:
+    """Reject public clients from marking a job complete.
+
+    In local development no worker token is necessary. Production must set
+    SKETCHSCAPE_WORKER_TOKEN in the backend and GPU-worker environments.
+    """
+    expected = os.environ.get("SKETCHSCAPE_WORKER_TOKEN")
+    return not expected or (worker_token is not None and secrets.compare_digest(worker_token, expected))
+
+
+async def resolve_subject_hint(
+    subject_hint: str | None, image_path: Path, original_filename: str, has_mask: bool
+) -> tuple[str | None, SubjectHintSource | None, str | None]:
+    """Return (hint, source, label backend); a typed hint always wins.
+
+    NemoClaw labels only when SAM 3.1 will need a prompt: no typed hint and no
+    uploaded mask. No label leaves the worker's mask_review path unchanged.
+    """
+    if subject_hint and subject_hint.strip():
+        return subject_hint.strip(), "user", None
+    if has_mask:
+        return None, None, None
+    try:
+        label = await asyncio.to_thread(
+            subject_labeler.identify_subject, image_path, original_filename
+        )
+    except SubjectLabelError as exc:
+        print(f"identify_subject unavailable: {exc}", file=sys.stderr)
+        return None, None, None
+    if label is None:
+        return None, None, None
+    return label.label, "nemoclaw", label.backend
+
+
+async def run_mock_job(job_id: str) -> None:
+    """Demo-safe fallback; it never pretends to have run SAM 3D."""
+    global current_scene
+    job = jobs[job_id]
+    job.status = JobStatus.RUNNING
+    job.updated_at = utc_now()
+    await asyncio.sleep(0.15)
+    image_path, mask_path = job_inputs[job_id]
+    job.scene = placeholder_scene(job.original_filename)
+    job.scene.meta.update(
+        {
+            "pipeline": "mock",
+            "mask_provided": mask_path is not None,
+            "next_real_worker": "automatic mask -> SAM 3D Objects -> Gaussian-splat PLY",
+        }
+    )
+    current_scene = job.scene
+    job.status = JobStatus.COMPLETE
+    job.updated_at = utc_now()
+    sync_project_asset(job)
+    await artifact_store.copy_local(
+        job_id, f"input{image_path.suffix}", image_path
+    )
+
+
+async def run_local_gpu_job(job_id: str) -> None:
+    """Submit a job to the persistent worker server on loopback.
+
+    The worker server (worker/worker_server.py) keeps all models loaded in
+    memory between jobs, eliminating the 2–3 minute cold-start penalty from
+    loading large checkpoints on every request.  It must be running before
+    the first job is submitted; it starts automatically via the
+    sketchscape-worker systemd service.
+    """
+    async with local_worker_lock:
+        job = jobs.get(job_id)
+        if job is None or job.status != JobStatus.QUEUED:
+            return
+        job.updated_at = utc_now()
+
+        worker_port = int(os.environ.get("SKETCHSCAPE_WORKER_SERVER_PORT", "8001"))
+        worker_url = f"http://127.0.0.1:{worker_port}/worker/jobs"
+        startup_timeout = float(os.environ.get("SKETCHSCAPE_WORKER_STARTUP_TIMEOUT", "600"))
+        deadline = asyncio.get_running_loop().time() + startup_timeout
+        payload = json.dumps({
+            "job_id": job_id,
+            "subject_hint": job.subject_hint or "",
+        }).encode()
+
+        def submit() -> None:
+            import urllib.request
+
+            request = urllib.request.Request(
+                worker_url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=10) as response:
+                response.read()
+
+        while True:
+            try:
+                await asyncio.to_thread(submit)
+                # The worker callback becomes authoritative from this point.
+                job.status = JobStatus.RUNNING
+                job.updated_at = utc_now()
+                return
+            except Exception as error:
+                from urllib.error import HTTPError
+
+                if isinstance(error, HTTPError) and error.code == 503:
+                    if asyncio.get_running_loop().time() < deadline:
+                        job.updated_at = utc_now()
+                        await asyncio.sleep(5)
+                        continue
+                    detail = "Persistent GPU worker did not finish loading before the startup timeout."
+                elif isinstance(error, HTTPError) and error.code == 429:
+                    detail = "Persistent GPU worker queue is full; retry after the active job completes."
+                else:
+                    detail = f"Could not reach persistent GPU worker: {error}"
+                job.status = JobStatus.FAILED
+                job.error = detail[:500]
+                job.updated_at = utc_now()
+                sync_project_asset(job)
+                return
+
+
+@app.get("/health")
+async def health_check() -> dict[str, str]:
+    return {"status": "ok", "pipeline_mode": os.environ.get("PIPELINE_MODE", "mock")}
+
+
+@app.post("/v1/projects", response_model=ProjectRecord, status_code=201)
+async def create_project(request: ProjectCreateRequest) -> ProjectRecord:
+    now = utc_now()
+    project_id = uuid.uuid4().hex
+    project = ProjectRecord(
+        project_id=project_id,
+        name=request.name.strip(),
+        description=request.description.strip(),
+        created_at=now,
+        updated_at=now,
+    )
+    store.save_project(project)
+    return project
+
+
+@app.get("/v1/projects/{project_id}", response_model=ProjectRecord)
+async def read_project(project_id: str) -> ProjectRecord:
+    return get_project(project_id)
+
+
+@app.get("/v1/projects/{project_id}/assets", response_model=list[ProjectAsset])
+async def list_project_assets(project_id: str) -> list[ProjectAsset]:
+    project = get_project(project_id)
+    return [store.get_asset(asset_id) for asset_id in project.asset_ids if store.get_asset(asset_id)]
+
+
+@app.post("/v1/reconstructions", response_model=ReconstructionResponse, status_code=202)
+async def create_reconstruction(
+    background_tasks: BackgroundTasks,
+    image: Annotated[UploadFile, File(description="Photo with one prominent object")],
+    mask: Annotated[UploadFile | None, File(description="Optional aligned white-on-black mask")] = None,
+    subject_hint: Annotated[str | None, Form(max_length=100)] = None,
+    project_id: Annotated[str | None, Form(max_length=80)] = None,
+) -> ReconstructionResponse:
+    """Queue a reconstruction and optionally register it in a project catalog."""
+    project = get_project(project_id) if project_id else None
+    job_id = uuid.uuid4().hex
+    image_path = UPLOAD_ROOT / f"{job_id}-image{image_extension(image)}"
+    await save_upload(image, image_path)
+    mask_path: Path | None = None
+    if mask is not None:
+        mask_path = UPLOAD_ROOT / f"{job_id}-mask{image_extension(mask)}"
+        await save_upload(mask, mask_path)
+    subject_hint, hint_source, label_backend = await resolve_subject_hint(
+        subject_hint, image_path, image.filename or "", mask_path is not None
+    )
+    now = utc_now()
+    job = ReconstructionJob(
+        job_id=job_id,
+        status=JobStatus.QUEUED,
+        poll_url=job_url(job_id),
+        created_at=now,
+        updated_at=now,
+        original_filename=image.filename or "image",
+        subject_hint=subject_hint,
+        subject_hint_source=hint_source,
+        subject_label_backend=label_backend,
+        project_id=project_id,
+    )
+    if project is not None:
+        asset_id = uuid.uuid4().hex
+        job.asset_id = asset_id
+        label = (subject_hint or Path(image.filename or "object").stem or "object")[:80]
+        first_view = AssetView(
+            view_index=0,
+            image_key=image_path.name,
+            subject_hint=subject_hint,
+            subject_hint_source=hint_source,
+            reconstruction_job_id=job_id,
+            recorded_at=now,
+        )
+        store.save_asset(
+            ProjectAsset(
+                asset_id=asset_id,
+                project_id=project.project_id,
+                label=label,
+                status=AssetStatus.PROCESSING,
+                reconstruction_job_id=job_id,
+                views=[first_view],
+            )
+        )
+        project.asset_ids.append(asset_id)
+        project.updated_at = now
+        store.save_project(project)
+    jobs[job_id] = job
+    job_inputs[job_id] = (image_path, mask_path)
+    pipeline_mode = os.environ.get("PIPELINE_MODE", "mock")
+    if pipeline_mode == "aws-local":
+        # A text prompt is needed only when no mask was uploaded. The local
+        # SAM 3.1 worker rejects an empty prompt as mask_review, never guesses.
+        background_tasks.add_task(run_local_gpu_job, job_id)
+    elif pipeline_mode != "mock":
+        job.status = JobStatus.FAILED
+        job.error = "No GPU-worker adapter is configured. Use PIPELINE_MODE=mock or aws-local."
+        job.updated_at = utc_now()
+    else:
+        background_tasks.add_task(run_mock_job, job_id)
+    return ReconstructionResponse(
+        job_id=job.job_id, status=job.status, poll_url=job.poll_url, scene_url=job.scene_url
+    )
+
+
+@app.post("/v1/projects/{project_id}/assets", response_model=ProjectAsset, status_code=202)
+async def create_project_asset(
+    project_id: str,
+    background_tasks: BackgroundTasks,
+    image: Annotated[UploadFile, File(description="Photo with one prominent object")],
+    mask: Annotated[UploadFile | None, File(description="Optional aligned white-on-black mask")] = None,
+    subject_hint: Annotated[str | None, Form(max_length=100)] = None,
+) -> ProjectAsset:
+    response = await create_reconstruction(
+        background_tasks=background_tasks,
+        image=image,
+        mask=mask,
+        subject_hint=subject_hint,
+        project_id=project_id,
+    )
+    job = jobs[response.job_id]
+    asset = store.get_asset(job.asset_id or "")
+    if asset is None:
+        raise HTTPException(500, "Asset was not registered for this reconstruction.")
+    return asset
+
+
+@app.get("/v1/reconstructions/{job_id}", response_model=ReconstructionJob)
+async def get_reconstruction(job_id: str) -> ReconstructionJob:
+    try:
+        return jobs[job_id]
+    except KeyError as error:
+        raise HTTPException(404, "Unknown reconstruction job.") from error
+
+
+@app.get("/v1/internal/reconstructions/{job_id}/input/{kind}")
+async def get_worker_input(
+    job_id: str,
+    kind: Literal["image", "mask"],
+    worker_token: Annotated[str | None, Header(alias="X-SketchScape-Worker-Token")] = None,
+) -> FileResponse:
+    """Private pull endpoint used by a Camber job; never call this from Unity."""
+    if not worker_is_authorized(worker_token):
+        raise HTTPException(401, "Invalid GPU worker token.")
+    try:
+        image_path, mask_path = job_inputs[job_id]
+    except KeyError as error:
+        raise HTTPException(404, "Unknown reconstruction job.") from error
+    file_path = image_path if kind == "image" else mask_path
+    if file_path is None or not file_path.is_file():
+        raise HTTPException(404, f"This job has no {kind} input.")
+    return FileResponse(file_path, filename=file_path.name)
+
+
+@app.get("/v1/internal/reconstructions/{job_id}/task")
+async def get_worker_task(
+    job_id: str,
+    worker_token: Annotated[str | None, Header(alias="X-SketchScape-Worker-Token")] = None,
+) -> dict[str, str | None]:
+    """Return the worker-only text concept for local SAM 3.1 segmentation."""
+    if not worker_is_authorized(worker_token):
+        raise HTTPException(401, "Invalid GPU worker token.")
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "Unknown reconstruction job.")
+    return {"job_id": job_id, "subject_hint": job.subject_hint}
+
+
+@app.post("/v1/internal/reconstructions/{job_id}/result", response_model=ReconstructionJob)
+async def receive_worker_result(
+    job_id: str,
+    result: Annotated[str, Form(description="JSON WorkerResult payload")],
+    worker_token: Annotated[str | None, Form()] = None,
+    ply: UploadFile | None = File(default=None, description="SAM 3D Gaussian-splat PLY"),
+    mask: UploadFile | None = File(default=None, description="Aligned binary object mask"),
+    preview: UploadFile | None = File(default=None, description="Mask-preview PNG"),
+) -> ReconstructionJob:
+    """Private callback for the GPU worker; it is not a Unity endpoint."""
+    if not worker_is_authorized(worker_token):
+        raise HTTPException(401, "Invalid GPU worker token.")
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "Unknown reconstruction job.")
+    try:
+        payload = WorkerResult.model_validate_json(result)
+    except ValueError as error:
+        raise HTTPException(422, "`result` must be valid WorkerResult JSON.") from error
+
+    artifact_dir = ARTIFACT_ROOT / job_id
+    artifact_dir.mkdir(exist_ok=True)
+    if payload.status == "complete":
+        if ply is None or mask is None:
+            raise HTTPException(422, "A completed SAM 3D job must include both `ply` and `mask`.")
+        if not (ply.filename or "").lower().endswith(".ply"):
+            raise HTTPException(422, "The reconstruction must be a .ply file.")
+        ply_name, mask_name = "reconstruction.ply", "mask.png"
+        job.artifact_url = await artifact_store.put(
+            job_id, ply_name, ply, size_limit=MAX_ARTIFACT_BYTES
+        )
+        job.mask_url = await artifact_store.put(
+            job_id, mask_name, mask, size_limit=MAX_UPLOAD_BYTES
+        )
+        if preview is not None:
+            await artifact_store.put(
+                job_id, "mask-preview.png", preview, size_limit=MAX_UPLOAD_BYTES
+            )
+        job.scene = SceneDocument(
+            objects=[
+                SceneObject(
+                    id="reconstruction_1",
+                    type=payload.object_label,
+                    position=[0, 0, 6],
+                    scale=[1, 1, 1],
+                    asset_url=job.artifact_url,
+                    source="sam3d",
+                )
+            ],
+            meta={"pipeline": "sam3d", "job_id": job_id, "format": "gaussian-splat-ply"},
+        )
+        global current_scene
+        current_scene = job.scene
+        job.status = JobStatus.COMPLETE
+    elif payload.status == "mask_review":
+        job.status = JobStatus.MASK_REVIEW
+    else:
+        job.status = JobStatus.FAILED
+        job.error = payload.error or "GPU worker reported a failure."
+    job.updated_at = utc_now()
+    sync_project_asset(job)
+    return job
+
+
+@app.get("/v1/scene", response_model=SceneResponse)
+@app.get("/scene", response_model=SceneResponse, include_in_schema=False)
+async def get_scene() -> SceneResponse:
+    return SceneResponse(scene=current_scene)
+
+
+@app.get("/v1/artifacts/{job_id}/{filename}")
+async def get_artifact(job_id: str, filename: str) -> Response:
+    if not jobs.get(job_id) or Path(filename).name != filename:
+        raise HTTPException(404, "Unknown artifact.")
+    return await artifact_store.serve(job_id, filename)
+
+
+def validate_blueprint_assets(project: ProjectRecord, request: ExperienceBlueprintInput) -> None:
+    object_ids = [item.id for item in request.objects]
+    if len(object_ids) != len(set(object_ids)):
+        raise HTTPException(422, "Blueprint object IDs must be unique.")
+    known_assets = set(project.asset_ids)
+    missing = sorted({item.asset_id for item in request.objects} - known_assets)
+    if missing:
+        raise HTTPException(422, f"Blueprint references unknown project assets: {', '.join(missing)}")
+    unavailable = sorted(
+        {
+            item.asset_id
+            for item in request.objects
+            if (store.get_asset(item.asset_id) is None)
+            or store.get_asset(item.asset_id).status != AssetStatus.READY
+        }
+    )
+    if unavailable:
+        raise HTTPException(409, f"Blueprint assets are not ready: {', '.join(unavailable)}")
+
+
+@app.post("/v1/projects/{project_id}/blueprints/validate", response_model=ExperienceBlueprintInput)
+async def validate_blueprint(project_id: str, request: ExperienceBlueprintInput) -> ExperienceBlueprintInput:
+    project = get_project(project_id)
+    validate_blueprint_assets(project, request)
+    return request
+
+
+@app.post("/v1/projects/{project_id}/blueprints", response_model=ExperienceBlueprint, status_code=201)
+async def create_blueprint(project_id: str, request: ExperienceBlueprintInput) -> ExperienceBlueprint:
+    project = get_project(project_id)
+    validate_blueprint_assets(project, request)
+    revisions = store.list_blueprints(project_id)
+    blueprint = ExperienceBlueprint(
+        **request.model_dump(),
+        project_id=project_id,
+        revision=len(revisions) + 1,
+        created_at=utc_now(),
+    )
+    store.append_blueprint(blueprint)
+    project.blueprint_revisions.append(blueprint.revision)
+    project.updated_at = utc_now()
+    store.save_project(project)
+    return blueprint
+
+
+@app.get("/v1/projects/{project_id}/blueprints/{revision}", response_model=ExperienceBlueprint)
+async def get_blueprint(project_id: str, revision: int) -> ExperienceBlueprint:
+    get_project(project_id)
+    revisions = store.list_blueprints(project_id)
+    if revision < 1 or revision > len(revisions):
+        raise HTTPException(404, "Unknown blueprint revision.")
+    return revisions[revision - 1]
+
+
+@app.post("/v1/projects/{project_id}/blueprints/{revision}/publish", response_model=SceneResponse)
+async def publish_blueprint(project_id: str, revision: int) -> SceneResponse:
+    global current_scene
+    project = get_project(project_id)
+    blueprint = await get_blueprint(project_id, revision)
+    validate_blueprint_assets(project, blueprint)
+    current_scene = compile_blueprint(blueprint)
+    project.published_revision = revision
+    project.updated_at = utc_now()
+    store.save_project(project)
+    # Append-only: record which revision went live and when. Republishing an
+    # earlier revision appends a new record rather than rewriting history.
+    store.append_publication(
+        PublicationRecord(project_id=project_id, revision=revision, published_at=utc_now())
+    )
+    return SceneResponse(scene=current_scene)
+
+
+@app.get("/v1/projects/{project_id}/compiled-scene", response_model=SceneResponse)
+async def get_compiled_project_scene(project_id: str) -> SceneResponse:
+    project = get_project(project_id)
+    if project.published_revision is None:
+        raise HTTPException(404, "This project has no published blueprint.")
+    blueprint = await get_blueprint(project_id, project.published_revision)
+    return SceneResponse(scene=compile_blueprint(blueprint))
+
+
+@app.get("/v1/projects/{project_id}/publications", response_model=list[PublicationRecord])
+async def list_project_publications(project_id: str) -> list[PublicationRecord]:
+    """Return the append-only publication history for a project."""
+    get_project(project_id)
+    return store.list_publications(project_id)
+
+
+@app.get("/v1/projects/{project_id}/assets/{asset_id}", response_model=ProjectAsset)
+async def get_project_asset(project_id: str, asset_id: str) -> ProjectAsset:
+    """Return a single catalog asset with its full view provenance."""
+    project = get_project(project_id)
+    if asset_id not in project.asset_ids:
+        raise HTTPException(404, "Unknown asset for this project.")
+    asset = store.get_asset(asset_id)
+    if asset is None:
+        raise HTTPException(404, "Asset record not found.")
+    return asset
+
+
+@app.get("/v1/projects/{project_id}/assets/{asset_id}/views", response_model=list[AssetView])
+async def list_asset_views(project_id: str, asset_id: str) -> list[AssetView]:
+    """Return per-view reconstruction provenance for one catalog asset."""
+    asset = await get_project_asset(project_id, asset_id)
+    return sorted(asset.views, key=lambda v: v.view_index)
+
+
+@app.post(
+    "/v1/projects/{project_id}/assets/{asset_id}/views",
+    response_model=AssetView,
+    status_code=202,
+)
+async def add_asset_view(
+    project_id: str,
+    asset_id: str,
+    background_tasks: BackgroundTasks,
+    image: Annotated[UploadFile, File(description="Photo of the same subject from a new angle")],
+    mask: Annotated[UploadFile | None, File(description="Optional aligned white-on-black mask")] = None,
+    subject_hint: Annotated[str | None, Form(max_length=100)] = None,
+) -> AssetView:
+    """Add a new view to an existing catalog asset and queue its reconstruction.
+
+    The asset stays in PROCESSING until at least one view completes. This lets
+    the authoring pipeline accumulate multiple angles before deciding which view
+    (or fusion of views) to use as the final PLY.
+    """
+    project = get_project(project_id)
+    if asset_id not in project.asset_ids:
+        raise HTTPException(404, "Unknown asset for this project.")
+    asset = store.get_asset(asset_id)
+    if asset is None:
+        raise HTTPException(404, "Asset record not found.")
+    if asset.status == AssetStatus.READY:
+        # Adding more views to a READY asset is valid — additional angles may
+        # improve the reconstruction or enable future fusion. The asset stays
+        # READY from its first successful view.
+        pass
+
+    job_id = uuid.uuid4().hex
+    image_path = UPLOAD_ROOT / f"{job_id}-image{image_extension(image)}"
+    await save_upload(image, image_path)
+    mask_path: Path | None = None
+    if mask is not None:
+        mask_path = UPLOAD_ROOT / f"{job_id}-mask{image_extension(mask)}"
+        await save_upload(mask, mask_path)
+    subject_hint, hint_source, label_backend = await resolve_subject_hint(
+        subject_hint, image_path, image.filename or "", mask_path is not None
+    )
+
+    now = utc_now()
+    view_index = len(asset.views)
+    new_view = AssetView(
+        view_index=view_index,
+        image_key=image_path.name,
+        subject_hint=subject_hint,
+        subject_hint_source=hint_source,
+        reconstruction_job_id=job_id,
+        recorded_at=now,
+    )
+    asset.views.append(new_view)
+    store.save_asset(asset)
+
+    job = ReconstructionJob(
+        job_id=job_id,
+        status=JobStatus.QUEUED,
+        poll_url=job_url(job_id),
+        created_at=now,
+        updated_at=now,
+        original_filename=image.filename or "image",
+        subject_hint=subject_hint,
+        subject_hint_source=hint_source,
+        subject_label_backend=label_backend,
+        project_id=project_id,
+        asset_id=asset_id,
+    )
+    jobs[job_id] = job
+    job_inputs[job_id] = (image_path, mask_path)
+
+    pipeline_mode = os.environ.get("PIPELINE_MODE", "mock")
+    if pipeline_mode == "aws-local":
+        background_tasks.add_task(run_local_gpu_job, job_id)
+    elif pipeline_mode != "mock":
+        job.status = JobStatus.FAILED
+        job.error = "No GPU-worker adapter is configured. Use PIPELINE_MODE=mock or aws-local."
+        job.updated_at = utc_now()
+    else:
+        background_tasks.add_task(run_mock_job, job_id)
+
+    return new_view
+
+
+SAFE_SCENE_ACTIONS = ["scale_by", "translate_by", "rotate_by"]
+
+
+def find_scene_object(target_id: str) -> SceneObject:
+    target = next((item for item in current_scene.objects if item.id == target_id), None)
+    if target is None:
+        raise HTTPException(404, f"Unknown interactive object: {target_id}")
+    return target
+
+
+def bounded_vector(values: list[float], *, minimum: float, maximum: float, action: str) -> list[float]:
+    if any(value < minimum or value > maximum for value in values):
+        raise HTTPException(422, f"{action} values must be between {minimum} and {maximum}.")
+    return values
+
+
+@app.get("/v1/interactives", response_model=InteractiveRegistryResponse)
+async def get_interactives() -> InteractiveRegistryResponse:
+    """Expose names and capabilities, never Unity component internals."""
+    return InteractiveRegistryResponse(
+        interactives=[
+            InteractiveObject(id=item.id, name=item.id, type=item.type, actions=item.actions.copy())
+            for item in current_scene.objects
+        ]
+    )
+
+
+@app.post("/v1/scene/actions", response_model=SceneResponse)
+async def apply_scene_action(request: SceneActionRequest) -> SceneResponse:
+    """Apply an allowlisted, bounded transform action to one named object."""
+    target = find_scene_object(request.target_id)
+    if request.action not in target.actions:
+        raise HTTPException(403, f"{request.action} is not enabled for {request.target_id}.")
+    if request.action == "scale_by":
+        factors = bounded_vector(request.value, minimum=0.25, maximum=4.0, action=request.action)
+        result = [target.scale[index] * factors[index] for index in range(3)]
+        if any(value < 0.05 or value > 20.0 for value in result):
+            raise HTTPException(422, "Resulting scale must remain between 0.05 and 20.0.")
+        target.scale = result
+    elif request.action == "translate_by":
+        offsets = bounded_vector(request.value, minimum=-10.0, maximum=10.0, action=request.action)
+        result = [target.position[index] + offsets[index] for index in range(3)]
+        if any(value < -100.0 or value > 100.0 for value in result):
+            raise HTTPException(422, "Resulting position must remain within the scene bounds.")
+        target.position = result
+    else:
+        offsets = bounded_vector(request.value, minimum=-360.0, maximum=360.0, action=request.action)
+        target.rotation = [(target.rotation[index] + offsets[index]) % 360.0 for index in range(3)]
+
+    current_scene.instructions.append(
+        {"target": request.target_id, "action": request.action, "value": request.value.copy()}
+    )
+    return SceneResponse(scene=current_scene)
+
+
+@app.post("/v1/scene/modify", response_model=SceneResponse)
+@app.post("/modify-scene", response_model=SceneResponse, include_in_schema=False)
+async def modify_scene(request: SceneModificationRequest) -> SceneResponse:
+    """Legacy phrase adapter; all mutations pass through the structured policy."""
+    normalized = " ".join(request.instruction.lower().split())
+    if "tree" in normalized and ("twice" in normalized or "2x" in normalized) and (
+        "tall" in normalized or "height" in normalized
+    ):
+        return await apply_scene_action(
+            SceneActionRequest(target_id="tree_1", action="scale_by", value=[1.0, 2.0, 1.0])
+        )
+    raise HTTPException(422, "Demo supports: 'make the tree twice as tall'.")
+
+
+@app.post("/sketch", response_model=SceneResponse, include_in_schema=False)
+async def legacy_sketch(sketch: UploadFile = File(...)) -> SceneResponse:
+    """Compatibility endpoint retained while Unity migrates to reconstruction jobs."""
+    if not (sketch.content_type or "").startswith("image/"):
+        raise HTTPException(415, "Upload a sketch image.")
+    global current_scene
+    current_scene = placeholder_scene(sketch.filename or "sketch.png")
+    return SceneResponse(scene=current_scene)

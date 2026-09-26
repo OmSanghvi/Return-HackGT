@@ -1,0 +1,1280 @@
+Draw It. Step Inside It. — Updated Full Build Guide
+This is the version I would actually build for HackGT.
+The biggest changes from the original guide are:
+No Quest dependency. Build and demo on a laptop/desktop first.
+NemoClaw becomes the agent/orchestration layer, rather than something that directly performs the reconstruction.
+Notability is the input surface, but don't depend on live Notability automation.
+Nano Banana is optional preprocessing, not a required step.
+SAM 3 + SAM 3D are the reconstruction pipeline.
+Nebius GPU and Nebius Token Factory remain separate.
+Unity is the 3D runtime, but initially runs as a desktop application.
+The backend owns the scene schema. Unity never directly talks to the AI models.
+SAM 3D is not forced onto diagrams. For diagrams, use semantic objects/primitives when appropriate.
+Everything has a fallback, so one broken API doesn't kill your demo.
+The original guide already established the important separation between Nano Banana, SAM 3/SAM 3D, Nebius GPU, Token Factory, Blender, and Unity.
+
+1. What you're actually building
+The final experience should feel like:
+Draw something → AI understands it → the world appears → walk around it → tell the agent what to change.
+For example:
+Input
+You draw in Notability:
+         ☀
+
+     TREE       HOUSE
+      🌳        /\
+               /  \
+              | [] |
+              |____|
+Then say:
+"Turn this into a 3D world."
+The system:
+Notability
+    ↓
+Sketch image
+    ↓
+NemoClaw
+    ↓
+Gemini / Nano Banana
+    ↓
+SAM 3
+    ↓
+SAM 3D
+    ↓
+Nebius GPU
+    ↓
+Scene JSON
+    ↓
+Unity
+    ↓
+Interactive 3D world
+Then:
+"Make the tree twice as tall."
+NemoClaw interprets the instruction → backend updates the scene → Unity changes the tree.
+That second interaction is extremely important. It makes this more than "AI turns image into 3D."
+
+2. Final architecture
+Your flowchart should conceptually be:
+                   USER
+                     │
+                     ▼
+              ┌─────────────┐
+              │  Notability │
+              │  / Sketch   │
+              └──────┬──────┘
+                     │
+                 image
+                     ▼
+              ┌─────────────┐
+              │  NemoClaw   │
+              │    Agent    │
+              └──────┬──────┘
+                     │
+          ┌──────────┴──────────┐
+          │                     │
+          ▼                     ▼
+   ┌──────────────┐     ┌─────────────────┐
+   │ Gemini /     │     │ Nebius Token    │
+   │ Nano Banana  │     │ Factory         │
+   │ optional     │     │ intent/OCR      │
+   └──────┬───────┘     └────────┬────────┘
+          │                      │
+          ▼                      │
+      ┌────────┐                 │
+      │ SAM 3  │                 │
+      └────┬───┘                 │
+           │ masks               │
+           ▼                     │
+      ┌────────┐                 │
+      │ SAM 3D │                 │
+      └────┬───┘                 │
+           │                     │
+           ▼                     │
+    ┌──────────────┐             │
+    │ Nebius GPU   │             │
+    └──────┬───────┘             │
+           │                     │
+           └──────────┬──────────┘
+                      ▼
+               ┌────────────┐
+               │  FastAPI   │
+               │   Backend  │
+               └─────┬──────┘
+                     │
+                Scene JSON
+                     ▼
+               ┌────────────┐
+               │   Unity    │
+               │  Runtime   │
+               └─────┬──────┘
+                     │
+             ┌───────┴────────┐
+             ▼                ▼
+        Desktop demo      Future XR
+This preserves the original architecture's key rule: Unity only consumes the shared scene representation rather than communicating directly with all the AI services.
+
+3. The stack
+Frontend / input
+Notability
+Use it for:
+drawing
+annotating
+writing instructions
+exporting the sketch
+Do not build live handwriting streaming.
+The original guide correctly recommended exporting/sharing the page rather than trying to stream Notability continuously.
+
+Agent
+NemoClaw
+Use NemoClaw as:
+"The computer-use/orchestration brain."
+It should be able to call your controlled tools:
+capture_sketch()
+analyze_sketch()
+reconstruct_scene()
+get_scene()
+modify_scene()
+spawn_object()
+set_transform()
+refresh_unity()
+send_to_unity()
+
+NemoClaw does not replace Unity as the game runtime. Instead, it should use a controlled Unity MCP bridge to orchestrate the existing desktop world.
+
+Unity owns the runtime behavior:
+- WASD movement
+- mouse look / camera controller
+- ground and lighting
+- world state and rendering
+- player interaction
+
+NemoClaw owns orchestration:
+- capture the sketch
+- interpret the user instruction
+- call the reconstruction pipeline
+- fetch the current scene
+- modify scene objects or transforms
+- push the update to Unity through a safe tool layer
+
+This is the key separation for the build: Unity remains the live 3D runtime, while NemoClaw orchestrates scene creation and scene edits through controlled MCP tools rather than directly owning the gameplay layer.
+
+Don't give the agent unrestricted computer access.
+NemoClaw currently creates sandboxed OpenClaw environments and supports controlled inference providers and policies. (NVIDIA Docs)
+NVIDIA NemoClaw documentation
+
+Unity MCP bridge
+The Unity MCP bridge should expose only safe, bounded actions to NemoClaw, for example:
+- get_scene()
+- list_objects()
+- spawn_object(type, position, scale)
+- set_transform(object_id, position, rotation, scale)
+- add_light()
+- refresh_unity()
+
+The backend still owns the shared scene schema. Unity does not talk directly to every model; it consumes the scene representation and updates the live world based on validated scene JSON.
+This keeps the agent deterministic and means one broken AI component does not crash the runtime.
+
+4. AI layer
+Gemini / Nano Banana
+Use this only if it improves the input.
+Current Gemini documentation describes Nano Banana as Gemini's native image-generation/editing capability, including image-to-image editing. (Google AI for Developers)
+Your prompt could be:
+Clean this hand-drawn sketch into a simple concept image.
+
+Preserve:
+- object identity
+- object count
+- relative positions
+- approximate proportions
+- spatial relationships
+
+Remove:
+- handwriting noise
+- accidental strokes
+- paper texture
+
+Do not add new objects.
+Do not change the composition.
+Then compare:
+raw sketch → SAM 3 → SAM 3D
+
+vs.
+
+raw sketch → Nano Banana → SAM 3 → SAM 3D
+If Nano Banana makes the result worse or too slow:
+remove it.
+The original plan explicitly treated this as a bake-off rather than assuming it would improve reconstruction.
+
+5. SAM 3
+Use SAM 3 to understand:
+What objects are actually in this image?
+For example:
+{
+  "objects": [
+    {
+      "id": "tree_1",
+      "label": "tree",
+      "mask": "..."
+    },
+    {
+      "id": "house_1",
+      "label": "house",
+      "mask": "..."
+    }
+  ]
+}
+The current SAM repository provides inference code and checkpoints, with current installation requiring Python 3.12+, PyTorch 2.7+ and a CUDA GPU. (GitHub)
+Meta SAM 3 GitHub repository
+
+6. SAM 3D
+SAM 3D Objects takes a single image and reconstructs 3D geometry, texture, and layout. (GitHub)
+Meta SAM 3D Objects repository
+Your pipeline becomes:
+image
+  ↓
+SAM 3
+  ↓
+object mask
+  ↓
+SAM 3D Objects
+  ↓
+.glb
+For example:
+tree.png
+   ↓
+tree_mask.png
+   ↓
+SAM 3D
+   ↓
+tree.glb
+Then:
+house.png
+   ↓
+house_mask.png
+   ↓
+SAM 3D
+   ↓
+house.glb
+
+7. Important: don't use SAM 3D for everything
+This is one of the biggest changes I'd make to the original idea.
+Suppose someone draws:
+      ↑ F
+       │
+       ●
+       │
+       ↓ mg
+You don't really want SAM 3D to reconstruct that.
+You want:
+circle → sphere
+arrow → vector
+text → label
+line → axis
+So your backend should have two reconstruction modes:
+Mode A — physical object
+sketch
+ ↓
+SAM 3
+ ↓
+SAM 3D
+ ↓
+3D asset
+Mode B — semantic diagram
+sketch
+ ↓
+vision model
+ ↓
+semantic scene
+ ↓
+Unity primitives
+This makes your system much more robust.
+
+8. Nebius GPU
+The Nebius GPU is where you run the expensive model workloads.
+Conceptually:
+FastAPI
+   │
+   │ request reconstruction
+   ▼
+Nebius GPU VM
+   │
+   ├── SAM 3
+   ├── SAM 3D
+   └── PyTorch / CUDA
+   │
+   ▼
+.glb
+Nebius currently provides GPU VMs intended for AI workloads, including on-demand and preemptible instances. (Nebius)
+Nebius GPU Compute
+Do not confuse this with Token Factory.
+
+9. Nebius Token Factory
+Token Factory is your:
+reasoning / classification / structured-output layer
+not your SAM 3D GPU.
+Nebius describes Token Factory as an OpenAI-compatible inference API for open models. (Nebius)
+Nebius Token Factory
+Give it:
+{
+  "objects": [
+    "house",
+    "tree",
+    "sun"
+  ],
+  "text": [
+    "make tree twice as tall"
+  ]
+}
+And require:
+{
+  "action": "transform",
+  "target": "tree_1",
+  "operation": "scale",
+  "value": 2.0
+}
+Never let the model directly send arbitrary Unity commands.
+
+10. Your shared scene schema
+This is the most important piece of the entire architecture.
+Create:
+shared/
+    scene.schema.json
+Start with:
+{
+  "objects": [
+    {
+      "id": "house_1",
+      "type": "house",
+      "position": [0, 0, -3],
+      "rotation": [0, 0, 0],
+      "scale": [1, 1, 1],
+      "asset": "house_1.glb",
+      "source": "sam3d"
+    }
+  ],
+  "instructions": [],
+  "transform": {
+    "theme": "none"
+  },
+  "meta": {
+    "source": "notability",
+    "preprocessed": false
+  }
+}
+Then an instruction:
+{
+  "target": "tree_1",
+  "action": "scale",
+  "value": [1, 2, 1]
+}
+Everything talks through this.
+
+11. Repository structure
+I'd structure the repo like this:
+draw-it-step-inside-it/
+│
+├── backend/
+│   ├── main.py
+│   ├── routes/
+│   │   ├── sketch.py
+│   │   ├── scene.py
+│   │   └── agent.py
+│   │
+│   ├── services/
+│   │   ├── gemini.py
+│   │   ├── sam3.py
+│   │   ├── sam3d.py
+│   │   ├── nebius.py
+│   │   └── nemoclaw.py
+│   │
+│   ├── schemas/
+│   │   └── scene.py
+│   │
+│   └── storage/
+│
+├── ai/
+│   ├── sam3/
+│   └── sam3d/
+│
+├── shared/
+│   └── scene.schema.json
+│
+├── unity/
+│   └── DrawItWorld/
+│
+├── agent/
+│   ├── tools/
+│   │   ├── capture_sketch.py
+│   │   ├── reconstruct.py
+│   │   ├── get_scene.py
+│   │   └── modify_scene.py
+│   │
+│   └── policies/
+│
+├── demo/
+│   ├── sketches/
+│   ├── cached_assets/
+│   └── recordings/
+│
+└── README.md
+
+12. STEP 1 — Build the fake pipeline first
+Do not start with SAM 3.
+Do this:
+image
+ ↓
+FastAPI
+ ↓
+fake scene JSON
+ ↓
+Unity
+ ↓
+3D objects
+FastAPI endpoint:
+POST /sketch
+Input:
+sketch.png
+Output:
+{
+  "objects": [
+    {
+      "id": "house_1",
+      "type": "house",
+      "position": [0, 0, 0],
+      "scale": [1, 1, 1],
+      "asset": "placeholder_house"
+    },
+    {
+      "id": "tree_1",
+      "type": "tree",
+      "position": [3, 0, 1],
+      "scale": [1, 1, 1],
+      "asset": "placeholder_tree"
+    }
+  ]
+}
+Unity renders:
+      🌳
+
+             🏠
+but with cubes/cylinders instead of actual assets.
+Why?
+Because now you have a working product before touching AI.
+The original guide also recommended building the backend → placeholder Unity loop first as the permanent fallback.
+
+13. STEP 2 — Build the desktop Unity world
+This is where we change the old plan.
+Do not wait for a Quest.
+Build:
+Unity
++
+keyboard
++
+mouse
+You need:
+WASD movement
+mouse look
+object selection
+object grabbing
+object scaling
+object rotation
+basic lighting
+Unity 6's current Input System is the recommended modern input approach and supports keyboard/mouse as well as XR input later. (Unity Documentation)
+So your demo can already feel like:
+"I'm inside the world I drew."
+without owning a headset.
+
+14. STEP 3 — Make the .glb loader work
+Before SAM 3D:
+house.glb
+should successfully appear in Unity.
+Test:
+GLB
+ ↓
+Unity
+ ↓
+Scene
+Don't move forward until this works.
+Your first technical milestone should literally be:
+I can put a generated .glb into my Unity world.
+
+15. STEP 4 — Get SAM 3 running
+Set up the environment on the Nebius GPU.
+Current SAM 3 requires a CUDA-capable GPU and its current repository documents Python/PyTorch/CUDA requirements. (GitHub)
+Then test:
+test.png
+ ↓
+SAM 3
+ ↓
+mask
+Use something extremely simple:
+house
+tree
+sun
+Don't start with your final fancy demo.
+
+16. STEP 5 — Get SAM 3D running independently
+Next:
+object image
+ ↓
+SAM 3D
+ ↓
+object.glb
+Do not involve Unity yet.
+Your success condition is:
+input.png
+
+       ↓
+
+output.glb
+that you can open in a 3D viewer.
+SAM 3D Objects is specifically designed for reconstructing geometry, texture and layout from a single image. (GitHub)
+
+17. STEP 6 — Connect SAM 3 → SAM 3D
+Now:
+sketch
+ ↓
+SAM 3
+ ↓
+object masks
+ ↓
+SAM 3D
+ ↓
+GLBs
+For each object:
+for object in detected_objects:
+    mask = sam3.segment(object)
+    asset = sam3d.reconstruct(mask)
+    save(asset)
+At this point you have your first genuinely impressive technical milestone.
+
+18. STEP 7 — Put the AI pipeline behind FastAPI
+Now your backend becomes:
+POST /reconstruct
+Pipeline:
+image
+ ↓
+optional Nano Banana
+ ↓
+SAM 3
+ ↓
+SAM 3D
+ ↓
+.glb files
+ ↓
+scene JSON
+Return:
+{
+  "status": "complete",
+  "scene": {
+    "objects": [
+      {
+        "id": "tree_1",
+        "type": "tree",
+        "asset": "/assets/tree_1.glb"
+      }
+    ]
+  }
+}
+
+19. STEP 8 — Add Nano Banana
+Only now.
+Test:
+Version A
+Notability
+ ↓
+SAM 3
+ ↓
+SAM 3D
+Version B
+Notability
+ ↓
+Nano Banana
+ ↓
+SAM 3
+ ↓
+SAM 3D
+Measure:
+reconstruction quality
+latency
+object preservation
+hallucinated objects
+If B is better:
+keep it.
+If not:
+delete it.
+Do not keep a technology just because it looks impressive on the architecture diagram.
+
+20. STEP 9 — Add Notability
+Start incredibly simply.
+Option A
+Export image from Notability.
+Notability
+ ↓
+PNG
+ ↓
+upload
+ ↓
+FastAPI
+Option B
+Create an upload webpage:
+┌──────────────────────────┐
+│     DRAW YOUR WORLD      │
+│                          │
+│    [ Upload Sketch ]     │
+│                          │
+└──────────────────────────┘
+Option C
+Later, have NemoClaw invoke your capture tool.
+The important thing:
+Notability should not be allowed to block the project.
+
+21. STEP 10 — Create the NemoClaw tools
+Now introduce NemoClaw.
+Don't give it:
+"control my entire computer."
+Give it five tools.
+Tool 1
+capture_sketch()
+Returns:
+{
+  "image": "/incoming/sketch.png"
+}
+Tool 2
+reconstruct_scene(image)
+Returns:
+{
+  "scene_id": "scene_123"
+}
+Tool 3
+get_scene()
+Returns the current scene JSON.
+Tool 4
+modify_scene(instruction)
+Returns a validated scene update.
+Tool 5
+refresh_unity()
+Tells the runtime to reload the scene.
+
+22. NemoClaw's role
+Now the user can say:
+"Take my current sketch and turn it into a world."
+NemoClaw:
+capture_sketch()
+        ↓
+reconstruct_scene()
+        ↓
+wait
+        ↓
+refresh_unity()
+Then:
+"Make the tree twice as tall."
+NemoClaw:
+get_scene()
+      ↓
+understand instruction
+      ↓
+modify_scene()
+      ↓
+validate JSON
+      ↓
+Unity
+This is much stronger than simply putting "NemoClaw" on the diagram.
+
+23. STEP 11 — Add Nebius Token Factory
+Use Token Factory for structured intent.
+Input:
+Current objects:
+- house_1
+- tree_1
+- sun_1
+
+User:
+"Make the tree twice as tall."
+Output:
+{
+  "action": "transform",
+  "target": "tree_1",
+  "operation": "scale",
+  "value": [1, 2, 1]
+}
+Then your backend validates it.
+LLM
+ ↓
+JSON
+ ↓
+Pydantic validation
+ ↓
+scene update
+ ↓
+Unity
+Never:
+LLM
+ ↓
+arbitrary C#
+
+24. STEP 12 — Add real-time Unity updates
+You don't need Unity restarting every time.
+Use WebSockets:
+FastAPI
+   ⇅
+WebSocket
+   ⇅
+Unity
+Events:
+{
+  "type": "scene_update",
+  "object": "tree_1",
+  "scale": [1, 2, 1]
+}
+Unity receives:
+tree.transform.localScale = new Vector3(1, 2, 1);
+Now the user sees:
+TREE
+  │
+  │
+  │
+  │
+  │
+grow immediately.
+
+25. STEP 13 — Add progressive loading
+This is important because your AI won't necessarily be instantaneous.
+Instead of:
+draw
+ ↓
+blank screen for 20 sec
+ ↓
+world
+do:
+draw
+ ↓
+rough scene
+ ↓
+placeholder objects
+ ↓
+real 3D assets arrive
+ ↓
+replace placeholders
+So the user immediately sees:
+       🌳
+             🏠
+and then:
+       realistic tree
+                 realistic house
+The original guide recommended this progressive-reveal approach specifically to hide reconstruction latency.
+
+26. STEP 14 — Add caching
+This is mandatory.
+Create:
+demo/cached_assets/
+For example:
+cached_assets/
+├── house.glb
+├── tree.glb
+├── lamp.glb
+└── desk.glb
+Your system should know:
+if cached_asset_exists:
+    use_cached_asset()
+else:
+    run_sam3d()
+Then your demo can honestly say:
+"This asset is being reconstructed live."
+while other known demo assets can use cached results.
+The original implementation plan also explicitly recommended precomputing exact demo assets as a safety net.
+
+27. STEP 15 — Add Blender only if needed
+Don't put:
+SAM 3D
+ ↓
+Blender
+ ↓
+Unity
+into the live path unless absolutely necessary.
+Instead:
+SAM 3D
+ ↓
+raw.glb
+ ↓
+Blender offline
+ ↓
+clean.glb
+ ↓
+cache
+ ↓
+Unity
+Use Blender for:
+polygon reduction
+normals
+UV cleanup
+material simplification
+The original guide correctly treated Blender as an offline cleanup step rather than a live dependency.
+
+28. STEP 16 — Build the actual "wow" interaction
+You need at least three transformations.
+Transformation 1 — scale
+"Make the tree twice as tall."
+scale
+Transformation 2 — appearance
+"Make the house futuristic."
+retexture
+Transformation 3 — spatial
+"Move the tree next to the house."
+reposition
+Your JSON can support:
+{
+  "action": "reposition",
+  "target": "tree_1",
+  "value": [2, 0, -3]
+}
+This is where the project starts feeling like an actual interactive world builder.
+
+29. STEP 17 — Add diagram mode
+This can make the project much more interesting.
+For example, draw:
+      F
+       ↑
+       │
+       ●
+       │
+       ↓
+       mg
+Instead of reconstructing it with SAM 3D, the semantic pipeline recognizes:
+{
+  "type": "physics_diagram",
+  "objects": [
+    {
+      "type": "mass",
+      "position": [0, 0, 0]
+    },
+    {
+      "type": "vector",
+      "direction": [0, 1, 0],
+      "label": "F"
+    },
+    {
+      "type": "vector",
+      "direction": [0, -1, 0],
+      "label": "mg"
+    }
+  ]
+}
+Unity creates:
+            ↑ F
+             │
+             ●
+             │
+             ↓ mg
+but in 3D.
+Then:
+"Show me this from the side."
+or:
+"Increase the force vector."
+Now you have something that goes beyond generic image-to-3D.
+
+30. STEP 18 — Desktop experience
+Your main HackGT demo should now be:
+Screen 1
+Notability.
+User draws.
+Screen 2
+Your web dashboard:
+┌──────────────────────────────────┐
+│          DRAW IT                 │
+│                                  │
+│ Sketch received                  │
+│                                  │
+│ ✓ Objects detected               │
+│ ✓ 3D reconstruction              │
+│ ✓ Scene generated                │
+└──────────────────────────────────┘
+Screen 3
+Unity opens:
+            🌳
+
+                    🏠
+
+        YOU
+         ↓
+       CAMERA
+User walks around using WASD.
+Screen 4
+User says:
+"Make the tree twice as tall."
+Tree changes.
+That's the demo.
+
+31. STEP 19 — Optional XR
+Only after everything above works.
+If you eventually get access to a Quest:
+same Unity scene
+        ↓
+XR build
+        ↓
+Quest
+You should not have:
+Desktop version
++
+Quest version
++
+different backend
++
+different scene system
+You want one Unity scene system.
+Only the input/output layer changes.
+
+32. STEP 20 — Actual API architecture
+Your backend should eventually look like:
+                ┌──────────────┐
+                 │   Notability │
+                 └──────┬───────┘
+                        │
+                        ▼
+                 POST /sketch
+                        │
+                        ▼
+              ┌──────────────────┐
+              │     FastAPI      │
+              └────────┬─────────┘
+                       │
+            ┌──────────┼──────────┐
+            │          │          │
+            ▼          ▼          ▼
+         Gemini      SAM 3    Token Factory
+            │          │          │
+            └─────┬────┴──────────┘
+                  ▼
+              SAM 3D
+                  │
+                  ▼
+              Nebius GPU
+                  │
+                  ▼
+              scene.json
+                  │
+                  ▼
+                Unity
+And separately:
+NemoClaw
+   │
+   ├── capture_sketch()
+   ├── reconstruct_scene()
+   ├── get_scene()
+   ├── modify_scene()
+   └── refresh_unity()
+
+33. Exact build order
+If you are starting today, follow this order exactly.
+Phase 1 — 1–2 hours
+Build:
+FastAPI
+ ↓
+hardcoded JSON
+ ↓
+Unity
+Goal:
+3D objects appear from JSON.
+
+Phase 2 — 1–2 hours
+Build:
+Unity desktop movement
+Goal:
+You can walk around the scene.
+
+Phase 3 — 1 hour
+Get:
+house.glb
+ ↓
+Unity
+Goal:
+Unity can display real GLBs.
+
+Phase 4 — 2–4 hours
+Get:
+image
+ ↓
+SAM 3
+ ↓
+masks
+Goal:
+Objects are correctly segmented.
+
+Phase 5 — 2–5 hours
+Get:
+image
+ ↓
+SAM 3D
+ ↓
+.glb
+Goal:
+One image becomes a usable 3D object.
+This is your biggest technical risk.
+
+Phase 6 — 1–2 hours
+Connect:
+SAM 3
+ ↓
+SAM 3D
+ ↓
+FastAPI
+ ↓
+Unity
+Goal:
+Sketch → 3D object in Unity
+
+Phase 7 — 1–2 hours
+Add Nano Banana.
+Test:
+raw → 3D
+
+vs.
+
+cleaned → 3D
+Keep it only if better.
+
+Phase 8 — 1–2 hours
+Add Token Factory:
+"make tree twice as tall"
+ ↓
+JSON
+ ↓
+Unity
+Goal:
+Natural-language modification works.
+
+Phase 9 — 1–2 hours
+Add Notability.
+Notability
+ ↓
+export
+ ↓
+upload
+ ↓
+pipeline
+Goal:
+The actual user workflow works.
+
+Phase 10 — 1–3 hours
+Add NemoClaw.
+"Turn my sketch into a world."
+becomes:
+NemoClaw
+ ↓
+capture
+ ↓
+reconstruct
+ ↓
+Unity
+Then:
+"Make the tree twice as tall."
+becomes:
+NemoClaw
+ ↓
+Token Factory
+ ↓
+scene update
+ ↓
+Unity
+
+34. What NOT to build
+This is just as important.
+❌ Don't build a custom 3D engine
+Unity handles it.
+❌ Don't build live Notability streaming
+Export is enough.
+❌ Don't build Unity + Unreal
+Pick Unity.
+❌ Don't make Nano Banana mandatory
+It is preprocessing.
+❌ Don't make Blender live
+Use it offline.
+❌ Don't make NemoClaw responsible for the ML pipeline
+It's the agent/orchestrator.
+❌ Don't make Token Factory reconstruct 3D
+It's for reasoning/structured intent.
+❌ Don't require Quest
+Desktop first.
+❌ Don't require every asset to be generated live
+Cache intelligently.
+
+35. Your MVP
+If everything goes horribly wrong, the minimum demo is:
+Notability
+     ↓
+image
+     ↓
+FastAPI
+     ↓
+SAM 3
+     ↓
+SAM 3D
+     ↓
+GLB
+     ↓
+Unity
+     ↓
+walk around
+That's already a legitimate project.
+
+36. Your ideal demo
+If everything works:
+                 DRAW
+                    ↓
+               Notability
+                    ↓
+                NemoClaw
+                    ↓
+             "Understand this"
+                    ↓
+          ┌─────────┴─────────┐
+          ↓                   ↓
+       Gemini             Token Factory
+          ↓                   ↓
+        SAM 3             Instructions
+          ↓                   ↓
+        SAM 3D                │
+          ↓                   │
+       Nebius GPU              │
+          └─────────┬──────────┘
+                    ↓
+                Scene JSON
+                    ↓
+                  Unity
+                    ↓
+              3D WORLD
+                    ↓
+         "Make the tree taller"
+                    ↓
+                NemoClaw
+                    ↓
+             Scene update
+                    ↓
+              WORLD CHANGES
+That's the version I'd aim for.
+
+37. Your final demo script
+Don't explain the architecture first.
+Start with the experience.
+Beat 1
+"I'm going to draw a world."
+Draw house + tree + sun in Notability.
+Beat 2
+"Turn this into a 3D world."
+Export.
+NemoClaw processes it.
+Unity starts generating the world.
+Beat 3
+Walk around the world.
+"This isn't a prebuilt Unity scene. These objects came from my drawing."
+Beat 4
+"Make the tree twice as tall."
+Tree changes.
+Beat 5
+"Move it next to the house."
+Tree moves.
+Beat 6
+If you have diagram mode:
+"Now I'll draw a physics diagram."
+Draw it.
+It becomes an interactive 3D visualization.
+That is a much stronger HackGT demo than simply showing SAM 3D generating a model.
+
+38. The biggest technical risks
+Risk
+Severity
+Solution
+SAM 3D quality
+🔴 Very high
+Test immediately
+SAM 3D latency
+🔴 Very high
+Cache + progressive loading
+Abstract drawings
+🔴 High
+Semantic/primitive mode
+Unity GLB loading
+🟠 Medium
+Test before AI
+Notability integration
+🟠 Medium
+Export/upload fallback
+Token Factory reliability
+🟡 Medium
+Strict JSON validation
+NemoClaw integration
+🟡 Medium
+Add last
+Nano Banana latency
+🟡 Medium
+Optional
+Blender
+🟢 Low
+Cut if necessary
+Quest
+🟢 Low
+Optional
+
+
+39. The new priority hierarchy
+If you have 20 hours, spend them roughly like this:
+35%  SAM 3 / SAM 3D
+20%  Unity
+15%  FastAPI + scene schema
+10%  Token Factory
+10%  Notability
+ 5%  Nano Banana
+ 5%  NemoClaw
+Notice something:
+NemoClaw is not the first thing you build.
+It is the thing that makes the final demo feel magical, but it shouldn't be the thing that determines whether your core technology works.
+
+40. Final definition of "done"
+You are done when this works:
+Input
+hand-drawn sketch
+Processing
+NemoClaw
+ ↓
+optional Nano Banana
+ ↓
+SAM 3
+ ↓
+SAM 3D / semantic reconstruction
+ ↓
+Nebius
+Backend
+scene.json
+Output
+Unity
+ ↓
+interactive 3D world
+Agent interaction
+"Make the tree twice as tall."
+Result
+tree actually becomes twice as tall
+And importantly:
+NO QUEST REQUIRED.
+The Quest is simply an eventual alternate output device.
+
+The very first thing I would do
+Don't install NemoClaw yet. Don't build the Notability automation yet. Don't build the dashboard yet.
+Create one ugly test image:
+       ☀
+
+   🌳        🏠
+Then get:
+image
+  ↓
+SAM 3
+  ↓
+SAM 3D
+  ↓
+house.glb / tree.glb
+  ↓
+Unity
+working on your laptop.
+That is the riskiest part of the entire project. Once that works, everything else is engineering around it.
+The current SAM 3/SAM 3D repositories and requirements make this the part worth validating first. (GitHub)
+And the architecture you've now got is substantially cleaner than the original guide: Notability → NemoClaw → AI reconstruction → FastAPI/scene schema → Unity, with Nebius GPU and Token Factory doing two clearly different jobs.
+
