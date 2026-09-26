@@ -80,7 +80,7 @@ namespace Return.UI
 
                 float blink = 0.55f + 0.45f * Mathf.Sin(t * (1.1f + (i % 7) * 0.13f) + i * 1.7f);
                 _buf[i].position = pos;
-                var c = _buf[i].startColor; c.a = blink * 0.9f; _buf[i].startColor = c;
+                var c = _buf[i].startColor; c.a = (byte)(blink * 0.9f * 255f); _buf[i].startColor = c;
             }
             _ps.SetParticles(_buf, Count);
         }
