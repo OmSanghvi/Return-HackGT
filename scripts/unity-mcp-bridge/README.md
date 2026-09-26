@@ -116,6 +116,28 @@ spends Unity AI credits.
   `nemoclaw <sb> logs`). The script detects this and refuses. The fix is a new
   sandbox via `-Onboard -Sandbox <new-name>`. Changing only the model provider
   (`nemoclaw inference set ...`) doesn't touch the image.
+- **Every `nemoclaw <sandbox> …` command hangs (stale lifecycle lock).**
+  Seen 2026-09-26 after a reboot. A `nemoclaw` process was cut off from
+  Windows (a timeout around `wsl.exe`) while it held
+  `~/.nemoclaw/state/mcp-lifecycle-locks/<hash>.lock`. WSL then restarted,
+  so the lock's `pidNamespaceIdentity` pointed at a namespace that no longer
+  exists. NemoClaw can't prove that owner dead, and it has no force-unlock.
+  The fix:
+  1. Confirm no `nemoclaw`/`openshell` lifecycle command is running.
+  2. Check that the lock's `pid` doesn't exist and its namespace differs
+     from `readlink /proc/self/ns/pid`.
+  3. Back up the `.lock` (and any `.candidate-*`) files, then remove them.
+
+  NemoClaw's docs say not to delete lock files by hand. That's right while
+  the owner might be alive, so only do it when these checks show the owner
+  is gone. Prevention: never time out `wsl.exe` from Windows. The scripts
+  bound `nemoclaw` calls with `timeout` inside WSL (`NC_TIMEOUT`, default
+  300s), where NemoClaw can recover the lock itself.
+- After a reboot, Docker Desktop and the Unity Editor must be running before
+  you rerun the setup script. The Ollama auth proxy (port 11435) also
+  doesn't come back on its own; `nemoclaw <sb> status` then reports the
+  inference route as unhealthy. That only matters while the sandbox uses the
+  local Ollama model.
 - Plain `curl` inside the sandbox is denied by design: the policy only admits
   the OpenClaw `node` binaries. To test, use an agent turn, not `curl`.
 - The OpenShell log shows `DELETE /mcp/ ... DENIED` at session end. It's

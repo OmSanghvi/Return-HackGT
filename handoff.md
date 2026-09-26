@@ -1,18 +1,113 @@
 # Handoff — NemoClaw + Unity MCP orchestration (Build Plan steps 3, 4, 6)
 
-Written 2026-09-26 (second revision, same day — supersedes the previous
-version of this file). Read this before continuing the "nemoclaw agents
-orchestrate the Unity scene" work.
+Written 2026-09-26. Third revision, evening; it supersedes the earlier
+versions. Read the **START HERE** section first. The older sections below it
+are background and history.
 
-**To resume this exact conversation in Claude Code**, use session id:
+The last session (`65c057b2-388a-42b5-a56f-ed1265d08877`) ran on a different
+Claude account, so it can't be resumed from the next one. This file is the
+handoff.
 
-    9ec49dd6-8e12-456d-a920-fce5aadb110c
+## START HERE (2026-09-26, evening)
 
-(Resume it the normal way for this Claude Code install — e.g. `claude
---resume 9ec49dd6-8e12-456d-a920-fce5aadb110c` or whatever the client's
-session-resume flow is. If that doesn't apply to your setup, this file is
-the fallback: everything below should be enough for a fresh session to pick
-up where this one left off.)
+### State right now (all verified before the account switch)
+
+- **NemoClaw talks to Unity directly.** The sandbox is **`sketchscape`**, the
+  only one (`my-assistant` was destroyed). A live agent made real
+  `tools/call`s to Unity (`meta_get_config_information`,
+  `meta_get_interactors_state`) through OpenShell's `mcp_bridge_unity_mcp`
+  policy.
+- **Unity:** `../HackGTUnity`, Unity 6000.6.3f1, scene "First". Meta XR SDK
+  `com.meta.xr.sdk.all` 207.0.0 is installed. Meta's MCP extension is
+  embedded and patched for Unity 6.5+ (see `scripts/unity-mcp-bridge/`,
+  README section "Meta Horizon tools"). Active Input Handling = Both
+  (restart done).
+- **Tools NemoClaw sees: 17.** `Unity_RunCommand`, `Unity_GetConsoleLogs`,
+  3 capture tools, `Unity_AssetGeneration_GetModels`, and
+  `Unity_AssetGeneration_GenerateAsset` (**denied** at registration), plus
+  9 Meta tools: `meta_get_config_information`,
+  `meta_get_interactors_state` (both read-only), 7 `meta_add_*` scene
+  writers, and `meta_update_android_manifest`. Inside the agent they're
+  called `unity-mcp__<toolName>`.
+- **Bridge:** run `scripts/unity-mcp-bridge/Setup-UnityMcpBridge.ps1`. It's
+  idempotent and was last run successfully after the reboot. Its README
+  covers everything.
+- **Model:** still local Ollama `qwen3.5:9b`, and currently *unhealthy*
+  because the Ollama auth proxy on 11435 didn't restart after the reboot.
+  That's irrelevant, because it's about to be replaced (next item).
+
+### What's about to happen (in order)
+
+1. **The user switches NemoClaw to Muse Spark.** User decision: Muse Spark,
+   not OpenAI (an OpenAI key doesn't work for `meta`/`xai`/`nebius`). The
+   user runs this **in their own WSL terminal**; the key must never go
+   through chat, the repo, or a file:
+   ```bash
+   read -rsp "Meta Model API key: " COMPATIBLE_API_KEY; echo; export COMPATIBLE_API_KEY
+   nemoclaw inference set --provider compatible-endpoint --model muse-spark-1.3 \
+     --endpoint-url https://api.meta.ai/v1 --credential-env COMPATIBLE_API_KEY \
+     --inference-api openai-completions --sandbox sketchscape
+   unset COMPATIBLE_API_KEY
+   ```
+   - It's a runtime route switch with no rebuild, so the CA and Unity
+     registration are untouched.
+   - The variable must be named `COMPATIBLE_API_KEY` (canonical for
+     `compatible-endpoint`).
+   - `my-assistant` was deleted because the shared-gateway rule would refuse
+     this switch while another sandbox was recorded on a different route.
+   - The model id `muse-spark-1.3` comes from the `nemoclaw-model-providers`
+     skill (checked 2026-09-25). If the endpoint rejects it, check
+     https://dev.meta.ai/models/muse-spark/ rather than guessing.
+2. **Next session verifies the switch:** `nemoclaw sketchscape status`
+   should show provider `compatible-endpoint`, model `muse-spark-1.3`, and a
+   healthy inference route. Then run one read-only Unity tool test with a
+   *normal* (non-scripted) prompt, e.g. "What does the Meta config info in
+   Unity say?". The goal is to confirm Muse Spark calls
+   `unity-mcp__meta_get_config_information` on its own, which qwen couldn't
+   do reliably.
+3. **Then the user wants to go straight to setting up the agents.** Before
+   any real agent work, **decide and build the approval gate**. Today
+   nothing stops the agent calling `Unity_RunCommand` (arbitrary C# in the
+   Editor), the 7 `meta_add_*` tools, or `meta_update_android_manifest`.
+   - Rules: `top-tier-nemoclaw-tool-design` skill; `config/nemoclaw/
+     sketchscape-tools.json` marks these `approval_required: true`,
+     "exposed-ungated".
+   - Options: re-register with `--deny-tool` for a read-only first run, or
+     build a real approval path. Ask the user; don't pick silently.
+   - No `meta_add_*` tool has ever run. The first one should be
+     `meta_add_camerarig` in a scene the user chooses, and it also exercises
+     the patched `GetInteractorsState` line for the first time.
+
+### After a reboot (this happened once already)
+
+In order: start **Docker Desktop**
+(`C:\Users\kriva\AppData\Local\Programs\DockerDesktop\Docker Desktop.exe`),
+open **Unity** on HackGTUnity (`"C:\Program Files\Unity\Hub\Editor\6000.6.3f1\Editor\Unity.exe" -projectPath C:\Users\kriva\Desktop\HackGTUnity`),
+wait for its `relay_win.exe --relay` to appear, then run
+`Setup-UnityMcpBridge.ps1`.
+
+**Never put a timeout around `wsl.exe` from Windows** when a `nemoclaw`
+command runs inside. It orphaned a process holding NemoClaw's per-sandbox
+lifecycle lock; WSL then restarted, and every `nemoclaw sketchscape …`
+command hung (fixed by hand with the user's OK; details in the README
+Gotchas). Put `timeout` inside WSL instead; `nemoclaw-register.sh` now does.
+
+### Repo state
+
+All of this session's work is pushed to `origin/main`:
+- the bridge scripts,
+- the Meta extension patch,
+- the docs,
+- the in-WSL timeouts,
+- this handoff.
+
+Nothing is left uncommitted from it. Local-only state that isn't in git,
+by design:
+- the per-machine CA and keys (WSL `~/.config/sketchscape/unity-mcp-pki/`);
+- the bridge venv and logs (`%LOCALAPPDATA%\SketchScape\unity-mcp-bridge`);
+- the patched embedded extension inside `../HackGTUnity/Packages/` (that
+  project isn't a git repo; the patch file in `scripts/unity-mcp-bridge/
+  patches/` reproduces it).
 
 ## What this task is
 
@@ -28,15 +123,20 @@ continuing — they carry the concrete rules this session followed.
 ### 1. NemoClaw runtime (Step 3, partially done — unchanged from before)
 - **NVIDIA NemoClaw CLI** (`github.com/NVIDIA/NemoClaw`) is installed in **WSL
   Ubuntu** (not Windows), wrapping OpenClaw inside OpenShell.
-- Live sandbox: `my-assistant` (default), agent = **OpenClaw**, model = **local
-  Ollama `qwen3.5:9b`**. Healthy per `nemoclaw my-assistant doctor`.
-- **User decision (already made, don't re-litigate):** keep `qwen3.5:9b` for
-  dev/iteration now; switch `NEMOCLAW_MODEL_PROVIDER` to one of `meta`/`xai`/
-  `nebius` before the real demo/submission. Config-only swap.
-- Useful commands: `nemoclaw list`, `nemoclaw my-assistant doctor`, `nemoclaw
-  my-assistant exec -- <cmd>`, `nemoclaw my-assistant upload <host-path>
+- Live sandbox: **`sketchscape`** (the only one; `my-assistant` was destroyed
+  2026-09-26, and its workspace backups are in
+  `~/.nemoclaw/rebuild-backups/my-assistant/`). Agent = **OpenClaw**.
+- **Model (user decision, 2026-09-26):** switch to **Muse Spark**
+  (`muse-spark-1.3`, Meta Model API) as a `compatible-endpoint` via
+  `nemoclaw inference set` (no rebuild). The user enters the key in their
+  own WSL shell as `COMPATIBLE_API_KEY`. Until that runs, the sandbox is on
+  local Ollama `qwen3.5:9b`.
+- Useful commands: `nemoclaw list`, `nemoclaw sketchscape status`, `nemoclaw
+  sketchscape exec -- <cmd>`, `nemoclaw sketchscape upload <host-path>
   <sandbox-dir>` (uploads **into** a directory — don't repeat the filename in
-  the destination), `nemoclaw my-assistant agent --agent main -m "<prompt>"`.
+  the destination), `nemoclaw sketchscape agent --agent main -m "<prompt>"`.
+  Don't wrap these in a Windows-side timeout around `wsl.exe` (see the
+  stale-lock gotcha in `scripts/unity-mcp-bridge/README.md`).
 
 ### 2. Scene/staging backend tools (Steps 4 and 6, Python side — done)
 - **`backend/scene_tools.py`** — pure, deterministic, offline reasoning:
@@ -148,6 +248,10 @@ never touched Unity.
 
 ## Immediate next action / priority order for next session
 
+> **Superseded (2026-09-26 evening):** follow **START HERE** at the top
+> instead. The list below is from earlier in the day. Item 1 was later
+> verified; the Unity items are covered in START HERE.
+
 1. **Verify the live `qwen3.5:9b` agent actually invokes
    `place_objects_in_scene`** in a real turn (not just direct CLI exec or
    unit tests). Two prior one-shot attempts acknowledged the skill existed
@@ -236,8 +340,8 @@ never touched Unity.
     shader errors, and "Android SDK not found" (APK builds only).
     Active Input Handling was switched to Both via the SDK prompt; it needs
     an Editor restart, then a rerun of the setup script.
-  - `my-assistant` keeps a stale, non-working `unity-mcp` registration.
-    Use `sketchscape` for Unity work.
+  - `my-assistant` was destroyed on 2026-09-26, along with its stale
+    `unity-mcp` provider. `sketchscape` is the only sandbox.
 - Real per-asset prefabs instead of placeholder cubes in the write bridge
   (needs an actual asset pipeline into Unity — not scoped yet).
 - A **leftover zombie `Unity.exe` process** (PID 32404 as of the original
