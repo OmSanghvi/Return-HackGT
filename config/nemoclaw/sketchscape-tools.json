@@ -80,17 +80,17 @@
       "id": "room.state.fetch",
       "method": "GET",
       "path": "/v1/rooms/{project_id}/state",
-      "purpose": "Collaborative VR: read the live revision, objects, and ownership of a room (callable name get_room_state). Authenticated with NemoClaw's shared service token (SKETCHSCAPE_NEMOCLAW_TOKEN, not yet built -- see docs/KNOWN_ISSUES.md R14). Build Plan steps 21 and 24; gated by scripts/check_collab_gates.py.",
+      "purpose": "Collaborative VR: read the live revision, objects, and ownership of a room (callable name get_room_state). Authenticated with NemoClaw's shared service token (SKETCHSCAPE_NEMOCLAW_TOKEN, built -- see docs/KNOWN_ISSUES.md R14). Build Plan step 21 (backend route: done); the NemoClaw tool wrapper itself waits on step 3/24.",
       "approval_required": false,
-      "implementation_status": "target"
+      "implementation_status": "backend-route-implemented-step21; nemoclaw-tool-pending-step3-24"
     },
     {
       "id": "room.edit.draft",
       "method": "POST",
       "path": "/v1/projects/{project_id}/blueprints?base_revision={live_revision}",
-      "purpose": "Collaborative VR: draft a room edit as a new revision based on the live revision (callable name propose_room_edit). Never publishes; publishing uses blueprint.publish with approval. Returns 409 if the room changed. A person approves the publish on the website. Build Plan step 24.",
+      "purpose": "Collaborative VR: draft a room edit as a new revision based on the live revision (callable name propose_room_edit). Never publishes; publishing uses blueprint.publish with approval. Returns 409 if the room changed. A person approves the publish on the website. Build Plan step 24; the underlying draft route (blueprint.draft, above) is already implemented.",
       "approval_required": false,
-      "implementation_status": "target"
+      "implementation_status": "backend-route-implemented (see blueprint.draft); nemoclaw-tool-pending-step3-24"
     }
   ],
   "unity_mcp_menu_tasks": [

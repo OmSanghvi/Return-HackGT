@@ -69,7 +69,7 @@ and `docs/KNOWN_ISSUES.md` R13 for what this changed and why.
 | 17 | Membership, invite codes, Contributor ↔ account binding, ownership, `room_prompt` | 2, 16 | Done | `room-api-and-ownership` |
 | 19 | Web app foundation: `app/` React + Vite, hardcoded-account picker, API client, mock mode | 16 | Not started | `web-app-foundation` |
 | 20 | Web uploads: person types a name for each object → SAM 3.1 semantic masks → refine → generate PLYs; several photos at once; Notability sketches; optional text; invites | 7, 17, 19, 26 | Not started | `web-uploads-and-linking` |
-| 21 | Public room API `/v1/rooms/{project_id}/state` + `/edits`, and the Quest account switcher's backend half | 15, 17 | Not started | `room-api-and-ownership` |
+| 21 | Public room API `/v1/rooms/{project_id}/state` + `/edits`, and the Quest account switcher's backend half | 15, 17 | Done | `room-api-and-ownership` |
 | 22 | Unity networking: anonymous Unity sign-in + account switcher, Multiplayer Services, NGO 2.x, Distributed Authority | — | Not started | `unity-cloud-collaborative-vr` |
 | 23 | Unity backprop client: save on settle, session-owner polling | 21, 22 | Not started | `vr-edit-cloud-backprop-sync` |
 | 24 | NemoClaw room tools (`get_room_state`, `propose_room_edit`; publish approved on the web) | 3, 15, 16, 21 | Not started | `top-tier-nemoclaw-tool-design` |
@@ -108,14 +108,15 @@ checks) — it is not a lightweight stand-in.
   holding the chosen hardcoded account id. This needs no Meta account and
   no Clerk token; Distributed Authority and NGO 2.x don't care which
   identity provider signed the player in. Step 22.
-- **NemoClaw's service identity** (`kind="service"`, used by step 24) is
-  the one open gap this leaves: today it only exists via Clerk M2M tokens
-  (step 16, built and tested against Clerk). Since Clerk is off this
-  plan, step 24 needs a small step-16 follow-up first: a shared bearer
-  token (`SKETCHSCAPE_NEMOCLAW_TOKEN`), matching the existing
-  `SKETCHSCAPE_WORKER_TOKEN` pattern, added to `auth.py`. Not built yet —
-  NemoClaw itself (step 3) hasn't started. See
-  `docs/KNOWN_ISSUES.md` R14.
+- **NemoClaw's service identity** (`kind="service"`, used by step 24) no
+  longer depends on Clerk: `auth.py` now also accepts a shared bearer token
+  (`SKETCHSCAPE_NEMOCLAW_TOKEN`), matching the existing
+  `SKETCHSCAPE_WORKER_TOKEN` pattern, checked before the
+  `SKETCHSCAPE_AUTH_MODE` dispatch so it works in `demo` mode. Built as part
+  of step 21 (ahead of when the skill originally scheduled it, since the
+  room API needed a service-callable `GET /state` too). NemoClaw itself
+  (step 3) still hasn't started, so nothing calls this token in production
+  yet. See `docs/KNOWN_ISSUES.md` R14.
 - The `clerk` value of `SKETCHSCAPE_AUTH_MODE` and its code in
   `backend/auth.py` are **left in place but off this plan** — nothing
   here depends on it, tests still cover it, and it costs nothing to keep

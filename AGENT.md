@@ -482,7 +482,7 @@ All .ply files in catalog
    place of failed objects.
 
 8. **Run `bash scripts/verify_local.sh` after every backend change** and
-   confirm all tests pass before reporting done. Currently 176 tests (2 are
+   confirm all tests pass before reporting done. Currently 205 tests (2 are
    skipped either way, depending on whether `boto3` is installed).
 
 9. **Collaborative VR + web accounts steps (13–29) are gated.** Before writing any code or
@@ -561,8 +561,8 @@ its current contents before relying on any of them.
 
 | Area | Status |
 |---|---|
-| Backend API (upload, poll, mock pipeline, safe edits) | ✅ done, 176 tests passing (2 skipped) |
-| Identity (`SKETCHSCAPE_AUTH_MODE=mock\|demo\|clerk`; `demo` — two hardcoded accounts — is the real identity model for this track, decision 2026-09-26; authors on revisions) | ✅ done — NemoClaw's service identity needs a small follow-up (R14) before step 24 |
+| Backend API (upload, poll, mock pipeline, safe edits, room API) | ✅ done, 205 tests passing (2 skipped) |
+| Identity (`SKETCHSCAPE_AUTH_MODE=mock\|demo\|clerk`; `demo` — two hardcoded accounts — is the real identity model for this track, decision 2026-09-26; authors on revisions) | ✅ done, including NemoClaw's shared-bearer-token service identity (R14, `SKETCHSCAPE_NEMOCLAW_TOKEN`) |
 | Membership, invites, ownership, `room_prompt` | ✅ done — Build Plan step 17 |
 | `identify_subject` mock labeler (`SKETCHSCAPE_SUBJECT_LABELER=mock`) | ✅ done — live NemoClaw path waits on Build Plan step 3 |
 | GPU pipeline (SAM 3.1 → Fast-SAM3D, `worker_server.py`) | ✅ verified end-to-end on an L40S (g6e.xlarge): 70 s, 53 MB PLY; instance stopped |
@@ -946,11 +946,16 @@ SKETCHSCAPE_JOB_LEASE_SECONDS=900
 # header, offline only; the API refuses to start in mock mode with
 # dynamodb storage or a non-mock pipeline.
 SKETCHSCAPE_AUTH_MODE=mock             # mock | demo | clerk (clerk is unused by this plan, kept for a possible future upgrade)
-SKETCHSCAPE_WEB_ORIGINS=http://localhost:5173  # CORS; never * in demo or clerk mode
+SKETCHSCAPE_WEB_ORIGINS=http://localhost:5173  # CORS; never * in demo or clerk mode. Comma-separated;
+                                                # production example: http://localhost:5173,https://returnweb-hazel.vercel.app
+                                                # (the live web app's origin)
 SKETCHSCAPE_DEMO_USERS=demo-alice,demo-bob     # exactly two accounts, demo mode only; also what the
                                                 # website's and Quest's account switcher offers as
                                                 # "Account 1"/"Account 2" (collab-vr-accounts-and-gates)
 CLERK_SECRET_KEY=                      # secret, clerk mode only (unused by this plan) — never in a file, commit, or chat
+SKETCHSCAPE_NEMOCLAW_TOKEN=            # secret, shared bearer token for NemoClaw's service identity (R14,
+                                        # step 21/24) — >=32 chars, matches SKETCHSCAPE_WORKER_TOKEN's pattern.
+                                        # Leave unset locally; never in a file, commit, or chat.
 
 # Storage backend (local is default; dynamodb for cloud)
 SKETCHSCAPE_STORAGE_BACKEND=local
@@ -974,7 +979,7 @@ step 7 for what replaces this.
 
 ```bash
 # After any backend Python change:
-bash scripts/verify_local.sh          # must pass, currently 176 tests (2 skipped)
+bash scripts/verify_local.sh          # must pass, currently 205 tests (2 skipped)
 
 # After any Terraform change:
 cd infra/aws

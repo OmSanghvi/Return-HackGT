@@ -18,6 +18,7 @@ import re
 import secrets
 import sys
 import tempfile
+import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -354,6 +355,11 @@ class ExperienceBlueprint(ExperienceBlueprintInput):
     # demo -- step 16); unset for mock-mode/manual authoring, matching that
     # mode's behavior before step 16 (Hard Rule 2).
     author: str | None = None
+    # Step 21: the room API's idempotency key. Set only on revisions created
+    # through POST /v1/rooms/{project_id}/edits, so a retried edit call (same
+    # author + client_edit_id) can be recognized and replayed instead of
+    # double-applied. None for every other authoring path.
+    client_edit_id: str | None = Field(default=None, max_length=100)
 
 
 class PublicationRecord(BaseModel):
@@ -542,17 +548,33 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - required by FastAPI's lifesp
 
 app = FastAPI(title="SketchScape Reconstruction API", version="0.2.0", lifespan=lifespan)
 
-# In `clerk` and `demo` mode, only the configured web origin(s) may call this
-# API, and bearer/header auth (not cookies) carries identity, so credentialed
-# CORS isn't needed. `mock` mode keeps today's SKETCHSCAPE_ALLOWED_ORIGINS
-# behavior unchanged (default "*") -- no behavior change for local/offline
-# use (Hard Rule 2).
-if os.environ.get("SKETCHSCAPE_AUTH_MODE", "mock").strip().lower() in ("clerk", "demo"):
-    _cors_origins = web_origins()
-    _cors_headers = ["Authorization", "Content-Type", "X-SketchScape-Dev-User"]
-else:
-    _cors_origins = os.environ.get("SKETCHSCAPE_ALLOWED_ORIGINS", "*").split(",")
-    _cors_headers = ["*"]
+def cors_settings(mode: str | None = None) -> tuple[list[str], list[str]]:
+    """CORS (origins, headers) for ``mode`` (default: the current env var).
+
+    Extracted as a pure function so its exact logic is independently
+    testable: ``app.add_middleware(CORSMiddleware, ...)`` below runs exactly
+    once, at import time, so a test that later patches
+    ``SKETCHSCAPE_AUTH_MODE``/``SKETCHSCAPE_WEB_ORIGINS`` and replays a
+    request through this same ``app`` can never observe a different live
+    CORS configuration -- unlike identity/membership checks, which do read
+    the environment per-request. A test instead calls this function directly
+    with the origins it wants to verify and drives a real preflight against a
+    fresh ``CORSMiddleware`` built from its result (see
+    ``test_auth.CorsPreflightTests``).
+
+    In `clerk` and `demo` mode, only the configured web origin(s) may call
+    this API, and bearer/header auth (not cookies) carries identity, so
+    credentialed CORS isn't needed. `mock` mode keeps today's
+    SKETCHSCAPE_ALLOWED_ORIGINS behavior unchanged (default "*") -- no
+    behavior change for local/offline use (Hard Rule 2).
+    """
+    resolved_mode = (mode if mode is not None else os.environ.get("SKETCHSCAPE_AUTH_MODE", "mock")).strip().lower()
+    if resolved_mode in ("clerk", "demo"):
+        return web_origins(), ["Authorization", "Content-Type", "X-SketchScape-Dev-User"]
+    return os.environ.get("SKETCHSCAPE_ALLOWED_ORIGINS", "*").split(","), ["*"]
+
+
+_cors_origins, _cors_headers = cors_settings()
 
 app.add_middleware(
     CORSMiddleware,
@@ -1802,6 +1824,328 @@ async def list_project_publications(project_id: str) -> list[PublicationRecord]:
     """Return the append-only publication history for a project."""
     get_project(project_id)
     return store.list_publications(project_id)
+
+
+# -- the room API (Build Plan step 21) ----------------------------------------
+#
+# The only backend surface a shipped Unity player may call for collaborative
+# edits (AGENT.md Hard Rule 4). Headsets authenticate the same way the website
+# does -- the X-SketchScape-Dev-User account header, no room token, no Clerk
+# session (decision 2026-09-26; see collab-vr-accounts-and-gates and
+# room-api-and-ownership). require_project_read/require_project_write already
+# give this route the exact access rule the skill specifies: a project member
+# or a service may GET /state; only a member (never a service) may POST
+# /edits.
+
+
+class RoomObjectView(BaseModel):
+    """One object in a room's live state, from a headset's point of view."""
+
+    id: str
+    asset_id: str
+    position: list[float]
+    rotation: list[float]
+    scale: list[float]
+    interactions: list[str]
+    owner_contributor_id: str | None = None
+    editable_by_me: bool = False
+
+
+class RoomStateResponse(BaseModel):
+    project_id: str
+    live_revision: int
+    objects: list[RoomObjectView]
+    # asset_id -> artifact URL (e.g. "/v1/artifacts/{job_id}/{filename}"), so a
+    # headset can fetch every object's PLY with the exact same account header
+    # or service token it used for this request -- no separate credential.
+    artifact_urls: dict[str, str] = Field(default_factory=dict)
+    experience: ExperienceSettings
+    environment: EnvironmentSettings
+    navigation: NavigationSettings
+
+
+class RoomEdit(BaseModel):
+    """One object's absolute new transform. Only the fields that are set are
+    applied and interaction-checked; omitted fields leave that axis alone."""
+
+    object_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
+    position: list[float] | None = Field(default=None, min_length=3, max_length=3)
+    rotation: list[float] | None = Field(default=None, min_length=3, max_length=3)
+    scale: list[float] | None = Field(default=None, min_length=3, max_length=3)
+
+
+class RoomEditRequest(BaseModel):
+    base_revision: int = Field(ge=0)
+    client_edit_id: str = Field(min_length=1, max_length=100)
+    edits: list[RoomEdit] = Field(min_length=1, max_length=20)
+
+
+# Sliding-window, in-process rate limiters (Build Plan step 21). Keyed by
+# identity.user_id, separate buckets for the cheap polling read vs. the
+# heavier, revision-checked write, per the room-api-and-ownership skill. A
+# multi-instance deployment will need a shared limiter (e.g. Redis/DynamoDB);
+# noted here rather than built, since this API still runs as one process.
+_ROOM_EDIT_RATE_LIMIT_WINDOW_SECONDS = 1.0
+_ROOM_EDIT_RATE_LIMIT_MAX_CALLS = 5
+_room_edit_call_times: dict[str, list[float]] = {}
+_ROOM_STATE_RATE_LIMIT_WINDOW_SECONDS = 1.0
+_ROOM_STATE_RATE_LIMIT_MAX_CALLS = 20
+_room_state_call_times: dict[str, list[float]] = {}
+
+
+def _check_rate_limit(
+    buckets: dict[str, list[float]], key: str, window_seconds: float, max_calls: int, detail: str
+) -> None:
+    now = time.monotonic()
+    cutoff = now - window_seconds
+    calls = buckets.setdefault(key, [])
+    while calls and calls[0] < cutoff:
+        calls.pop(0)
+    if len(calls) >= max_calls:
+        raise HTTPException(429, detail)
+    calls.append(now)
+
+
+def check_room_edit_rate_limit(user_id: str) -> None:
+    _check_rate_limit(
+        _room_edit_call_times,
+        user_id,
+        _ROOM_EDIT_RATE_LIMIT_WINDOW_SECONDS,
+        _ROOM_EDIT_RATE_LIMIT_MAX_CALLS,
+        "Too many room edits; slow down and retry shortly.",
+    )
+
+
+def check_room_state_rate_limit(user_id: str) -> None:
+    _check_rate_limit(
+        _room_state_call_times,
+        user_id,
+        _ROOM_STATE_RATE_LIMIT_WINDOW_SECONDS,
+        _ROOM_STATE_RATE_LIMIT_MAX_CALLS,
+        "Too many room-state polls; slow down and retry shortly.",
+    )
+
+
+def _room_object_views(project_id: str, blueprint: ExperienceBlueprint, owned: set[str]) -> list[RoomObjectView]:
+    contributions = {c.contribution_id: c for c in store.list_contributions(project_id)}
+    views: list[RoomObjectView] = []
+    for obj in blueprint.objects:
+        contribution = contributions.get(obj.contribution_id or "")
+        views.append(
+            RoomObjectView(
+                id=obj.id,
+                asset_id=obj.asset_id,
+                position=list(obj.position),
+                rotation=list(obj.rotation),
+                scale=list(obj.scale),
+                interactions=list(obj.interactions),
+                owner_contributor_id=contribution.contributor_id if contribution else None,
+                editable_by_me=obj.id in owned,
+            )
+        )
+    return views
+
+
+@app.get("/v1/rooms/{project_id}/state")
+async def get_room_state(
+    project_id: str,
+    request: Request,
+    since_revision: Annotated[int | None, Query(ge=0)] = None,
+    identity: Identity = Depends(require_project_read),
+) -> Response:
+    """A headset's (or the website's, or NemoClaw's) view of the live room.
+
+    404 if nothing is published yet. Supports cheap polling: an ETag over the
+    live revision, and ?since_revision=<N> as an equivalent alternative for a
+    client that can't easily read response headers -- either one short-
+    circuits to 304 when the room hasn't changed. Step 28 folds a
+    letter-state version into the ETag too; there are no letters yet.
+    """
+    check_room_state_rate_limit(identity.user_id)
+    project = get_project(project_id)
+    live_revision = store.get_live_revision(project_id)
+    if live_revision is None:
+        live_revision = project.published_revision
+    if live_revision is None:
+        raise HTTPException(404, "This project has no published blueprint.")
+
+    # The body is per-caller (editable_by_me), so the ETag must be too: one
+    # headset switching Account 1 -> Account 2 resends its old If-None-Match,
+    # and a revision-only tag would 304 it into keeping the other account's
+    # edit rights. ?since_revision has no identity in it, so a client must
+    # drop it after an account switch (documented in room-api-and-ownership).
+    etag = f'"{project_id}:{live_revision}:{identity.user_id}"'
+    if request.headers.get("if-none-match") == etag or since_revision == live_revision:
+        return Response(status_code=304, headers={"ETag": etag})
+
+    blueprint = await get_blueprint(project_id, live_revision)
+    owned = owned_object_ids(project_id, identity.user_id, blueprint)
+    objects = _room_object_views(project_id, blueprint, owned)
+    artifact_urls = {
+        obj.asset_id: store.get_asset(obj.asset_id).artifact_url
+        for obj in blueprint.objects
+        if store.get_asset(obj.asset_id) and store.get_asset(obj.asset_id).artifact_url
+    }
+    body = RoomStateResponse(
+        project_id=project_id,
+        live_revision=live_revision,
+        objects=objects,
+        artifact_urls=artifact_urls,
+        experience=blueprint.experience,
+        environment=blueprint.environment,
+        navigation=blueprint.navigation,
+    )
+    return JSONResponse(content=body.model_dump(mode="json"), headers={"ETag": etag})
+
+
+def _validate_finite_vector(values: list[float], label: str) -> None:
+    for value in values:
+        if not math.isfinite(value):
+            raise HTTPException(422, f"{label} must contain finite numbers.")
+
+
+def _validate_bounded_vector(values: list[float], low: float, high: float, label: str) -> None:
+    _validate_finite_vector(values, label)
+    if any(v < low or v > high for v in values):
+        raise HTTPException(422, f"{label} must be within [{low}, {high}] on every axis.")
+
+
+@app.post("/v1/rooms/{project_id}/edits", status_code=201)
+async def submit_room_edits(
+    project_id: str,
+    request: RoomEditRequest,
+    identity: Identity = Depends(require_project_write),
+) -> Response:
+    """Apply a bounded, ownership-checked set of absolute transforms.
+
+    ``require_project_write`` already rejects a service identity with 403
+    (NemoClaw never calls this -- it drafts through the authoring API and a
+    person approves the publish; see top-tier-nemoclaw-tool-design), so by the
+    time this body runs, ``identity`` is always a person's account header.
+
+    Server order (room-api-and-ownership): idempotency, ownership, allowed
+    interactions, bounds, staleness, then one conditional append + LIVE
+    pointer compare-and-set. Values are absolute, so a retried call with the
+    same ``client_edit_id`` is harmless either way.
+    """
+    check_room_edit_rate_limit(identity.user_id)
+    get_project(project_id)
+    author = author_from_identity(identity)
+
+    # 1. Idempotency: a previous call with this author + client_edit_id already
+    # landed a revision -- replay it rather than re-applying (or 409ing on) it.
+    for existing in store.list_blueprints(project_id):
+        if existing.client_edit_id == request.client_edit_id and existing.author == author:
+            live_now = store.get_live_revision(project_id) or 0
+            return JSONResponse(
+                status_code=200, content={"revision": existing.revision, "live_revision": live_now}
+            )
+
+    live_revision = store.get_live_revision(project_id)
+    if live_revision is None:
+        raise HTTPException(404, "This project has no published blueprint.")
+    live_blueprint = await get_blueprint(project_id, live_revision)
+
+    # 2. Ownership.
+    owned = owned_object_ids(project_id, identity.user_id, live_blueprint)
+    object_map = {obj.id: obj for obj in live_blueprint.objects}
+    unknown_ids = sorted({edit.object_id for edit in request.edits} - set(object_map))
+    if unknown_ids:
+        raise HTTPException(422, f"Unknown object id(s): {', '.join(unknown_ids)}")
+    not_owned = sorted({edit.object_id for edit in request.edits} - owned)
+    if not_owned:
+        raise HTTPException(403, f"Not editable by you: {', '.join(not_owned)}")
+
+    # 3-4. Interaction allowlist + bounds, applied to copies of the live objects.
+    updated_objects = {obj_id: obj.model_copy(deep=True) for obj_id, obj in object_map.items()}
+    for edit in request.edits:
+        if edit.position is None and edit.rotation is None and edit.scale is None:
+            raise HTTPException(422, f"{edit.object_id}: set at least one of position/rotation/scale.")
+        target = updated_objects[edit.object_id]
+        if edit.position is not None:
+            if "translate" not in target.interactions:
+                raise HTTPException(422, f"{edit.object_id} does not allow translate.")
+            _validate_bounded_vector(edit.position, -100.0, 100.0, f"{edit.object_id}.position")
+            target.position = list(edit.position)
+        if edit.rotation is not None:
+            if "rotate" not in target.interactions:
+                raise HTTPException(422, f"{edit.object_id} does not allow rotate.")
+            _validate_finite_vector(edit.rotation, f"{edit.object_id}.rotation")
+            target.rotation = [value % 360.0 for value in edit.rotation]
+        if edit.scale is not None:
+            if "scale" not in target.interactions:
+                raise HTTPException(422, f"{edit.object_id} does not allow scale.")
+            _validate_bounded_vector(edit.scale, 0.05, 20.0, f"{edit.object_id}.scale")
+            target.scale = list(edit.scale)
+
+    # 5. Staleness.
+    if request.base_revision != live_revision:
+        return JSONResponse(status_code=409, content={"live_revision": live_revision})
+
+    # 6. Copy the LIVE blueprint (never the latest draft) with only these
+    # transforms applied, validate, and append with a conditional write.
+    new_input = ExperienceBlueprintInput(
+        experience=live_blueprint.experience,
+        environment=live_blueprint.environment,
+        objects=list(updated_objects.values()),
+        portals=live_blueprint.portals,
+        navigation=live_blueprint.navigation,
+    )
+    project = get_project(project_id)
+    validate_blueprint_assets(project, new_input)
+
+    new_revision: ExperienceBlueprint | None = None
+    last_error: RevisionConflict | None = None
+    for _ in range(_MAX_BLUEPRINT_APPEND_ATTEMPTS):
+        revisions = store.list_blueprints(project_id)
+        candidate = ExperienceBlueprint(
+            **new_input.model_dump(),
+            project_id=project_id,
+            revision=len(revisions) + 1,
+            created_at=utc_now(),
+            based_on_revision=request.base_revision,
+            author=author,
+            client_edit_id=request.client_edit_id,
+        )
+        try:
+            store.append_blueprint(candidate)
+        except RevisionConflict as error:
+            last_error = error
+            continue
+        new_revision = candidate
+        break
+    if new_revision is None:
+        raise HTTPException(
+            409,
+            f"Could not append a room-edit revision after {_MAX_BLUEPRINT_APPEND_ATTEMPTS} "
+            f"attempts (too many concurrent writers); retry. Last conflict: {last_error}",
+        )
+    project.blueprint_revisions.append(new_revision.revision)
+    project.updated_at = utc_now()
+    store.save_project(project)
+
+    # 7. LIVE pointer compare-and-set -- 409 if someone else published between
+    # our staleness check above and this append.
+    if not store.set_live_revision(project_id, request.base_revision, new_revision.revision):
+        latest = store.get_live_revision(project_id)
+        return JSONResponse(status_code=409, content={"live_revision": latest if latest is not None else 0})
+
+    # Keep the legacy last-write-wins cache in sync, matching publish_blueprint.
+    project.published_revision = new_revision.revision
+    project.updated_at = utc_now()
+    store.save_project(project)
+
+    store.append_publication(
+        PublicationRecord(
+            project_id=project_id, revision=new_revision.revision, published_at=utc_now(), author=author
+        )
+    )
+    global current_scene
+    current_scene = compile_blueprint(new_revision)
+
+    return JSONResponse(
+        status_code=201, content={"revision": new_revision.revision, "live_revision": new_revision.revision}
+    )
 
 
 @app.get(

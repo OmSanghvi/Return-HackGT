@@ -63,7 +63,9 @@ The website and NemoClaw may call `GET /state` too.
 - **Cheap polling:** `?since_revision=N` plus an `ETag` over (live
   revision, letter-state version). Return `304` when unchanged. Use a
   separate, generous rate-limit bucket for this read. Step 28 adds
-  `letters[]` to the response.
+  `letters[]` to the response. The ETag also includes the caller's account,
+  because `editable_by_me` differs per account. `since_revision` doesn't
+  include it, so a headset must stop sending it after an account switch.
 
 ### `POST /v1/rooms/{project_id}/edits`
 
