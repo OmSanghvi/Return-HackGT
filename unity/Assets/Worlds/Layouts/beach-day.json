@@ -1,0 +1,52 @@
+{
+  "roomId": "beach-day",
+  "sceneName": "BeachDay",
+  "sky": true,
+  "props": [
+    { "prop": "primitive/plane", "name": "Sand", "size": [50, 0, 50], "color": "#f2d9a3", "pos": [0, 0, 10] },
+    { "prop": "primitive/plane", "name": "ShallowWater", "size": [50, 0, 6], "color": "#7fd0d9", "pos": [0, 0.05, 13] },
+    { "prop": "primitive/plane", "name": "Ocean", "size": [50, 0, 26], "color": "#1f6f9c", "pos": [0, 0.1, 28] },
+
+    { "prop": "pirate-kit/structure-platform-dock", "name": "Dock1", "pos": [6, 0, 9] },
+    { "prop": "pirate-kit/structure-platform-dock", "name": "Dock2", "pos": [6, 0, 11.4] },
+    { "prop": "pirate-kit/structure-platform-dock", "name": "Dock3", "pos": [6, 0, 13.8] },
+    { "prop": "pirate-kit/structure-platform-dock", "name": "Dock4", "pos": [6, 0, 16.2] },
+    { "prop": "pirate-kit/structure-platform-dock", "name": "Dock5", "pos": [6, 0, 18.6] },
+    { "prop": "pirate-kit/structure-platform-dock", "name": "Dock6", "pos": [6, 0, 21] },
+
+    { "prop": "pirate-kit/boat-row-large", "name": "Rowboat", "pos": [8.5, 0.1, 17], "yaw": 15 },
+
+    { "prop": "pirate-kit/palm-straight", "pos": [-11, 0, 4], "yaw": 20 },
+    { "prop": "pirate-kit/palm-bend", "pos": [-13, 0, 7], "yaw": 340 },
+    { "prop": "pirate-kit/palm-detailed-straight", "pos": [-9, 0, 9], "yaw": 80 },
+    { "prop": "pirate-kit/palm-straight", "pos": [10, 0, 3], "yaw": 200 },
+    { "prop": "pirate-kit/palm-detailed-bend", "pos": [12, 0, 6], "yaw": 150 },
+    { "prop": "pirate-kit/palm-bend", "pos": [13, 0, 9], "yaw": 100 },
+    { "prop": "pirate-kit/palm-straight", "pos": [-9, 0, -3], "yaw": 0 },
+    { "prop": "pirate-kit/palm-bend", "pos": [9, 0, -3], "yaw": 0 },
+
+    { "prop": "pirate-kit/patch-sand", "pos": [-7, 0, 7] },
+    { "prop": "pirate-kit/rocks-sand-c", "pos": [8, 0, 1.5], "yaw": 30, "scale": 0.5 },
+    { "prop": "pirate-kit/patch-sand-foliage", "pos": [5, 0, 9] },
+
+    { "prop": "primitive/cylinder", "name": "UmbrellaPole", "size": [0.1, 1.8, 0.1], "color": "#8a5a34", "pos": [-4, 0, 5] },
+    { "prop": "primitive/sphere", "name": "UmbrellaCanopy", "size": [2.4, 0.6, 2.4], "color": "#d9483d", "pos": [-4, 1.6, 5] },
+
+    { "prop": "primitive/cube", "name": "Towel1", "size": [1.6, 0.03, 0.8], "color": "#3b7fc4", "pos": [-4.8, 0, 6.6], "yaw": 10 },
+    { "prop": "primitive/cube", "name": "Towel2", "size": [1.6, 0.03, 0.8], "color": "#e0c93f", "pos": [-2.3, 0, 6.4], "yaw": 350 },
+    { "prop": "primitive/cube", "name": "Towel3", "size": [1.4, 0.03, 0.7], "color": "#e07f3f", "pos": [-6.4, 0, 5.2], "yaw": 80 },
+
+    { "prop": "pirate-kit/crate", "name": "Cooler", "pos": [-6.5, 0, 3.5], "yaw": 15 },
+    { "prop": "pirate-kit/barrel", "pos": [7.5, 0, 5.5], "yaw": 0 },
+
+    { "prop": "furniture-kit/loungeChair", "pos": [-4.8, 0, 3.2], "yaw": 10 },
+    { "prop": "furniture-kit/loungeChair", "pos": [-2.8, 0, 3], "yaw": 350 },
+
+    { "prop": "pirate-kit/grass-patch", "pos": [-3, 0, -4] },
+    { "prop": "pirate-kit/grass-plant", "pos": [2, 0, -3.5] },
+    { "prop": "pirate-kit/grass-patch", "pos": [4, 0, -5], "yaw": 40 },
+    { "prop": "pirate-kit/grass", "pos": [-1, 0, -3] },
+    { "prop": "pirate-kit/grass-plant", "pos": [-5, 0, -6], "yaw": 60 },
+    { "prop": "pirate-kit/patch-grass-foliage", "pos": [0, 0, -6] }
+  ]
+}

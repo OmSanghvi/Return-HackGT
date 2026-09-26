@@ -414,6 +414,12 @@ MonoBehaviour:
   worldMap:
   - roomId: lake-house
     sceneName: LakeHouse
+  - roomId: beach-day
+    sceneName: BeachDay
+  - roomId: night-hike
+    sceneName: NightHike
+  - roomId: cabin-weekend
+    sceneName: CabinWeekend
   fadeSeconds: 1.1
   persist: 1
 --- !u!4 &305002889

@@ -1,0 +1,182 @@
+{
+  "roomId": "lake-house",
+  "sceneName": "LakeHouse",
+  "sky": true,
+  "props": [
+    {
+      "prop": "primitive/plane",
+      "name": "Ground",
+      "size": [
+        80,
+        0,
+        80
+      ],
+      "color": "#6f8f4a",
+      "pos": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "prop": "primitive/plane",
+      "name": "Lake",
+      "size": [
+        60,
+        0,
+        30
+      ],
+      "color": "#3b7fa8",
+      "pos": [
+        0,
+        0.05,
+        23
+      ]
+    },
+    {
+      "prop": "pirate-kit/structure-platform-dock",
+      "name": "Dock",
+      "pos": [
+        3,
+        0,
+        8.5
+      ]
+    },
+    {
+      "prop": "nature-kit/canoe",
+      "name": "Canoe",
+      "pos": [
+        5.5,
+        0.05,
+        10
+      ],
+      "yaw": 10
+    },
+    {
+      "prop": "nature-kit/tree_oak",
+      "pos": [
+        -6,
+        0,
+        3
+      ],
+      "yaw": 40
+    },
+    {
+      "prop": "nature-kit/tree_pineTallA",
+      "pos": [
+        -9,
+        0,
+        6
+      ]
+    },
+    {
+      "prop": "nature-kit/tree_pineTallB",
+      "pos": [
+        8,
+        0,
+        4
+      ],
+      "yaw": 120
+    },
+    {
+      "prop": "nature-kit/tree_oak",
+      "pos": [
+        10,
+        0,
+        1
+      ],
+      "yaw": 200,
+      "scale": 1.2
+    },
+    {
+      "prop": "nature-kit/tree_pineRoundA",
+      "pos": [
+        -4,
+        0,
+        -6
+      ]
+    },
+    {
+      "prop": "nature-kit/tree_detailed",
+      "pos": [
+        5,
+        0,
+        -7
+      ],
+      "yaw": 70
+    },
+    {
+      "prop": "nature-kit/rock_largeA",
+      "pos": [
+        -3.5,
+        0,
+        7
+      ],
+      "yaw": 30,
+      "scale": 0.5
+    },
+    {
+      "prop": "nature-kit/rock_smallC",
+      "pos": [
+        1,
+        0,
+        6.5
+      ]
+    },
+    {
+      "prop": "nature-kit/campfire_stones",
+      "name": "Campfire",
+      "pos": [
+        -2,
+        0,
+        2.5
+      ],
+      "scale": 0.5
+    },
+    {
+      "prop": "furniture-kit/loungeChair",
+      "pos": [
+        -3.6,
+        0,
+        4.2
+      ],
+      "yaw": 15
+    },
+    {
+      "prop": "furniture-kit/loungeChair",
+      "pos": [
+        -1.4,
+        0,
+        4.2
+      ],
+      "yaw": -15
+    },
+    {
+      "prop": "nature-kit/flower_yellowA",
+      "pos": [
+        1.5,
+        0,
+        2
+      ],
+      "scale": 0.35
+    },
+    {
+      "prop": "nature-kit/flower_purpleB",
+      "pos": [
+        2.2,
+        0,
+        3.1
+      ],
+      "scale": 0.35
+    },
+    {
+      "prop": "nature-kit/grass_large",
+      "pos": [
+        -1.5,
+        0,
+        5
+      ],
+      "scale": 0.35
+    }
+  ]
+}

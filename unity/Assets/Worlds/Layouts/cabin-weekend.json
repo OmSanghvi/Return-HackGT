@@ -1,0 +1,63 @@
+{
+  "roomId": "cabin-weekend",
+  "sceneName": "CabinWeekend",
+  "sky": true,
+  "props": [
+    { "prop": "primitive/plane", "name": "Ground", "size": [80, 0, 80], "color": "#e8eef1", "pos": [0, 0, 0] },
+    { "prop": "primitive/plane", "name": "SnowyPath", "size": [1.4, 0, 5.5], "color": "#a79f92", "pos": [0, 0.1, 3.5] },
+    { "prop": "primitive/cube", "name": "Porch", "size": [4.4, 0.15, 2.2], "color": "#8a5a34", "pos": [0, 0, 6.9] },
+
+    { "prop": "primitive/cube", "name": "CabinBackWall", "size": [6, 2.6, 0.3], "color": "#6b4a34", "pos": [0, 0, 12] },
+    { "prop": "primitive/cube", "size": [0.3, 2.6, 4], "color": "#6b4a34", "pos": [-3, 0, 10] },
+    { "prop": "primitive/cube", "size": [0.3, 2.6, 4], "color": "#6b4a34", "pos": [3, 0, 10] },
+    { "prop": "primitive/cube", "size": [2.5, 2.6, 0.3], "color": "#6b4a34", "pos": [-1.75, 0, 8] },
+    { "prop": "primitive/cube", "size": [2.5, 2.6, 0.3], "color": "#6b4a34", "pos": [1.75, 0, 8] },
+    { "prop": "furniture-kit/doorwayFront", "name": "FrontDoor", "pos": [0, 0.15, 8], "yaw": 180 },
+
+    { "prop": "primitive/cube", "name": "Roof", "size": [6.6, 0.3, 4.6], "color": "#4a2f27", "pos": [0, 2.6, 10] },
+    { "prop": "primitive/cube", "size": [6.2, 0.15, 4.4], "color": "#eef3f5", "pos": [0, 2.9, 10] },
+    { "prop": "primitive/cube", "name": "Chimney", "size": [0.6, 1.0, 0.6], "color": "#6b6b6b", "pos": [1.8, 3.05, 10.5] },
+
+    { "prop": "furniture-kit/bench", "name": "PorchBench", "pos": [-1.5, 0.15, 7.6], "yaw": 180 },
+    { "prop": "furniture-kit/chair", "pos": [1.0, 0.15, 6.3], "yaw": 170 },
+    { "prop": "furniture-kit/chair", "pos": [1.9, 0.15, 6.3], "yaw": 190 },
+
+    { "prop": "nature-kit/log_stack", "name": "FirewoodStack", "pos": [3.8, 0, 9], "yaw": 90 },
+    { "prop": "nature-kit/log_stack", "pos": [-3.8, 0, 9.5], "yaw": 90 },
+    { "prop": "nature-kit/log", "pos": [-3.6, 0, 7.8], "yaw": 20 },
+    { "prop": "nature-kit/log", "pos": [3.6, 0, 10.8], "yaw": -15 },
+
+    { "prop": "nature-kit/rock_smallC", "pos": [-2, 0, 4], "scale": 0.7 },
+    { "prop": "nature-kit/rock_smallA", "pos": [2.5, 0, 3], "scale": 0.6 },
+    { "prop": "nature-kit/rock_smallD", "pos": [-4.5, 0, 9], "scale": 0.8 },
+    { "prop": "nature-kit/rock_smallB", "pos": [4.5, 0, 8.5], "scale": 0.7 },
+
+    { "prop": "primitive/sphere", "size": [1.0, 0.5, 1.0], "color": "#f5f8fa", "pos": [-3.5, 0, 6.5] },
+    { "prop": "primitive/sphere", "size": [0.9, 0.45, 0.9], "color": "#f5f8fa", "pos": [3.3, 0, 10.3] },
+    { "prop": "primitive/sphere", "size": [0.8, 0.4, 0.8], "color": "#f5f8fa", "pos": [1.6, 0, 4.7] },
+
+    { "prop": "nature-kit/tree_pineTallA", "pos": [-8, 0, 12], "yaw": 10 },
+    { "prop": "nature-kit/tree_pineTallB", "pos": [-11, 0, 16], "yaw": 200 },
+    { "prop": "nature-kit/tree_pineRoundA", "pos": [-6, 0, 18], "yaw": 60 },
+    { "prop": "nature-kit/tree_pineDefaultA", "pos": [-9, 0, 7], "yaw": 300 },
+    { "prop": "nature-kit/tree_pineTallC", "pos": [9, 0, 13], "yaw": 100 },
+    { "prop": "nature-kit/tree_pineRoundC", "pos": [12, 0, 17], "yaw": 250 },
+    { "prop": "nature-kit/tree_pineDefaultB", "pos": [7, 0, 7.5], "yaw": 30 },
+    { "prop": "nature-kit/tree_pineTallD", "pos": [6, 0, 20], "yaw": 150 },
+    { "prop": "nature-kit/tree_pineRoundB", "pos": [-4, 0, 22], "yaw": 80 },
+    { "prop": "nature-kit/tree_pineSmallA", "pos": [4, 0, 4.5], "yaw": 200 },
+
+    { "prop": "nature-kit/cliff_block_stone", "name": "Ridge", "pos": [-16, 0, 28] },
+    { "prop": "nature-kit/cliff_large_stone", "pos": [-8, 0, 30], "scale": 1.3 },
+    { "prop": "nature-kit/cliff_block_rock", "pos": [2, 0, 29] },
+    { "prop": "nature-kit/rock_tallA", "pos": [11, 0, 28], "scale": 1.4 },
+    { "prop": "nature-kit/cliff_large_rock", "pos": [18, 0, 30] },
+
+    { "prop": "nature-kit/tree_pineSmallB", "pos": [-9, 0, -2], "yaw": 45 },
+    { "prop": "nature-kit/tree_pineSmallC", "pos": [9, 0, -2], "yaw": 300 },
+    { "prop": "nature-kit/tree_pineRoundD", "pos": [-6, 0, 1], "yaw": 10 },
+    { "prop": "nature-kit/tree_pineRoundE", "pos": [6, 0, 1.5], "yaw": 340 },
+    { "prop": "nature-kit/rock_smallE", "pos": [-8, 0, -1], "scale": 0.8 },
+    { "prop": "nature-kit/rock_smallF", "pos": [8, 0, -1.5], "scale": 0.8 }
+  ]
+}
