@@ -1,0 +1,39 @@
+backend/.venv/
+backend/data/
+__pycache__/
+*.py[cod]
+
+# Secrets and developer-only configuration. Never put cloud, Hugging Face, or
+# worker credentials in a Unity project or source control.
+token.txt
+token*.txt
+*.token
+hf_token*
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.aws/
+
+# Python and notebook local state
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+.sam3d-fast-checkpoints/
+worker/.venv/
+worker/runtime/
+
+# Terraform state/plans contain account and infrastructure details.
+infra/aws/.terraform/
+infra/aws/.terraform.lock.hcl
+infra/aws/terraform.tfstate
+infra/aws/terraform.tfstate.*
+infra/aws/*.tfplan
+infra/aws/tfplan
+infra/aws/terraform.tfvars
+
+# Generated reconstruction files can be large and are never source assets.
+data/
+*.ply
+infra/aws/.terraform.tfstate.lock.info
