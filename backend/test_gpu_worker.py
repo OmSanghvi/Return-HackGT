@@ -95,6 +95,18 @@ class SegmentJobLeftQueuedUnderAwsLocalTests(unittest.TestCase):
             self.assertEqual(job.status, "queued")
             self.assertIsNone(job.error)
 
+    def test_reconstruct_job_is_left_for_the_dispatcher_not_pushed_by_the_api(self) -> None:
+        # Pushing from the API raced the dispatcher: three objects from one
+        # photo were submitted back to back and the worker 429'd the third.
+        from types import SimpleNamespace
+
+        from fastapi import BackgroundTasks
+
+        tasks = BackgroundTasks()
+        with _AwsLocalMode():
+            main.dispatch_job(SimpleNamespace(kind="reconstruct", job_id="j1"), tasks)
+        self.assertEqual(tasks.tasks, [])
+
 
 class InternalClaimAndLeaseRouteTests(unittest.TestCase):
     def _queued_segment_job(self, client: "TestClient") -> tuple[str, str, str]:

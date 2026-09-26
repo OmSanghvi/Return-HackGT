@@ -212,6 +212,10 @@ export function createUpload(
   return uploadFileWithProgress(`/v1/projects/${projectId}/uploads`, 'image', file, file.name, {}, onProgress);
 }
 
+export function listUploads(projectId: string): Promise<UploadRecord[]> {
+  return getJson(`/v1/projects/${projectId}/uploads`);
+}
+
 export function getUpload(projectId: string, uploadId: string): Promise<UploadRecord> {
   return getJson(`/v1/projects/${projectId}/uploads/${uploadId}`);
 }

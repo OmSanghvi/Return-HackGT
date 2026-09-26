@@ -85,6 +85,9 @@ SKETCHSCAPE_WORKER_STARTUP_TIMEOUT=600
 # step 27 (Hard Rule 5).
 SKETCHSCAPE_WORKER_ID=gpu-host-1
 SKETCHSCAPE_GPU_CONCURRENCY=1
+# The dispatcher hands SAM 3.1 image *paths*, and its unit has PrivateTmp=true,
+# so its work dir must live outside /tmp or SAM 3.1 can't see the files.
+SKETCHSCAPE_DISPATCHER_WORK_DIR=$APP_DIR/data/dispatcher
 SAM31_ENV_DIR=$SAM31_ENV_DIR
 SAM31_MODEL_DIR=$SAM31_MODEL_DIR
 SAM31_IMAGE_SIZE=$SAM31_IMAGE_SIZE

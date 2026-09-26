@@ -929,6 +929,15 @@ class S3ArtifactStoreContractTests(ArtifactStoreContractMixin, unittest.TestCase
         self.assertIn(_TEST_BUCKET_NAME, location)
         self.assertIn("artifacts/j1", location)
 
+    def test_serve_streams_png_images_instead_of_redirecting(self) -> None:
+        # Browsers can't follow the cross-origin S3 redirect with the auth
+        # header (the bucket has no CORS), so masks/previews come back inline.
+        _run(self.store.put("j1", "mask.png", _upload_file(b"PNGDATA", "mask.png"), size_limit=1024))
+        response = _run(self.store.serve("j1", "mask.png"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.body, b"PNGDATA")
+        self.assertEqual(response.media_type, "image/png")
+
     def test_put_upload_lands_under_the_uploads_prefix_not_artifacts(self) -> None:
         """Regression guard for the IAM-policy bug this task fixed in
         infra/aws/main.tf: uploads/ and artifacts/ are two distinct prefixes,

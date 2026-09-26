@@ -14,6 +14,7 @@ import {
   getUpload,
   listContributors,
   listProjectAssets,
+  listUploads,
   refineSelection,
   updateProject,
 } from '../api/client';
@@ -34,10 +35,15 @@ interface UploadEntry {
 
 const newSelectionId = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
-function statusTagFor(status: UploadSelection['status']) {
+function statusTagFor(status: UploadSelection['status'], assetStatus?: ProjectAsset['status']) {
   if (status === 'segmented') return <StatusTag status="ready">Found</StatusTag>;
   if (status === 'failed') return <StatusTag status="failed">Needs a fix</StatusTag>;
-  if (status === 'generated') return <StatusTag status="shared">Making 3D</StatusTag>;
+  if (status === 'generated') {
+    // A generated selection's own status never changes; its asset's does.
+    if (assetStatus === 'ready') return <StatusTag status="ready">3D ready</StatusTag>;
+    if (assetStatus === 'failed') return <StatusTag status="failed">3D failed</StatusTag>;
+    return <StatusTag status="shared">Making 3D</StatusTag>;
+  }
   return <StatusTag status="waiting">Looking...</StatusTag>;
 }
 
@@ -45,6 +51,7 @@ function SelectionRow({
   projectId,
   uploadId,
   selection,
+  assetStatus,
   checked,
   onToggleChecked,
   onChanged,
@@ -52,6 +59,7 @@ function SelectionRow({
   projectId: string;
   uploadId: string;
   selection: UploadSelection;
+  assetStatus?: ProjectAsset['status'];
   checked: boolean;
   onToggleChecked: () => void;
   onChanged: () => void;
@@ -89,7 +97,7 @@ function SelectionRow({
           <input type="checkbox" checked={checked} onChange={onToggleChecked} aria-label={`Include "${selection.prompt.text}" in Make 3D`} />
         )}
         <strong>{selection.prompt.text}</strong>
-        {statusTagFor(selection.status)}
+        {statusTagFor(selection.status, assetStatus)}
         {selection.score != null && <span className="rt-field-hint">score {selection.score.toFixed(2)}</span>}
         <button type="button" className="rt-chip-x" aria-label={`Delete ${selection.prompt.text}`} onClick={remove} disabled={busy}>
           <Icon name="x" size={12} strokeWidth={2.5} />
@@ -117,10 +125,12 @@ function SelectionRow({
 function UploadCard({
   projectId,
   upload,
+  assets,
   onChanged,
 }: {
   projectId: string;
   upload: UploadEntry;
+  assets: ProjectAsset[];
   onChanged: (uploadId: string) => void;
 }) {
   const [pendingNames, setPendingNames] = useState<{ text: string; memory: string }[]>([]);
@@ -282,6 +292,7 @@ function UploadCard({
               projectId={projectId}
               uploadId={upload.upload_id}
               selection={s}
+              assetStatus={assets.find((a) => a.asset_id === s.asset_id)?.status}
               checked={checked.has(s.selection_id)}
               onToggleChecked={() => toggle(s.selection_id)}
               onChanged={() => onChanged(upload.upload_id)}
@@ -294,12 +305,15 @@ function UploadCard({
 }
 
 function AssetCard({ asset }: { asset: ProjectAsset }) {
-  const previewPath = asset.preview_url ?? asset.artifact_url;
+  // Never the artifact itself: for a reconstruction that's a multi-MB .ply, not an image.
+  const previewPath = asset.preview_url ?? asset.mask_url;
   const preview = useAuthedImage(previewPath && previewPath.startsWith('/') ? previewPath : null);
   const status = asset.status === 'ready' ? 'ready' : asset.status === 'failed' ? 'failed' : 'developing';
   return (
     <div className="rt-card" style={{ position: 'relative', minHeight: 160 }}>
       {preview.url ? <img className="rt-img" src={preview.url} alt={asset.label} /> : <span className="rt-img rt-sky" />}
+      {/* Keeps the white title readable over a mostly-white mask preview. */}
+      <span className="rt-scrim-bottom" />
       <span className="rt-card-foot">
         <span className="rt-card-title">{asset.label}</span>
       </span>
@@ -369,10 +383,24 @@ export default function RealProjectPage() {
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const [proj, contribs, assetList] = await Promise.all([getProject(id), listContributors(id), listProjectAssets(id)]);
+      const [proj, contribs, assetList, uploadList] = await Promise.all([
+        getProject(id),
+        listContributors(id),
+        listProjectAssets(id),
+        listUploads(id),
+      ]);
       setProject(proj);
       setContributors(contribs);
       setAssets(assetList);
+      setUploads(
+        Object.fromEntries(
+          uploadList.map((rec) => [
+            rec.upload_id,
+            { upload_id: rec.upload_id, image_url: `/v1/projects/${id}/uploads/${rec.upload_id}/image`, width: rec.width, height: rec.height, selections: rec.selections },
+          ]),
+        ),
+      );
+      setUploadOrder(uploadList.map((rec) => rec.upload_id).reverse());
       setRoomPrompt(proj.room_prompt ?? '');
       rememberProject({ project_id: proj.project_id, name: proj.name });
       setError('');
@@ -507,7 +535,7 @@ export default function RealProjectPage() {
               <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={(e) => { void onFiles(e.target.files); e.target.value = ''; }} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-              {uploadOrder.map((uid) => uploads[uid] && <UploadCard key={uid} projectId={id} upload={uploads[uid]} onChanged={onChanged} />)}
+              {uploadOrder.map((uid) => uploads[uid] && <UploadCard key={uid} projectId={id} upload={uploads[uid]} assets={assets} onChanged={onChanged} />)}
               {uploadOrder.length === 0 && <p className="rt-field-hint">No photos yet. Add one to start.</p>}
             </div>
           </div>
