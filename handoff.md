@@ -8,6 +8,51 @@ The last session (`65c057b2-388a-42b5-a56f-ed1265d08877`) ran on a different
 Claude account, so it can't be resumed from the next one. This file is the
 handoff.
 
+## LATEST+1 (2026-09-26, night) — rooms now use the real 3D scans from AWS
+
+- **What happened:** the Muse Spark agent built
+  `Assets/SketchScape/AgentRooms/Lazy_Sunday.unity` from one prompt (session
+  `room-real-1`) using **real Fast-SAM3D Gaussian-splat scans**: cat, TV
+  remote control, pink blanket and tomato. Every object is grabbable, and
+  there are 4 teleport hotspots. Verified by a hierarchy dump (each object
+  has a `GsplatRenderer`) and an Editor screenshot.
+- **Getting the assets:** run `python scripts/sync_s3_assets_to_unity.py`
+  (after `aws login`; the account is `820672722003`, region `us-east-1`).
+  - It reads the catalog assets (`ASSET#…`) from DynamoDB
+    `sketchscape-authoring`.
+  - It keeps `ready` reconstructions with a real label (not "object"),
+    newest per label.
+  - It downloads `artifacts/<job>/reconstruction.ply` from
+    `sketchscape-artifacts-20260922133334256700000003`.
+  - It repairs non-finite opacity (the remote had 90 bad values).
+  - It writes the files to `HackGTUnity/Assets/SketchScape/AssetLibrary/`,
+    plus `config/nemoclaw/asset-catalog.json`.
+  - Then refresh the Unity AssetDatabase, and rerun
+    `scripts/nemoclaw-deploy-skills.sh` so the sandbox gets the catalog.
+  - 11 more ready scans are labeled only "object". Label them (in the
+    backend, or by looking at `uploads/<project>/<upload>/source.jpg`) to
+    make them usable.
+- **Room builder:** `compose_room` matches each object to the catalog, by
+  exact `asset_id` or by label words ("our cat Miso" → "cat"). Matches are
+  built as real splats; everything else stays a tinted cube. The plan's
+  `visual` field says which each object got. New CLI verb: `list_assets all`.
+- **Gotchas found (also in the bridge README Gotchas):**
+  - The scans are **Z-up**. With the Gsplat importer's default (RUB) frame,
+    the splat child is rotated +90° about X. This was checked with the
+    tomato stem, which ends up on top, the blanket, which lies flat, and a
+    screenshot.
+  - `Unity_RunCommand` can't reference the Gsplat assembly, so the
+    generated C# reaches `Gsplat.GsplatRenderer` through reflection.
+  - Unity's MCP capture tools and a manual `Camera.Render()` don't draw
+    splats. To check visually, frame the Scene View and take a desktop
+    screenshot.
+  - `GetInstanceID()` is a compile error on Unity 6.6. Use `GetEntityId()`
+    or log the object itself.
+- **Oops:** an orientation-check cleanup saved the active scene, which was
+  still `Smoke_Test.unity` after the user had deleted its file. That save
+  recreated the file. Delete `Assets/SketchScape/AgentRooms/Smoke_Test.unity`
+  again (and `Real_Scan_Check.unity`, a manual test room), by hand.
+
 ## LATEST (2026-09-26, late evening) — Muse Spark agent builds Quest rooms in Unity end-to-end
 
 This supersedes "What's about to happen" in START HERE below. Items 1–3

@@ -171,6 +171,23 @@ spends Unity AI credits.
 - `AssetDatabase.DeleteAsset` through `Unity_RunCommand` is refused ("User
   interactions are not supported for MCP tool calls"). Delete assets by hand
   in the Editor.
+- **Real splat scans are Z-up.** Fast-SAM3D PLYs synced by
+  `scripts/sync_s3_assets_to_unity.py` import with Gsplat's default (RUB)
+  frame. Rotate the splat +90° about X to stand them up without mirroring;
+  `backend/unity_room.py` does this.
+- `Unity_RunCommand` code can't reference the Gsplat assembly (CS0246). Use
+  reflection: `System.Type.GetType("Gsplat.GsplatRenderer, Gsplat")`, then
+  the `GsplatAsset` and `Bounds` fields. The command sandbox also rejects
+  `System.Reflection.BindingFlags`, so stick to public members.
+- Unity's MCP capture tools (`Unity_Camera_Capture`,
+  `…CaptureMultiAngleSceneView`) and a manual `Camera.Render()` don't draw
+  Gaussian splats. To check them visually, frame the Scene View and take a
+  desktop screenshot.
+- `Object.GetInstanceID()` is a compile error on Unity 6.6. Use
+  `GetEntityId()`, or log the object with `result.Log("{0}", obj)`.
+- Don't call `EditorSceneManager.SaveScene` on "whatever is active" in a
+  cleanup step. It will re-create a scene file the user deleted while that
+  scene was still open.
 - The `DENIED DELETE …/mcp/` line in `openshell logs` at the end of an
   agent turn is the MCP session teardown, which the policy doesn't allow.
   It's harmless.

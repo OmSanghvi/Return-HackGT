@@ -92,6 +92,44 @@ class ComposeRoomTests(unittest.TestCase):
             ur.room_finalize_command("../escape")
 
 
+_CATALOG = [
+    {"label": "cat", "asset_id": "eebc0a58aaaa", "unity_path": "Assets/SketchScape/AssetLibrary/cat_eebc0a58.ply"},
+    {"label": "remote control", "asset_id": "fa48cc2dbbbb", "unity_path": "Assets/SketchScape/AssetLibrary/remote_control_fa48cc2d.ply"},
+]
+
+
+class RealAssetTests(unittest.TestCase):
+    def test_matches_by_label_words_or_exact_asset_id(self) -> None:
+        objects = [
+            {"asset_id": "a1", "label": "our cats Miso"},
+            {"asset_id": "a2", "label": "the old TV remote control"},
+            {"asset_id": "a3", "label": "remote"},  # partial label: no match
+            {"asset_id": "fa48cc2dbbbb", "label": "clicker"},
+            {"asset_id": "a5", "label": "concatenated"},  # substring, not a word: no match
+        ]
+        labels = [m and m["label"] for m in ur.match_catalog(objects, _CATALOG)]
+        self.assertEqual(labels, ["cat", "remote control", None, "remote control", None])
+
+    def test_matched_objects_build_real_splats_and_others_cubes(self) -> None:
+        plan = ur.compose_room(
+            [{"asset_id": "a1", "label": "cat"}, {"asset_id": "a2", "label": "guitar"}],
+            room_name="Room", catalog=_CATALOG,
+        )
+        code = plan["build_code"]
+        self.assertIn('"Assets/SketchScape/AssetLibrary/cat_eebc0a58.ply"', code)
+        self.assertIn('Place(result, root, "guitar_1", "a2", "",', code)
+        self.assertIn("Gsplat.GsplatRenderer, Gsplat", code)  # reflection: RunCommand can't reference Gsplat
+        self.assertIn("Quaternion.Euler(90f, 0f, 0f)", code)  # Z-up scans -> Unity Y-up
+        self.assertEqual([o["visual"].split(" (")[0] for o in plan["objects"]], ["real 3D scan", "placeholder cube"])
+        self.assertIn("1 of them real 3D scans", plan["summary"])
+
+    def test_missing_catalog_file_means_all_placeholders(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(ur.load_catalog(str(Path(tmp) / "none.json")), [])
+        plan = ur.compose_room([{"asset_id": "a1", "label": "cat"}], room_name="Room", catalog=[])
+        self.assertNotIn("AssetLibrary", plan["build_code"])
+
+
 class CliTests(unittest.TestCase):
     # OpenClaw truncates tool results at 16k characters (including its own
     # wrapper), so every CLI output must stay well under that for 8 objects.

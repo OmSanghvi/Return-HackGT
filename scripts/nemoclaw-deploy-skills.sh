@@ -2,7 +2,8 @@
 # Deploy the SketchScape OpenClaw skills (with the backend tools they shell
 # out to) into a NemoClaw sandbox. Run inside WSL. Idempotent: rerun after a
 # sandbox rebuild or whenever backend/scene_tools.py or backend/unity_room.py
-# change.
+# change, or after scripts/sync_s3_assets_to_unity.py refreshes the asset
+# catalog.
 #
 #   bash scripts/nemoclaw-deploy-skills.sh [sandbox]   # default: sketchscape
 set -euo pipefail
@@ -24,6 +25,11 @@ for skill in sketchscape-scene-tools sketchscape-unity-room; do
   sed "s|{baseDir}|$SKILLS_ROOT/$skill|g" "$REPO/config/nemoclaw/skills/$skill/SKILL.md" > "$dir/SKILL.md"
   for f in "${BACKEND_FILES[@]}"; do cp "$REPO/backend/$f" "$dir/backend/"; done
   cp "$REPO/shared/experience-blueprint.schema.json" "$dir/shared/"
+  # Real 3D scans available in Unity (scripts/sync_s3_assets_to_unity.py).
+  if [[ -f "$REPO/config/nemoclaw/asset-catalog.json" ]]; then
+    mkdir -p "$dir/config/nemoclaw"
+    cp "$REPO/config/nemoclaw/asset-catalog.json" "$dir/config/nemoclaw/"
+  fi
   echo "== installing $skill"
   nemoclaw "$SANDBOX" skill install "$dir"
 done

@@ -108,6 +108,14 @@
       "approval_required": true,
       "approval_reason": "Changes what the guide says to everyone in the room.",
       "implementation_status": "target"
+    },
+    {
+      "id": "asset.sync_to_unity",
+      "method": "LOCAL_SCRIPT",
+      "path": "scripts/sync_s3_assets_to_unity.py",
+      "purpose": "Pull ready, labeled Fast-SAM3D reconstructions (newest per label) from DynamoDB + S3 into HackGTUnity/Assets/SketchScape/AssetLibrary, repairing non-finite opacity, and write config/nemoclaw/asset-catalog.json.",
+      "approval_required": false,
+      "implementation_status": "implemented (run 2026-09-26: 4 assets)"
     }
   ],
   "nemoclaw_agent_tools": [
@@ -162,11 +170,11 @@
     {
       "id": "scene.compose_unity_room",
       "method": "LOCAL_SCRIPT",
-      "path": "backend/unity_room_cli.py compose_room | build_code | finalize_code (installed in the NemoClaw sandbox as the sketchscape-unity-room OpenClaw skill, config/nemoclaw/skills/sketchscape-unity-room/SKILL.md; deploy with scripts/nemoclaw-deploy-skills.sh)",
-      "purpose": "Build Plan steps 4 + 6, Unity write path: callable name compose_room(objects, connection_insight?, room_name?). Runs place_objects_in_scene + stage_immersive_reveal, then emits the Unity_RunCommand C# that builds the room in its own scene (mood lighting, tinted placeholder cubes, glow, light-path motif) and the ordered Meta XR calls (camera rig, interaction rig, grabbable per object, teleport hotspots), then a finalize script that saves and reports real Editor state.",
+      "path": "backend/unity_room_cli.py compose_room | build_code | finalize_code | list_assets (installed in the NemoClaw sandbox as the sketchscape-unity-room OpenClaw skill, config/nemoclaw/skills/sketchscape-unity-room/SKILL.md; deploy with scripts/nemoclaw-deploy-skills.sh)",
+      "purpose": "Build Plan steps 4 + 6, Unity write path: callable name compose_room(objects, connection_insight?, room_name?). Runs place_objects_in_scene + stage_immersive_reveal, then emits the Unity_RunCommand C# that builds the room in its own scene (mood lighting, tinted placeholder cubes, glow, light-path motif) and the ordered Meta XR calls (camera rig, interaction rig, grabbable per object, teleport hotspots), then a finalize script that saves and reports real Editor state. Objects matching a real scan in config/nemoclaw/asset-catalog.json (synced from S3 by scripts/sync_s3_assets_to_unity.py) are built as real Gaussian splats instead of cubes.",
       "approval_required": false,
       "approval_reason": "User decision 2026-09-26: NemoClaw's Unity Editor write tools run ungated (no approval path) -- the Editor scene is authoring scratch space and rooms are built in their own scene files under Assets/SketchScape/AgentRooms/.",
-      "implementation_status": "implemented; C# verified against the live Editor 2026-09-26; live Muse Spark agent run: see docs/BUILD_PLAN.md step 4"
+      "implementation_status": "implemented; live Muse Spark runs 2026-09-26: room-e2e-3 (placeholder cubes) and room-real-1 (4 real splat scans: cat, remote control, pink blanket, tomato)"
     }
   ],
   "unity_mcp_connection": {
