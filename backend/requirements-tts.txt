@@ -1,0 +1,8 @@
+# Optional: only needed when SKETCHSCAPE_GUIDE_TTS=mms. The default (none,
+# and always in tests) needs none of this -- transformers/torch are imported
+# lazily (see backend/guide_tts.py) so the base install and verify_local.sh
+# stay light. CPU-only torch keeps this installable without a CUDA toolchain;
+# swap for a CUDA wheel if the API host has a GPU to spare for TTS.
+torch>=2.2,<3.0
+transformers>=4.40,<5.0
+numpy>=1.26,<3.0

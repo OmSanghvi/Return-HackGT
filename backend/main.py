@@ -3372,3 +3372,11 @@ app.include_router(letter_router)
 from tour_routes import router as tour_router  # noqa: E402
 
 app.include_router(tour_router)
+
+# Guide runtime routes (Build Plan step 32): the live in-VR guide bot's
+# backend. Kept in its own module (backend/guide_routes.py) for the same
+# reason as the tour routes above; imported last so every name it needs
+# from this module already exists.
+from guide_routes import router as guide_router  # noqa: E402
+
+app.include_router(guide_router)

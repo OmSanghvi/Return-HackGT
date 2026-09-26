@@ -8,3 +8,8 @@ boto3>=1.34,<2.0
 # backend/auth.py) so the base install stays dependency-light. Pinned to the
 # version installed and tested against (7.0.0).
 clerk-backend-api>=7.0,<8.0
+# Optional: only needed when SKETCHSCAPE_GUIDE_MODEL_PROVIDER is a live
+# provider (meta, xai, nebius). The default mock guide model needs none of
+# this. Imported lazily (see backend/guide_model.py) so the base install
+# stays dependency-light. Also used by NemoClaw's own model client.
+openai>=1.40,<3

@@ -187,6 +187,7 @@ def validate_guided_tour(
     blueprint: Any,
     social_manifest: dict,
     contributions: list[Any],
+    letters: list[Any] | None = None,
 ) -> None:
     """Raise ``HTTPException(422, "<rule>: <detail>")`` on the first violation.
 
@@ -196,6 +197,12 @@ def validate_guided_tour(
     ``contributions`` is ``store.list_contributions(project_id)`` -- every
     contribution in the project, needed both to check ``contribution_memory``
     facts verbatim and to keep every letter's private text out of the tour.
+    ``letters`` is ``store.list_letters(project_id)`` (step 28's real
+    ``Letter`` rows, each with ``note_text``), when the caller's store
+    exposes it -- optional and defaulted to ``None`` so a caller that
+    predates step 28 keeps working. When given, a letter's ``note_text`` is
+    sealed content exactly like a letter-sourced ``Contribution.memory_text``
+    below (kept for a contribution that has no matching ``Letter`` row).
     """
     # -- 1. size and counts -------------------------------------------------
     serialized = json.dumps(tour_input.model_dump(mode="json"))
@@ -297,14 +304,17 @@ def validate_guided_tour(
     vocab = _build_vocab(tour_input, social_manifest)
     facts_by_id = {fact.fact_id: fact for fact in tour_input.facts}
 
-    # Every letter-sourced contribution's private text -- never allowed to
-    # leak into any fact, even as a substring (step 28 hasn't landed a
-    # dedicated Letter model with `note_text` yet, so a letter-sourced
-    # Contribution's `memory_text` is the sealed content today).
+    # Every letter's private text -- never allowed to leak into any fact,
+    # even as a substring. A letter-sourced Contribution's `memory_text` is
+    # checked either way (some callers still put a summary there); a real
+    # `Letter.note_text` (step 28) is checked too when `letters` is given,
+    # since that's the actual sealed content a contributor wrote.
     sealed_content_words: set[str] = set()
     for contribution in contributions:
         if contribution.source_type == "letter":
             sealed_content_words |= _content_words(contribution.memory_text)
+    for letter in letters or []:
+        sealed_content_words |= _content_words(letter.note_text)
 
     for fact in tour_input.facts:
         if fact.source.kind == "contribution_memory":
