@@ -81,6 +81,21 @@ KEEP_ON_GPU = os.environ.get("FASTSAM3D_KEEP_ON_GPU", "0").strip().lower() in {"
 # Optional warm SAM 3.1 server (segment_sam31_local.py --serve). When it is
 # unreachable the worker falls back to a one-shot SAM 3.1 subprocess.
 SAM31_SERVER_URL = os.environ.get("SAM31_SERVER_URL", "").strip().rstrip("/")
+# Build Plan step 27: how many `reconstruct` jobs this server accepts at
+# once. Default 1 -- the ONLY value verified safe on any instance type. The
+# stage-by-stage GPU offload below (`move`/`offload`) shares one `_pipeline`
+# across whatever runs concurrently, so raising this past 1 is unverified
+# and unsafe until an approved VRAM benchmark (Hard Rule 5, gpu-multi-object-
+# worker skill item 5) proves the combined peak stays under 90% of VRAM on
+# the actual instance type; a T4 (16 GB) always stays at 1. See
+# worker/benchmark_concurrency.py for the (not-yet-run) benchmark hook.
+GPU_CONCURRENCY = max(1, int(os.environ.get("SKETCHSCAPE_GPU_CONCURRENCY", "1")))
+# Matches the GPU-host dispatcher's own worker_id (worker/gpu_dispatcher.py),
+# so this server's result callbacks satisfy the API's lease-ownership check
+# for jobs the dispatcher claimed through POST /v1/internal/jobs/claim. Empty
+# (default) preserves the legacy same-host push path, whose jobs never have
+# a lease_owner, so the API's ownership check is a no-op either way.
+WORKER_ID = os.environ.get("SKETCHSCAPE_WORKER_ID", "").strip() or None
 
 # ---------------------------------------------------------------------------
 # Global pipeline (loaded once at startup)
@@ -89,7 +104,7 @@ SAM31_SERVER_URL = os.environ.get("SAM31_SERVER_URL", "").strip().rstrip("/")
 _pipeline = None
 _pipeline_ready = threading.Event()
 _pipeline_error: str | None = None
-_job_queue: queue.Queue = queue.Queue(maxsize=1)
+_job_queue: queue.Queue = queue.Queue(maxsize=GPU_CONCURRENCY)
 _job_status: dict[str, dict] = {}
 _job_lock = threading.Lock()
 
@@ -511,6 +526,11 @@ def _report(job_id: str, status: str, *, label: str = "gaussian_splat",
         (field("worker_token", WORKER_TOKEN), None),
         (field("result", payload), None),
     ]
+    if WORKER_ID:
+        # Required when the job was claimed through the lease queue (Build
+        # Plan step 27's dispatcher); harmless for the legacy same-host push
+        # path, whose jobs have no lease_owner for the API to check against.
+        pieces.append((field("worker_id", WORKER_ID), None))
     for name, path in (files or {}).items():
         content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         prefix = (
@@ -569,6 +589,8 @@ class Handler(BaseHTTPRequestHandler):
                 "models_loaded": _pipeline is not None,
                 "error": _pipeline_error,
                 "queue_size": _job_queue.qsize(),
+                "gpu_concurrency": GPU_CONCURRENCY,
+                "worker_id": WORKER_ID,
             }).encode()
             self._respond(200, body)
         elif path.startswith("/worker/status/"):
@@ -623,10 +645,18 @@ def main():
     WORK_DIR.mkdir(parents=True, exist_ok=True)
     # Load models in background thread so HTTP server starts immediately
     threading.Thread(target=_load_pipeline, daemon=True, name="pipeline-loader").start()
-    # Job execution thread
+    # Job execution: always exactly one runner thread. GPU_CONCURRENCY only
+    # sizes the accept queue above (how many jobs may sit queued instead of
+    # getting 429); `_run_one_job` mutates the shared `_pipeline`'s GPU/CPU
+    # placement (`move`/`offload`) with no lock, so actually running two
+    # reconstructions at once needs a benchmarked, pipeline-isolated change
+    # this server does not yet have (Hard Rule 5) -- raising the queue size
+    # alone is safe (jobs still run one at a time) but gives no throughput
+    # benefit until that work lands.
     threading.Thread(target=_job_worker_thread, daemon=True, name="job-runner").start()
     log.info(
-        "Worker server on 127.0.0.1:%s; profile=%spx/%s/%s amp=%s(%s) resident=%s sam31=%s — waiting for model load...",
+        "Worker server on 127.0.0.1:%s; profile=%spx/%s/%s amp=%s(%s) resident=%s sam31=%s "
+        "gpu_concurrency=%s(queue only) worker_id=%s — waiting for model load...",
         WORKER_PORT,
         MAX_SIDE,
         STAGE1_STEPS,
@@ -635,6 +665,8 @@ def main():
         AMP_DTYPE,
         KEEP_ON_GPU,
         SAM31_SERVER_URL or "subprocess",
+        GPU_CONCURRENCY,
+        WORKER_ID or "(none, legacy push mode)",
     )
     server = HTTPServer(("127.0.0.1", WORKER_PORT), Handler)
     server.serve_forever()

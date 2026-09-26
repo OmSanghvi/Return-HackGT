@@ -75,7 +75,7 @@ and `docs/KNOWN_ISSUES.md` R13 for what this changed and why.
 | 24 | NemoClaw room tools (`get_room_state`, `propose_room_edit`; publish approved on the web) | 3, 15, 16, 21 | Not started | `top-tier-nemoclaw-tool-design` |
 | 25 | End-to-end verification: web + two or more headsets | 20, 23, 29 | Not started | `collab-vr-device-verification` |
 | 26 | Durable jobs (no in-memory dict), uploads in shared storage, upload → selections → refine → generate API, batch job polling | 15 | Done | `durable-jobs-and-multi-object-upload` |
-| 27 | GPU worker: SAM 3.1 semantic masks from the person's typed names, per-object Fast-SAM3D, dispatcher with leases, benchmarked concurrency | 26 | Not started | `gpu-multi-object-worker` |
+| 27 | GPU worker: SAM 3.1 semantic masks from the person's typed names, per-object Fast-SAM3D, dispatcher with leases, benchmarked concurrency | 26 | Built, unit-tested; real-GPU verification pending user approval | `gpu-multi-object-worker` |
 | 28 | Letters: upload + recipients, sealed access (author + recipients, cross-visible between the two accounts), recipient-only open, scene schema, web form | 17, 19, 21, 26 | Not started | `letters-backend-and-web` |
 | 29 | Letters in VR: envelope, networked open animation, textured 3D paper page | 22, 28 | Not started | `letters-vr-envelope` |
 
@@ -716,9 +716,27 @@ delivers:
   into masks in one pass per photo (best instance plus alternatives).
   Then one Fast-SAM3D job runs per chosen object through a leased queue.
   `SKETCHSCAPE_GPU_CONCURRENCY` defaults to 1 and is raised only after an
-  approved VRAM benchmark (a T4 stays at 1).
+  approved VRAM benchmark (a T4 stays at 1). **Built and unit-tested (this
+  pass), GPU-unverified:** `segment_selections`/`segment_many` in
+  `worker/segment_sam31_local.py` (torch/ultralytics imports are now lazy,
+  so this runs on CPU); the claim/lease dispatcher
+  `worker/gpu_dispatcher.py`; the backend's
+  `GET .../reconstructions/{job_id}/selections` and
+  `POST .../selections/{selection_id}/result` routes so one segment job's
+  several selections report back independently (Hard Rule 7); `aws-local`
+  now leaves a `segment` job `queued` for the dispatcher instead of
+  auto-failing; `worker_server.py` reads `SKETCHSCAPE_GPU_CONCURRENCY` and
+  `SKETCHSCAPE_WORKER_ID`; a `sketchscape-dispatcher` systemd unit in
+  `infra/aws/bootstrap_instance.sh`. 164 backend + 33 worker unit tests
+  pass (mocks/fakes only, no GPU, no AWS). **Still needed for `--done 27`:**
+  the user's approved real-GPU run (`gpu_multi_object_verified` in
+  `config/collab-vr/gates.json`) confirming one photo with 3 typed names
+  produces 3 correct masks and 3 PLYs, and two uploads submitted together
+  both completing.
   *Results (fill in):* instance: ___ · peak VRAM 1 job: ___ · 2 jobs: ___
-  · concurrency chosen: ___
+  · concurrency chosen: 1 (kept at 1 pending an approved benchmark; the
+  worker's shared Fast-SAM3D pipeline state isn't concurrency-safe yet —
+  see `worker/worker_server.py`'s `main()` and `worker/benchmark_concurrency.py`)
 - **28–29** — letters. The Notability page becomes a textured 3D paper
   mesh (legible, no GPU) sealed in an envelope. Only the addressed
   recipients can open it; everyone in the room sees the open animation

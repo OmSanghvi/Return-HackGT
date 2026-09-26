@@ -1,12 +1,46 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "SketchScape GPU worker result",
-  "description": "The JSON sent in the `result` form field of POST /v1/internal/reconstructions/{job_id}/result (backend/main.py WorkerResult). The request is multipart/form-data: `result` (this JSON), `worker_token`, optional `worker_id` (required when the job was claimed through the lease queue), and file parts `ply` (Gaussian-splat PLY) and `mask` (aligned binary PNG, white is the object) — both required when status is complete — and `preview` (mask-preview PNG). The job id is in the URL path, not in this payload.",
-  "type": "object",
-  "required": ["status"],
-  "properties": {
-    "status": { "enum": ["complete", "mask_review", "failed"] },
-    "object_label": { "type": "string", "maxLength": 80, "default": "gaussian_splat" },
-    "error": { "type": ["string", "null"], "maxLength": 500 }
+  "description": "Two worker-token-authenticated callback shapes, chosen by job kind (backend/main.py ReconstructionJob.kind). `reconstruct` jobs (one selection's mask -> one PLY, unchanged since Build Plan step 26) use `WorkerResult` in the `result` form field of POST /v1/internal/reconstructions/{job_id}/result: multipart/form-data with `result` (this JSON), `worker_token`, optional `worker_id` (required when the job was claimed through the lease queue, i.e. POST /v1/internal/jobs/claim), and file parts `ply` (Gaussian-splat PLY) and `mask` (aligned binary PNG, white is the object) -- both required when status is complete -- and `preview` (mask-preview PNG). `segment` jobs (Build Plan step 27: one SAM 3.1 pass over every selection's typed name) use `SelectionWorkerResult` once PER SELECTION in the `result` form field of POST /v1/internal/reconstructions/{job_id}/selections/{selection_id}/result: multipart/form-data with `result` (this JSON), `worker_token`, `worker_id` (required once the job was claimed -- every segment job goes through the lease queue), a `mask` file part (required when status is segmented), and an optional `preview` file part. The job completes once every one of its selections has reported a terminal (segmented/failed) outcome; a failed selection never blocks the others (Hard Rule 7). The job id and selection id are in the URL path, not in either payload.",
+  "oneOf": [
+    { "$ref": "#/$defs/WorkerResult" },
+    { "$ref": "#/$defs/SelectionWorkerResult" }
+  ],
+  "$defs": {
+    "WorkerResult": {
+      "title": "reconstruct job result",
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["complete", "mask_review", "failed"] },
+        "object_label": { "type": "string", "maxLength": 80, "default": "gaussian_splat" },
+        "error": { "type": ["string", "null"], "maxLength": 500 }
+      }
+    },
+    "SelectionWorkerResult": {
+      "title": "segment job per-selection result",
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["segmented", "failed"] },
+        "score": {
+          "type": ["number", "null"],
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "The chosen instance's confidence from SAM 3.1's semantic predictor."
+        },
+        "alternatives": {
+          "type": "array",
+          "items": { "type": "object" },
+          "default": [],
+          "description": "Other instances the predictor found for this selection's text prompt (score, area_ratio), after the area and cross-selection duplicate filters. The person can see these were considered; switching to one is a future enhancement, not built by step 27."
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "maxLength": 200,
+          "description": "Why this selection is `failed` (empty result, area filter, or flagged as a duplicate of another selection in the same pass)."
+        }
+      }
+    }
   }
 }

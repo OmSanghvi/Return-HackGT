@@ -482,7 +482,7 @@ All .ply files in catalog
    place of failed objects.
 
 8. **Run `bash scripts/verify_local.sh` after every backend change** and
-   confirm all tests pass before reporting done. Currently 207 tests (2 are
+   confirm all tests pass before reporting done. Currently 219 backend tests plus 33 worker tests (2 backend tests are
    skipped either way, depending on whether `boto3` is installed).
 
 9. **Collaborative VR + web accounts steps (13–29) are gated.** Before writing any code or
@@ -561,7 +561,7 @@ its current contents before relying on any of them.
 
 | Area | Status |
 |---|---|
-| Backend API (upload, poll, mock pipeline, safe edits, room API) | ✅ done, 207 tests passing (2 skipped) |
+| Backend API (upload, poll, mock pipeline, safe edits, room API) | ✅ done, 219 backend + 33 worker tests passing (2 skipped) |
 | Identity (`SKETCHSCAPE_AUTH_MODE=mock\|demo\|clerk`; `demo` — two hardcoded accounts — is the real identity model for this track, decision 2026-09-26; authors on revisions) | ✅ done, including NemoClaw's shared-bearer-token service identity (R14, `SKETCHSCAPE_NEMOCLAW_TOKEN`) |
 | Membership, invites, ownership, `room_prompt` | ✅ done — Build Plan step 17 |
 | `identify_subject` mock labeler (`SKETCHSCAPE_SUBJECT_LABELER=mock`) | ✅ done — live NemoClaw path waits on Build Plan step 3 |
@@ -584,7 +584,7 @@ its current contents before relying on any of them.
 
 | Area | What exists | What's missing |
 |---|---|---|
-| GPU worker | Verified for one object per job | Several objects per photo and a worker-side claim/lease dispatcher (Build Plan step 27). The durable job store from step 26 exists, but nothing calls `/v1/internal/jobs/claim` yet |
+| GPU worker | Verified for one object per job (push path, unchanged). Step 27's multi-object segmentation, `worker/gpu_dispatcher.py` claim/lease loop, and per-selection result routes are built and unit-tested (mocks/fakes, no GPU) | An approved real-GPU run: one photo with 3 typed names -> 3 masks -> 3 PLYs, two uploads in flight, and the `SKETCHSCAPE_GPU_CONCURRENCY` benchmark (`worker/benchmark_concurrency.py`) or "kept at 1" recorded in `docs/BUILD_PLAN.md` step 27 |
 | Cloud backends on EC2 host | DynamoDB + S3 provisioned | Env vars not set on the running API process |
 | Gaussian-splat rendering | UnitySplats installed | Never loaded a real Fast-SAM3D `.ply`; Quest perf unverified |
 | Unity offline builder | Exists | Still falls back to placeholder primitives — needs that code removed |
@@ -979,7 +979,7 @@ step 7 for what replaces this.
 
 ```bash
 # After any backend Python change:
-bash scripts/verify_local.sh          # must pass, currently 207 tests (2 skipped)
+bash scripts/verify_local.sh          # must pass, currently 219 backend + 33 worker tests (2 skipped)
 
 # After any Terraform change:
 cd infra/aws
