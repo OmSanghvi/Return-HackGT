@@ -82,3 +82,17 @@ NemoClaw can perform one read-only scene inspection through the Unity MCP
 Extension against the real `../HackGTUnity` project and return a sensible
 result — no scene mutation yet, no credentials written anywhere in this
 repo. Hand off to `nemoclaw-scene-tools` (Build Plan step 4) next.
+
+## Status (2026-09-26): done
+
+- Met in sandbox `sketchscape`: a live agent `tools/call` to
+  `meta_get_config_information` returned real Editor data.
+- Extension pinned at commit `ac3dd9cdb2675cb0eee98655acb0731349fc6f9e`
+  (`HackGTUnity/Packages/manifest.json`).
+- Reproduce or repair with `scripts/unity-mcp-bridge/Setup-UnityMcpBridge.ps1`
+  (see its README).
+- Key constraint: the sandbox must be onboarded with the machine's private CA
+  (`NEMOCLAW_CORPORATE_CA_BUNDLE` + `onboard --from`). `nemoclaw <sb>
+  rebuild` drops it.
+- Open items (Meta XR SDK, `Unity_RunCommand` gate, provider swap) are in
+  the step 3 row of `docs/BUILD_PLAN.md`.

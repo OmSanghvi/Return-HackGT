@@ -158,8 +158,108 @@
       "purpose": "Build Plan step 31: callable name author_guided_tour(project_id). Reads compiled-scene, the latest ConnectionInsight, contributions, and contributors; writes the GuidedTour JSON in one model call through NemoClaw's configured provider; POSTs it as a draft (tour.draft above), retrying up to 2 times on a validator 422 with the rule message fed back. Never activates -- a person does that on the website.",
       "approval_required": false,
       "implementation_status": "built-untested-2026-09-26 (deterministic read/write/retry logic unit-tested in backend/test_tour_author.py with a stub model_call; no live NemoClaw runtime to verify tool-calling or the real model_call against yet, per nemoclaw-tour-authoring's definition of done)"
+    },
+    {
+      "id": "scene.compose_unity_room",
+      "method": "LOCAL_SCRIPT",
+      "path": "backend/unity_room_cli.py compose_room | build_code | finalize_code (installed in the NemoClaw sandbox as the sketchscape-unity-room OpenClaw skill, config/nemoclaw/skills/sketchscape-unity-room/SKILL.md; deploy with scripts/nemoclaw-deploy-skills.sh)",
+      "purpose": "Build Plan steps 4 + 6, Unity write path: callable name compose_room(objects, connection_insight?, room_name?). Runs place_objects_in_scene + stage_immersive_reveal, then emits the Unity_RunCommand C# that builds the room in its own scene (mood lighting, tinted placeholder cubes, glow, light-path motif) and the ordered Meta XR calls (camera rig, interaction rig, grabbable per object, teleport hotspots), then a finalize script that saves and reports real Editor state.",
+      "approval_required": false,
+      "approval_reason": "User decision 2026-09-26: NemoClaw's Unity Editor write tools run ungated (no approval path) -- the Editor scene is authoring scratch space and rooms are built in their own scene files under Assets/SketchScape/AgentRooms/.",
+      "implementation_status": "implemented; C# verified against the live Editor 2026-09-26; live Muse Spark agent run: see docs/BUILD_PLAN.md step 4"
     }
   ],
+  "unity_mcp_connection": {
+    "server_name": "unity-mcp",
+    "sandbox": "sketchscape",
+    "endpoint": "https://<windows-side WSL gateway IP>:9443/mcp/ (trusted-private; never public)",
+    "setup": "scripts/unity-mcp-bridge/Setup-UnityMcpBridge.ps1 (see its README). Bridge: tls_proxy.py -> mcp-proxy -> relay_win.exe --mcp -> Unity Editor. The sandbox trusts the per-machine private CA via NEMOCLAW_CORPORATE_CA_BUNDLE at onboard.",
+    "agent_tool_id_format": "unity-mcp__<toolName>",
+    "implementation_status": "implemented-verified-2026-09-26 (live NemoClaw agent tools/call to meta_get_config_information returned real Editor data)"
+  },
+  "unity_mcp_tools": [
+    {
+      "id": "unity.meta_get_config_information",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__meta_get_config_information",
+      "purpose": "Read Meta Quest configuration guidance (OVRManager etc.). Read-only; must run before any meta_ tool.",
+      "approval_required": false,
+      "implementation_status": "implemented-verified-2026-09-26"
+    },
+    {
+      "id": "unity.get_console_logs",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__Unity_GetConsoleLogs",
+      "purpose": "Read the Unity Editor console. Read-only.",
+      "approval_required": false,
+      "implementation_status": "exposed-unverified-via-nemoclaw (verified from Claude Code only)"
+    },
+    {
+      "id": "unity.scene_captures",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__Unity_SceneView_Capture2DScene, unity-mcp__Unity_SceneView_CaptureMultiAngleSceneView, unity-mcp__Unity_Camera_Capture",
+      "purpose": "Capture scene/camera images for visual review. Read-only.",
+      "approval_required": false,
+      "implementation_status": "exposed-unverified-via-nemoclaw"
+    },
+    {
+      "id": "unity.asset_generation_models",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__Unity_AssetGeneration_GetModels",
+      "purpose": "List Unity AI asset-generation models. Read-only.",
+      "approval_required": false,
+      "implementation_status": "exposed-unverified-via-nemoclaw"
+    },
+    {
+      "id": "unity.run_command",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__Unity_RunCommand",
+      "purpose": "Compile and run an arbitrary C# IRunCommand in the Editor. The write path for room builds (backend/unity_room.py generates its input).",
+      "approval_required": false,
+      "implementation_status": "implemented-verified-2026-09-26 (room build + finalize scripts run through it)",
+      "approval_reason": "User decision 2026-09-26: NemoClaw's Unity Editor write tools run ungated (no approval path) -- the Editor scene is authoring scratch space and rooms are built in their own scene files under Assets/SketchScape/AgentRooms/."
+    },
+    {
+      "id": "unity.asset_generation_generate",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__Unity_AssetGeneration_GenerateAsset",
+      "purpose": "Generate assets with Unity AI (spends Unity AI credits).",
+      "approval_required": true,
+      "implementation_status": "denied (registered with --deny-tool)"
+    },
+    {
+      "id": "unity.meta_get_interactors_state",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__meta_get_interactors_state",
+      "purpose": "List the Interaction rig's interactors and whether each is enabled. Read-only. Needs a camera rig in the scene first.",
+      "approval_required": false,
+      "implementation_status": "implemented-verified-2026-09-26 (returns the Locomotor once an interaction rig exists)"
+    },
+    {
+      "id": "unity.meta_scene_authoring",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__meta_add_camerarig, unity-mcp__meta_add_interactionrig, unity-mcp__meta_add_grabbable, unity-mcp__meta_add_distance_grabbable, unity-mcp__meta_add_teleport_hotspot, unity-mcp__meta_add_canvas_interaction_poke, unity-mcp__meta_add_canvas_interaction_ray",
+      "purpose": "Meta Unity MCP Extension for Horizon scene writes: camera rig, interaction rig, grabbable and distance-grabbable objects, teleport hotspots, poke/ray canvas interaction. They target GameObjects by name, path, or instanceID.",
+      "approval_required": false,
+      "implementation_status": "camerarig, interactionrig, grabbable, teleport_hotspot verified 2026-09-26 (patched GetInteractorsState exercised); distance_grabbable and canvas_* exposed, not yet called",
+      "approval_reason": "User decision 2026-09-26: NemoClaw's Unity Editor write tools run ungated (no approval path) -- the Editor scene is authoring scratch space and rooms are built in their own scene files under Assets/SketchScape/AgentRooms/."
+    },
+    {
+      "id": "unity.meta_update_android_manifest",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__meta_update_android_manifest",
+      "purpose": "Edit the Quest Android manifest (build configuration, not scene).",
+      "approval_required": false,
+      "implementation_status": "exposed-ungated (never called)",
+      "approval_reason": "User decision 2026-09-26: NemoClaw's Unity Editor write tools run ungated (no approval path) -- the Editor scene is authoring scratch space and rooms are built in their own scene files under Assets/SketchScape/AgentRooms/."
+    }
+  ],
+  "unity_mcp_requirements": {
+    "unity_project": "../HackGTUnity (Unity 6000.6.3f1). The repo's unity/ project has neither the Meta XR SDK nor the Meta MCP extension.",
+    "packages": "com.meta.xr.sdk.all 207.0.0 (Asset Store), com.unity.ai.assistant 2.20.0-pre.1, com.meta.xr.unity-mcp.extension embedded from upstream ac3dd9cdb2675cb0eee98655acb0731349fc6f9e with scripts/unity-mcp-bridge/patches/meta-mcp-extension-unity65-entityid.patch applied",
+    "why_patched": "Upstream GetInteractorsState.cs calls Object.GetInstanceID(), a hard CS0619 error on Unity 6000.5+. It only compiles once the Meta XR SDK interaction package is present, and it then breaks the whole extension assembly, so no meta_ tools appear. See scripts/unity-mcp-bridge/README.md.",
+    "input_handling": "Player Settings > Active Input Handling = Both (activeInputHandler 2), set via the Meta SDK prompt; needs an Editor restart."
+  },
   "unity_mcp_menu_tasks": [
     {
       "id": "unity.configure-current-scene",

@@ -1,0 +1,17 @@
+--- a/Editor/Tools/GetInteractorsState.cs
++++ b/Editor/Tools/GetInteractorsState.cs
+@@ -111,7 +111,14 @@
+             return new
+             {
+                 name = go.name,
++#if UNITY_6000_5_OR_NEWER
++                // Local patch (SketchScape): GetInstanceID() is a hard error on
++                // Unity 6.5+. Same form Unity AI Assistant's GameObjectSerializer
++                // uses, and what its ObjectsHelper lookup compares against.
++                instanceID = (long)EntityId.ToULong(go.GetEntityId()),
++#else
+                 instanceID = go.GetInstanceID(),
++#endif
+                 activeSelf = go.activeSelf,
+             };
+         }
