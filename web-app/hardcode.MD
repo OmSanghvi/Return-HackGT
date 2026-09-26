@@ -13,7 +13,19 @@ is unset at build time. Setting it switches the whole site into **real mode**
 instead -- see `src/config.ts`, which is the single switch (`REAL_MODE`) that
 `App.tsx` branches on before any mock code runs.
 
-- **done** Account picker (`src/real/RealShell.tsx`) replaces the fake
+- **done** Real mode runs the original screens (landing, sign in, rooms,
+  create, add photos, waiting/building, ready) on the backend through
+  `src/real/rooms.ts`, which maps projects onto the mock `Room` shape:
+  sign in = pick Alice or Bob; the other account sees each new room as an
+  invitation (same-laptop demo, invite code kept in localStorage); a member
+  is "done" once they upload; "What should we rebuild?" names become SAM
+  prompts (blank = backend suggests one) and the note becomes memory text;
+  once everyone is in, each account's client sends its own found objects to
+  Make 3D (the backend only lets the uploader generate), so the build
+  finishes after both accounts have been active. Ready = every object
+  settled. The old plain page lives on as `/rooms/:id/studio` (refine,
+  sketches, letters, room prompt), linked from Building and Ready.
+- **done** Account picker (`src/real/RealShell.tsx`, now the studio header) replaces the fake
   sign-in: a header control between the two hardcoded accounts
   (`VITE_SKETCHSCAPE_ACCOUNTS`, defaulting to `demo-alice,demo-bob` to match
   the backend's `SKETCHSCAPE_DEMO_USERS` default). Every API call sends

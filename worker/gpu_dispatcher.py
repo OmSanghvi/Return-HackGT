@@ -376,6 +376,8 @@ def handle_segment_job(api: ApiClient, sam31: Sam31Client, job: dict[str, Any], 
         api.post_job_failed(job_id, f"SAM 3.1 segmentation unavailable: {exc}")
         return "failed"
 
+    if response.get("error"):
+        log.error("[%s] SAM 3.1 server error: %s", job_id[:8], response["error"])
     results: dict[str, Any] = response.get("results", {})
     for selection in selections:
         selection_id = selection["selection_id"]

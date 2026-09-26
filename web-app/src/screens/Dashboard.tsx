@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type * as React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Field, Icon, RoomCard, ShareSheet, type RoomStatus } from '../ui';
+import { Button, Field, Icon, MemberList, RoomCard, ShareSheet, type RoomStatus } from '../ui';
+import { REAL_MODE } from '../config';
+import * as backend from '../real/rooms';
+import { listKnownProjects } from '../real/localProjects';
+import { memberRows } from './RoomUpload';
 import { useSession } from '../auth';
 import { ME, mine, pending, routeForRoom, useRooms, type Room } from '../data/store';
 import { searchPeople } from '../data/directory';
@@ -70,6 +74,13 @@ export default function Dashboard() {
   const stepIn = useStepIn();
   const session = useSession();
   const rooms = useRooms((s) => s.rooms);
+  const synced = useRooms((s) => s.synced);
+  const [joining, setJoining] = useState<string | null>(null);
+  const joinRoom = async (r: Room) => {
+    if (!REAL_MODE) { act.join(r.id); return navigate(`/rooms/${r.id}/add`); }
+    setJoining(r.id);
+    try { await backend.join(r.id); navigate(`/rooms/${r.id}/add`); } finally { setJoining(null); }
+  };
   const act = useRooms.getState();
   const [menu, setMenu] = useState<string | null>(null);
   const [sheet, setSheet] = useState<{ kind: 'rename' | 'people' | 'remove'; id: string } | null>(null);
@@ -103,7 +114,7 @@ export default function Dashboard() {
         <div className="rt-hero-body rt-on-image">
           <motion.p className="rt-kicker" style={{ margin: 0 }} {...reveal(0)}>Welcome back, {session.firstName}</motion.p>
           <motion.h1 className="rt-hero-title" {...reveal(1)}>Your <em>rooms</em></motion.h1>
-          <motion.p className="rt-hero-sub" {...reveal(2)}>{summary(yours, invites)}</motion.p>
+          {synced && <motion.p className="rt-hero-sub" {...reveal(2)}>{summary(yours, invites)}</motion.p>}
         </div>
       </Stage>
 
@@ -115,8 +126,8 @@ export default function Dashboard() {
               {invites.map((r, i) => (
                 <Tilt key={r.id} i={i} scene={r.scene}>
                   <RoomCard src={coverOf(r)} title={r.title} {...cardInfo(r)} onOpen={() => navigate(routeForRoom(r))}
-                    action={<><Button size="sm" variant="light" onClick={() => { act.join(r.id); navigate(`/rooms/${r.id}/add`); }}>Join room</Button>
-                      <Button size="sm" variant="glass" onClick={() => act.decline(r.id)}>Decline</Button></>} />
+                    action={<><Button size="sm" variant="light" loading={joining === r.id} onClick={() => void joinRoom(r)}>Join room</Button>
+                      <Button size="sm" variant="glass" onClick={() => (REAL_MODE ? backend.decline(r.id) : act.decline(r.id))}>Decline</Button></>} />
                 </Tilt>
               ))}
             </AnimatePresence>
@@ -140,9 +151,9 @@ export default function Dashboard() {
                         <motion.div ref={menuRef} className="app-menu rt-glass-strong" role="menu" onClick={(e) => e.stopPropagation()}
                           style={{ transformOrigin: 'top right' }} initial={{ opacity: 0, scale: 0.96, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }}
                           exit={{ opacity: 0, scale: 0.96 }} transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}>
-                          {owner && <button role="menuitem" onClick={() => { setSheet({ kind: 'rename', id: r.id }); setMenu(null); }}>Rename</button>}
+                          {owner && !REAL_MODE && <button role="menuitem" onClick={() => { setSheet({ kind: 'rename', id: r.id }); setMenu(null); }}>Rename</button>}
                           <button role="menuitem" onClick={() => { setSheet({ kind: 'people', id: r.id }); setMenu(null); }}>Manage people</button>
-                          <button role="menuitem" className="app-danger" onClick={() => { setSheet({ kind: 'remove', id: r.id }); setMenu(null); }}>{owner ? 'Delete room' : 'Leave room'}</button>
+                          <button role="menuitem" className="app-danger" onClick={() => { setSheet({ kind: 'remove', id: r.id }); setMenu(null); }}>{REAL_MODE ? 'Hide from my rooms' : owner ? 'Delete room' : 'Leave room'}</button>
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -166,16 +177,24 @@ export default function Dashboard() {
         </form>}
       </Sheet>
       <Sheet open={sheet?.kind === 'people' && !!target} onClose={closeSheet} label="Manage people">
-        {target && <ShareSheet title={target.title} onClose={closeSheet} people={people}
+        {target && REAL_MODE && <>
+          <h2 className="title" style={{ margin: '0 0 var(--space-4)' }}>Who can <em>return</em> here</h2>
+          <MemberList members={memberRows(target)} />
+          {listKnownProjects().find((p) => p.project_id === target.id)?.invite_code && (
+            <p className="rt-field-hint">Invite code <code>{listKnownProjects().find((p) => p.project_id === target.id)?.invite_code}</code>. The other account on this laptop sees the invitation on its rooms page.</p>
+          )}
+          <div className="app-actions"><Button variant="ghost" onClick={closeSheet}>Done</Button></div>
+        </>}
+        {target && !REAL_MODE && <ShareSheet title={target.title} onClose={closeSheet} people={people}
           onInvite={(v) => act.invite(target.id, v)} results={searchPeople(pq)} onQuery={setPq}
           onRemove={mine(target)?.isOwner ? (p) => act.uninvite(target.id, target.members[people.indexOf(p as typeof people[number])].id) : undefined} />}
       </Sheet>
       <Sheet open={sheet?.kind === 'remove' && !!target} onClose={closeSheet} label="Remove room">
         {target && <>
-          <h2 className="title" style={{ margin: 0 }}>{mine(target)?.isOwner ? 'Delete' : 'Leave'} <em>{target.title}</em></h2>
-          <p className="body" style={{ color: 'var(--ink-muted)' }}>{mine(target)?.isOwner ? 'This removes the room for everyone in it, and it disappears from their headsets.' : "You won't see this room anymore. The others keep it."}</p>
+          <h2 className="title" style={{ margin: 0 }}>{REAL_MODE ? 'Hide' : mine(target)?.isOwner ? 'Delete' : 'Leave'} <em>{target.title}</em></h2>
+          <p className="body" style={{ color: 'var(--ink-muted)' }}>{REAL_MODE ? 'It stays on the server and in everyone\'s headset. This only hides it on this laptop.' : mine(target)?.isOwner ? 'This removes the room for everyone in it, and it disappears from their headsets.' : "You won't see this room anymore. The others keep it."}</p>
           <div className="app-actions"><Button variant="ghost" onClick={() => setSheet(null)}>Keep it</Button>
-            <Button variant="danger" onClick={() => { act.remove(target.id); setSheet(null); }}>{mine(target)?.isOwner ? 'Delete room' : 'Leave room'}</Button></div>
+            <Button variant="danger" onClick={() => { (REAL_MODE ? backend.remove : act.remove)(target.id); setSheet(null); }}>{REAL_MODE ? 'Hide room' : mine(target)?.isOwner ? 'Delete room' : 'Leave room'}</Button></div>
         </>}
       </Sheet>
     </div>

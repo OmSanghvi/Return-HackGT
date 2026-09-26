@@ -33,6 +33,7 @@ Design constraints:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import tempfile
@@ -336,7 +337,18 @@ class S3ArtifactStore(ArtifactStore):
         return self.artifact_url(job_id, filename)
 
     async def serve(self, job_id: str, filename: str) -> Response:
-        """Redirect to a short-lived presigned GET URL."""
+        """Stream small PNGs (masks/previews) inline; redirect everything else
+        (PLYs) to a short-lived presigned GET URL.
+
+        A browser fetch carrying the auth header can't follow the cross-origin
+        redirect to the CORS-less bucket, so the web app's image cards would
+        never load. PNGs are small; the big PLYs Unity loads keep the redirect.
+        """
+        if filename.endswith(".png"):
+            obj = await asyncio.to_thread(
+                self._boto_client().get_object, Bucket=self._bucket, Key=self._s3_key(job_id, filename)
+            )
+            return Response(obj["Body"].read(), media_type="image/png")
         url = self._boto_client().generate_presigned_url(
             "get_object",
             Params={"Bucket": self._bucket, "Key": self._s3_key(job_id, filename)},

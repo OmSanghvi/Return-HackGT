@@ -6,6 +6,9 @@ import { ME, mine, parseObjects, useRooms, agoText, type Room } from '../data/st
 import { searchPeople } from '../data/directory';
 import { Stage } from '../world/Stage';
 import { AppNav, reveal, shrink } from './shared';
+import { REAL_MODE } from '../config';
+import * as backend from '../real/rooms';
+import { ApiError } from '../api/client';
 
 export const memberRows = (r: Room) => r.members.map((m) => ({
   name: m.name, email: m.email, count: m.count, hasNote: !!m.note, isOwner: m.isOwner, isYou: m.id === ME.id,
@@ -16,6 +19,8 @@ export default function RoomUpload() {
   const { id } = useParams();
   const navigate = useNavigate();
   const room = useRooms((s) => s.rooms.find((r) => r.id === id));
+  const synced = useRooms((s) => s.synced);
+  const files = useRef(new Map<string, File>()); // real mode uploads the originals, not the previews
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [note, setNote] = useState('');
   const [objects, setObjects] = useState(room?.objects?.join(', ') || '');
@@ -23,24 +28,36 @@ export default function RoomUpload() {
   const [error, setError] = useState('');
   const [q, setQ] = useState('');
   const submitTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => { if (room && mine(room)?.status === 'invited') useRooms.getState().join(room.id); }, [room]);
+  const invited = room && mine(room)?.status === 'invited';
+  useEffect(() => { if (room && invited) void (REAL_MODE ? backend.join(room.id) : useRooms.getState().join(room.id)); }, [room?.id, invited]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => clearTimeout(submitTimer.current), []);
 
-  if (!room) return <Navigate to="/rooms" replace />;
+  if (!room) return synced ? <Navigate to="/rooms" replace /> : null;
   if (mine(room)?.status === 'done' || room.phase !== 'collecting') return <Navigate to={`/rooms/${room.id}`} replace />;
 
-  const add = async (files: File[]) => {
+  const add = async (picked: File[]) => {
     setError('');
     try {
-      const next = await Promise.all(files.map(async (f) => ({ src: await shrink(f), name: f.name, id: Math.random().toString(36).slice(2) })));
+      const next = await Promise.all(picked.map(async (f) => {
+        const id = Math.random().toString(36).slice(2);
+        files.current.set(id, f);
+        return { src: await shrink(f), name: f.name, id };
+      }));
       setPhotos((p) => [...p, ...next].slice(0, 12));
     } catch { setError("We couldn't read one of those photos. Try a JPEG or PNG."); }
   };
   const submit = () => {
     if (!photos.length) return setError('Add at least one photo of the place first.');
     setBusy(true);
+    const objectList = mine(room)?.isOwner ? parseObjects(objects) : undefined;
+    if (REAL_MODE) {
+      backend.addPhotos(room.id, photos.map((p) => files.current.get(p.id!)!), note, objectList)
+        .then(() => navigate(`/rooms/${room.id}`))
+        .catch((e) => { setBusy(false); setError(e instanceof ApiError ? e.message : "Couldn't upload those photos. Try again."); });
+      return;
+    }
     // A beat for the upload to feel real, then on to waiting.
-    submitTimer.current = setTimeout(() => { useRooms.getState().addPhotos(room.id, photos.map((p) => p.src), note, mine(room)?.isOwner ? parseObjects(objects) : undefined); navigate(`/rooms/${room.id}`); }, 900);
+    submitTimer.current = setTimeout(() => { useRooms.getState().addPhotos(room.id, photos.map((p) => p.src), note, objectList); navigate(`/rooms/${room.id}`); }, 900);
   };
 
   return (
@@ -76,9 +93,9 @@ export default function RoomUpload() {
         <Stage scene={room.scene} scrim="none" className="app-side-stage" label={room.title} mist={photos.length ? 0 : 0.35}>
           <motion.div className="rt-glass-strong app-panel" {...reveal(2)}>
             <h2 className="title" style={{ margin: 0 }}>In this <em>room</em></h2>
-            <MemberList members={memberRows(room)} onResend={(m) => { const x = room.members.find((y) => y.email === m.email); if (x) useRooms.getState().resend(room.id, x.id); }} />
-            <InviteSearch label="Invite someone else" results={searchPeople(q)} invited={room.members.map((m) => ({ name: m.name, email: m.email }))}
-              onQuery={setQ} onInvite={(p) => useRooms.getState().invite(room.id, p.email)} />
+            <MemberList members={memberRows(room)} onResend={REAL_MODE ? undefined : (m) => { const x = room.members.find((y) => y.email === m.email); if (x) useRooms.getState().resend(room.id, x.id); }} />
+            {REAL_MODE ? <p className="rt-field-hint" style={{ margin: 0 }}>Switch accounts from your avatar to add the other person's photos.</p> : <InviteSearch label="Invite someone else" results={searchPeople(q)} invited={room.members.map((m) => ({ name: m.name, email: m.email }))}
+              onQuery={setQ} onInvite={(p) => useRooms.getState().invite(room.id, p.email)} />}
           </motion.div>
         </Stage>
       </div>
