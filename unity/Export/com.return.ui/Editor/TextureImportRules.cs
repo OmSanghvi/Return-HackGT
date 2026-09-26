@@ -15,7 +15,7 @@ namespace Return.UI.Editor
             {
                 t.textureType = TextureImporterType.Sprite;
                 t.spriteImportMode = SpriteImportMode.Single;
-                t.mipmapEnabled = false;
+                t.mipmapEnabled = false; // UI sprites: no mips, they're always drawn at native size on a flat canvas
                 t.alphaIsTransparency = true;
                 t.filterMode = UnityEngine.FilterMode.Bilinear;
             }
@@ -31,7 +31,19 @@ namespace Return.UI.Editor
                 t.maxTextureSize = 2048;
                 t.wrapMode = UnityEngine.TextureWrapMode.Clamp;
                 t.textureCompression = TextureImporterCompression.Compressed;
+                t.mipmapEnabled = true; // sky paintings: seen at grazing angles and huge scale, mips + trilinear keep them from shimmering
+                t.filterMode = UnityEngine.FilterMode.Trilinear;
             }
+            SetAndroidASTC(t);
+        }
+
+        /// <summary>Every rule above lands on Quest, so force ASTC there regardless of the default platform format.</summary>
+        static void SetAndroidASTC(TextureImporter t)
+        {
+            var settings = t.GetPlatformTextureSettings("Android");
+            settings.overridden = true;
+            settings.format = TextureImporterFormat.ASTC_6x6;
+            t.SetPlatformTextureSettings(settings);
         }
     }
 }
