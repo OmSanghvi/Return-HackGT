@@ -76,7 +76,7 @@ and `docs/KNOWN_ISSUES.md` R13 for what this changed and why.
 | 25 | End-to-end verification: web + two or more headsets | 20, 23, 29 | Not started | `collab-vr-device-verification` |
 | 26 | Durable jobs (no in-memory dict), uploads in shared storage, upload → selections → refine → generate API, batch job polling | 15 | Done | `durable-jobs-and-multi-object-upload` |
 | 27 | GPU worker: SAM 3.1 semantic masks from the person's typed names, per-object Fast-SAM3D, dispatcher with leases, benchmarked concurrency | 26 | Built, unit-tested; real-GPU verification pending user approval | `gpu-multi-object-worker` |
-| 28 | Letters: upload + recipients, sealed access (author + recipients, cross-visible between the two accounts), recipient-only open, scene schema, web form | 17, 19, 21, 26 | Not started | `letters-backend-and-web` |
+| 28 | Letters: upload + recipients, sealed access (author + recipients, cross-visible between the two accounts), recipient-only open, scene schema, web form | 17, 19, 21, 26 | Built, untested (2026-09-26) | `letters-backend-and-web` |
 | 29 | Letters in VR: envelope, networked open animation, textured 3D paper page | 22, 28 | Not started | `letters-vr-envelope` |
 
 ### Guided tour bot track (steps 30–34) — gated, added 2026-09-26

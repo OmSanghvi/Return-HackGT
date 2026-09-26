@@ -9,6 +9,9 @@ import type {
   ContributorCreateRequest,
   GenerateResponse,
   JobIdResponse,
+  Letter,
+  LetterOpenResponse,
+  LetterView,
   ProjectAsset,
   ProjectCreateRequest,
   ProjectRecord,
@@ -275,6 +278,44 @@ export interface JobsPage {
   etag: string | null;
   notModified: boolean;
   retryAfterMs: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Letters (step 28) -- sealed/opened, recipient-only open.
+// ---------------------------------------------------------------------------
+
+/**
+ * Multipart create with a repeated `recipient_contributor_ids` field --
+ * `uploadFileWithProgress`'s `extraFields` only sends one value per key, so
+ * this builds its own `FormData` (no upload-progress bar; the page is small).
+ */
+export async function createLetter(
+  projectId: string,
+  page: File,
+  authorContributorId: string,
+  recipientContributorIds: string[],
+  noteText: string,
+): Promise<Letter> {
+  const form = new FormData();
+  form.append('page', page, page.name);
+  form.append('author_contributor_id', authorContributorId);
+  for (const id of recipientContributorIds) form.append('recipient_contributor_ids', id);
+  if (noteText.trim()) form.append('note_text', noteText.trim());
+  const res = await fetch(url(`/v1/projects/${projectId}/letters`), {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+  });
+  await throwIfError(res);
+  return (await res.json()) as Letter;
+}
+
+export function listLetters(projectId: string): Promise<LetterView[]> {
+  return getJson(`/v1/projects/${projectId}/letters`);
+}
+
+export function openLetter(projectId: string, letterId: string): Promise<LetterOpenResponse> {
+  return postJson(`/v1/rooms/${projectId}/letters/${letterId}/open`);
 }
 
 export async function listProjectJobs(
