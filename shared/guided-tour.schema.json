@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sketchscape.dev/schemas/guided-tour.schema.json",
+  "title": "SketchScape Guided Tour",
+  "description": "The closed, verifiable JSON contract a VR guide bot may speak and act from (Build Plan step 30). Mirrors backend/guided_tour.py's GuidedTour model.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_id",
+    "tour_version",
+    "based_on_revision",
+    "status",
+    "authored_by",
+    "created_at",
+    "persona",
+    "theme",
+    "facts",
+    "elements",
+    "steps",
+    "start_step_id",
+    "end_step_ids",
+    "guardrails"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "project_id": { "type": "string", "minLength": 1 },
+    "tour_version": { "type": "integer", "minimum": 1 },
+    "based_on_revision": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["draft", "active", "retired"] },
+    "author": { "type": ["string", "null"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "authored_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend", "model", "tool", "prompt_version"],
+      "properties": {
+        "backend": { "enum": ["mock", "meta", "xai", "nebius"] },
+        "model": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "tool": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "prompt_version": { "type": ["string", "null"], "maxLength": 40 }
+      }
+    },
+    "persona": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "voice", "style"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "voice": { "const": "mms-tts-eng" },
+        "style": { "enum": ["warm", "playful", "calm"] }
+      }
+    },
+    "theme": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "fact_ids"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "fact_ids": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/id" } }
+      }
+    },
+    "facts": {
+      "type": "array",
+      "maxItems": 400,
+      "items": { "$ref": "#/$defs/fact" }
+    },
+    "elements": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/element" }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 30,
+      "items": { "$ref": "#/$defs/step" }
+    },
+    "start_step_id": { "$ref": "#/$defs/id" },
+    "end_step_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 30,
+      "items": { "$ref": "#/$defs/id" }
+    },
+    "guardrails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["off_topic_reply", "max_lines_per_turn"],
+      "properties": {
+        "off_topic_reply": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "max_lines_per_turn": { "type": "integer", "minimum": 1, "maximum": 10 }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$"
+    },
+    "offset3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "number", "minimum": -5, "maximum": 5 }
+    },
+    "factSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref_id"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "connection_insight",
+            "placement_rationale",
+            "contribution_memory",
+            "attribution",
+            "room_prompt",
+            "letter_envelope",
+            "authored"
+          ]
+        },
+        "ref_id": { "type": ["string", "null"], "maxLength": 120 }
+      }
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fact_id", "text", "source", "derived_from"],
+      "properties": {
+        "fact_id": { "$ref": "#/$defs/id" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "source": { "$ref": "#/$defs/factSource" },
+        "derived_from": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/id" }
+        }
+      }
+    },
+    "element": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "element_id",
+        "kind",
+        "object_id",
+        "contributor_id",
+        "contributor_display_name",
+        "label",
+        "fact_ids",
+        "staging_cue_id",
+        "initially_visible"
+      ],
+      "properties": {
+        "element_id": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["contribution", "environment", "letter", "motif"] },
+        "object_id": { "anyOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "contributor_id": { "type": ["string", "null"], "maxLength": 80 },
+        "contributor_display_name": { "type": ["string", "null"], "maxLength": 100 },
+        "label": { "type": "string", "maxLength": 200 },
+        "fact_ids": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/id" } },
+        "staging_cue_id": { "type": ["string", "null"], "maxLength": 80 },
+        "initially_visible": { "type": "boolean" }
+      }
+    },
+    "stop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor_element_id", "offset_m"],
+      "properties": {
+        "anchor_element_id": { "$ref": "#/$defs/id" },
+        "offset_m": { "$ref": "#/$defs/offset3" }
+      }
+    },
+    "narration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "fact_ids"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "fact_ids": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/id" } }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "step_id",
+        "title",
+        "stop",
+        "focus_element_ids",
+        "reveal_element_ids",
+        "fact_ids",
+        "narration",
+        "next_step_ids",
+        "min_dwell_s"
+      ],
+      "properties": {
+        "step_id": { "$ref": "#/$defs/id" },
+        "title": { "type": "string", "maxLength": 100 },
+        "stop": { "$ref": "#/$defs/stop" },
+        "focus_element_ids": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/id" } },
+        "reveal_element_ids": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/id" } },
+        "fact_ids": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/id" } },
+        "narration": { "$ref": "#/$defs/narration" },
+        "next_step_ids": { "type": "array", "maxItems": 10, "items": { "$ref": "#/$defs/id" } },
+        "min_dwell_s": { "type": "number", "minimum": 0, "maximum": 30 }
+      }
+    }
+  }
+}
