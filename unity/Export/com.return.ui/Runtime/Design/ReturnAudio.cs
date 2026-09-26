@@ -122,7 +122,7 @@ namespace Return.Design
             src.minDistance = 0.5f;
             src.maxDistance = 12f;
             src.volume = volume * MasterVolume;
-            src.Play();
+            if (go.activeInHierarchy) src.Play();
             return src;
         }
 
@@ -180,12 +180,12 @@ namespace Return.Design
             go.transform.SetParent(parent, false);
             var src = go.AddComponent<AudioSource>();
             src.clip = ProceduralAmbience(AmbienceFor(scene));
-            src.loop = true; src.playOnAwake = false;
+            src.loop = true; src.playOnAwake = true; // portals start hidden until the bloom; this starts the hum when they appear
             src.spatialBlend = 1f; src.spatialize = true;
             src.rolloffMode = AudioRolloffMode.Logarithmic;
             src.minDistance = 1f; src.maxDistance = 6f;
             src.volume = volume * MasterVolume;
-            src.Play();
+            if (go.activeInHierarchy) src.Play();
             return src;
         }
 

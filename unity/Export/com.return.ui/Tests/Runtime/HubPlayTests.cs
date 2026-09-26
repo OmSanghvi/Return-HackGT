@@ -38,7 +38,7 @@ namespace Return.UI.PlayTests
             Assert.IsFalse(hub.WorkVisible);
             Assert.AreEqual(4, hub.Cards.Count); // Dylan's 4 ready, joined worlds; the invited ava-graduation room is excluded
             Assert.AreEqual("Dylan Houle", signedInAs);
-            Assert.AreEqual(ReturnTheme.Dusk, ThemeManager.Current);
+            Assert.AreEqual(ReturnTheme.Day, ThemeManager.Current);
         }
 
         [UnityTest]
@@ -73,7 +73,7 @@ namespace Return.UI.PlayTests
             yield return null;
             Assert.IsNull(GameObject.Find("World:The lake house"));
             Assert.IsTrue(_app.Hub.RingVisible);
-            Assert.AreEqual(ReturnTheme.Dusk, ThemeManager.Current);
+            Assert.AreEqual(ReturnTheme.Day, ThemeManager.Current);
         }
 
         [UnityTest]

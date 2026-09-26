@@ -1,7 +1,7 @@
 {
   "name": "com.return.ui",
   "displayName": "Return UI",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "unity": "6000.0",
   "description": "Return design system, six flat screens and a VR hub (portal ring, world loading) for Unity: tokens, Day/Dusk themes, world-space UGUI, optional XR Interaction Toolkit glue.",
   "keywords": [

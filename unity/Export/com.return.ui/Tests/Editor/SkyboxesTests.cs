@@ -47,7 +47,7 @@ namespace Return.UI.Tests
             Assert.AreEqual(blue.g, horizon.g, 0.05f);
             Assert.AreEqual(blue.b, horizon.b, 0.05f);
 
-            Object.DestroyImmediate(tex);
+            UnityEngine.Object.DestroyImmediate(tex);
         }
 
         [Test]
