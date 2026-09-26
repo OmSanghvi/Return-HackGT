@@ -35,3 +35,9 @@ html[data-theme="day"] .app-logo-white:has(+ .app-logo-ink) { display: none; }
 
 /* Eyebrow chip: glass is white-on-tint in day, so the solid white badge takes navy text in both themes (brief: tag). */
 .rt-eyebrow b { color: var(--on-light); }
+
+/* Card pages (create, add, waiting): the painting is a fixed frame behind the page, so a card that grows
+   (search results, a new field) scrolls over it instead of resizing the frame and rescaling the painting. */
+.rt-hero.app-backdrop { position: fixed; inset: var(--space-6); min-height: 0; z-index: 0; }
+.app-card-page { position: relative; z-index: 1; min-height: calc(100svh - 2 * var(--space-6)); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; padding: var(--space-8) var(--space-5) var(--space-7); box-sizing: border-box; }

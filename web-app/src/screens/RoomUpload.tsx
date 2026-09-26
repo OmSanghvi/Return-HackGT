@@ -64,7 +64,8 @@ export default function RoomUpload() {
 
   return (
     <div className="app-shell">
-      <Stage scene={room.scene} blur={0.6} scrim="none" className="app-full app-center" label={room.title}>
+      <Stage scene={room.scene} blur={0.6} scrim="none" className="app-backdrop" label={room.title} />
+      <div className="app-card-page">
         <div className="rt-hero-top app-hero-top"><AppNav /></div>
         <motion.div className="rt-glass-strong app-panel app-card" {...reveal(0)}>
           <div className="app-card-head">
@@ -103,7 +104,7 @@ export default function RoomUpload() {
             <Button variant="ghost" size="lg" disabled={busy} onClick={() => navigate('/rooms')}>Save for later</Button>
           </div>
         </motion.div>
-      </Stage>
+      </div>
       <Sheet open={people} onClose={() => setPeople(false)} label={'People in ' + room.title}>
         <h2 className="title" style={{ margin: 0 }}>In this room</h2>
         <MemberList members={memberRows(room)} onResend={REAL_MODE ? undefined : (m) => { const x = room.members.find((y) => y.email === m.email); if (x) useRooms.getState().resend(room.id, x.id); }} />

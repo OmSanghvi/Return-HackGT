@@ -130,7 +130,7 @@ function MainWindow() {
     u.uMix.value = st.t < 1 ? ease(st.t) : 1;
     u.uMist.value = st.mist; u.uZoom.value = st.zoom; u.uBlur.value = st.blur; u.uPetals.value = st.petals;
     u.uAlpha.value += ((st.shown[2] > 0 ? 1 : 0) - u.uAlpha.value) * Math.min(1, dt * 3);
-    u.uLight.value += ((0.08 + Math.min(0.3, pointer.speed * 0.3)) - u.uLight.value) * Math.min(1, dt * 4);
+    u.uLight.value += ((0.05 + Math.min(0.12, pointer.speed * 0.15)) - u.uLight.value) * Math.min(1, dt * 4);
     u.uTime.value = state.clock.elapsedTime;
     u.uRect.value.set(...st.shown);
     u.uDpr.value = gl.getPixelRatio();

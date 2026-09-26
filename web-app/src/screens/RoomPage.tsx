@@ -70,7 +70,8 @@ function Waiting({ room }: { room: Room }) {
 
   return (
     <div className="app-shell">
-      <Stage scene={room.scene} blur={building ? 0 : 0.5} mist={building ? Math.max(0, 1 - room.progress * 1.1) : 0} scrim="none" className="app-full app-center" label={room.title}>
+      <Stage scene={room.scene} blur={building ? 0 : 0.5} mist={building ? Math.max(0, 1 - room.progress * 1.1) : 0} scrim="none" className="app-backdrop" label={room.title} />
+      <div className="app-card-page">
         <div className="rt-hero-top app-hero-top"><AppNav /></div>
         <AnimatePresence>
           {toast && (
@@ -110,7 +111,7 @@ function Waiting({ room }: { room: Room }) {
             </motion.div>
           )}
         </AnimatePresence>
-      </Stage>
+      </div>
     </div>
   );
 }

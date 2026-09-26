@@ -36,7 +36,8 @@ export default function CreateRoom() {
 
   return (
     <div className="app-shell">
-      <Stage scene={scene} blur={0.6} scrim="none" className="app-full app-center" label="Start a new room">
+      <Stage scene={scene} blur={0.6} scrim="none" className="app-backdrop" label="Start a new room" />
+      <div className="app-card-page">
         <div className="rt-hero-top app-hero-top"><AppNav /></div>
         <motion.div className="rt-glass-strong app-panel app-card" {...reveal(0)}>
           <form onSubmit={(e) => { e.preventDefault(); void create(true); }}>
@@ -65,7 +66,7 @@ export default function CreateRoom() {
             </div>
           </form>
         </motion.div>
-      </Stage>
+      </div>
     </div>
   );
 }
