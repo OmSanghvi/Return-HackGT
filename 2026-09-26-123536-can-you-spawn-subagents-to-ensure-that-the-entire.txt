@@ -1,0 +1,754 @@
+ ▐▛███▛█   Claude Code v2.1.283
+▝▜██████▀  Sonnet 5 · Claude Pro
+ ▝▝   ▝▝   ~\Desktop\Return-HackGT
+
+
+❯ Can you spawn subagents to ensure that the entire backend pipeline is working 
+  from the web to the database to the generation pipeline to nemoclaw to unity  
+  and if it isn't done, build it, test it, and make sure it works               
+
+● I'll start by surveying the current state of the pipeline (backend, build
+  plan, worktrees) before deciding how to decompose this into subagent work.
+
+  Read 4 files, listed 2 directories, ran 5 shell commands (ctrl+o to expand)
+
+● Good, venv created with a POSIX-style bin/ (msys python). Let's install
+  dependencies and run the full verification suite.
+
+  Ran 6 shell commands (ctrl+o to expand)
+
+● WSL Ubuntu can see the repo and has a standard Python. Let's set up the venv
+  and run the full verification suite there instead.
+
+  Ran 6 shell commands (ctrl+o to expand)
+
+● Pip is now available. Now let's use it to create a proper venv (bootstrapping
+  venv without the missing ensurepip by using --without-pip then installing pip
+  manually into it), then install backend deps and run the full test suite.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Harmless PATH export errors (Windows PATH leaking spaces into WSL), but pip is
+  working inside the venv. Now let's install backend deps and run tests.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● While deps install in the background, let me check what's actually implemented
+  in the backend code (AGENT.md may be stale) versus what's still missing.
+
+  Searched for 2 patterns, read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● All deps installed successfully. Now let's run the full verification suite.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Found a real bug — worker/bootstrap_fastsam3d.sh fails bash -n syntax check.
+  Let's look at it.
+
+  Searched for 2 patterns, read 1 file, ran 4 shell commands (ctrl+o to expand)
+
+● Write(bisect.sh)
+  ⎿  Wrote 10 lines to bisect.sh
+       1 #!/usr/bin/env bash
+       2 cd /mnt/c/Users/kriva/Desktop/Return-HackGT
+       3 for n in 20 30 40 50 60 65 70 75 80 83 84 85 86; do
+       4   sed -n "1,${n}p" worker/bootstrap_fastsam3d.sh > /tmp/part.sh
+       5   if bash -n /tmp/part.sh 2>/tmp/err.txt; then
+       6     echo "$n OK"
+       7   else
+       8     echo "$n FAIL: $(cat /tmp/err.txt)"
+       9   fi
+      10 done
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● Write(checkcrlf.sh)
+  ⎿  Wrote 9 lines to checkcrlf.sh
+      1 #!/usr/bin/env bash
+      2 cd /mnt/c/Users/kriva/Desktop/Return-HackGT
+      3 for f in worker/bootstrap_fastsam3d.sh worker/bootstrap_sam31_loc
+      4          infra/aws/bootstrap_instance.sh infra/aws/publish_bundle
+        .sh \
+      5          scripts/aws_preflight.sh scripts/verify_local.sh scripts
+        /start_mock_demo.sh \
+      7   printf '%s: ' "$f"
+      8   file "$f"
+      9 done
+     … +2 lines (ctrl+o to expand)
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Confirmed root cause: no .gitattributes exists, and this machine has
+  core.autocrlf=true, so every shell script got checked out with CRLF line
+  endings — which breaks bash's parser (fi\r isn't recognized as the fi keyword)
+  and fails the project's own verify_local.sh syntax gate (Hard Rule 8). Let me
+  fix that properly, then get real test results.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Background command "Install backend runtime, dev, and numpy dependencies in
+WSL venv" completed (exit code 0)
+
+● Root cause is clear: the repo has no .gitattributes, so any Windows checkout
+  with core.autocrlf=true (like this one) silently corrupts every shell script's
+  line endings, breaking bash -n. Let me fix this properly and check how
+  widespread it is.
+
+  Searched for 1 pattern, ran 3 shell commands (ctrl+o to expand)
+
+● Write(.gitattributes)
+  ⎿  Wrote 22 lines to .gitattributes
+       1 # Normalize line endings so shell scripts don't break on Windows
+          checkouts
+       2 # (core.autocrlf=true silently converts LF -> CRLF, which breaks
+       3 # and script execution — see scripts/verify_local.sh).
+       4 * text=auto eol=lf
+       5 
+       6 *.sh text eol=lf
+       8 *.json text eol=lf
+       9 *.md text eol=lf
+      10 *.MD text eol=lf
+     … +14 lines (ctrl+o to expand)
+
+● Now let's normalize the working tree so the affected files actually parse
+  correctly, and re-run the full verification suite.
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Good — those backend files must have already been committed in 1cb1ba6; the
+  working tree is otherwise clean. Since .gitattributes now forces LF and none
+  of the CRLF-affected files have uncommitted changes, I can safely re-checkout
+  them to fix the physical line endings on disk.
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● CRLF is fixed and git confirms no semantic diff (git already treats these as
+  LF blobs internally — this was purely a working-tree checkout artifact). Now
+  let's get real signal on the pipeline by running the full verification suite.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'll wait for the test run to finish rather than poll — I'll get notified when
+  it completes. Meanwhile let me check the Unity project and the web-app/
+  directory that already exists (AGENT.md claims no web app exists, but there's
+  clearly something there).
+
+  Searched for 4 patterns, read 1 file, listed 4 directories, ran 1 shell command (ctrl+o to expand)
+● Still running. I'll wait for it to complete rather than poll.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Still running (this is a fairly heavy backend test suite — 219+ tests). I'll
+  give it a bit more time.
+
+● Still waiting on the backend test suite to finish in WSL (219+ tests, first
+  cold run). Quick status while it runs:
+
+  Found so far:
+  - Fixed a real bug: no .gitattributes existed, so this Windows checkout
+    (core.autocrlf=true) silently corrupted every shell script's line endings,
+    which broke bash -n in scripts/verify_local.sh — that's now fixed.
+  - The backend (Contributor/Contribution/ConnectionInsight, connection/compose,
+    NemoClaw's place_objects_in_scene/stage_immersive_reveal mock tools,
+    blueprint publish) is much further built than
+    AGENT.md/docs/PROJECT_STATUS.md claim — those docs are stale.
+  - Found two parallel web frontends in web-app/: a polished demo UI (screens/,
+    live on Vercel) that runs on a fully local fake store with no backend calls,
+    and a real/ UI that's wired to the actual API but only covers
+    projects/contributors/uploads — it never calls connection/compose, blueprint
+    publish, or fetches the compiled scene.
+  - Found two Unity projects: an external ../HackGTUnity and an in-repo unity/
+    that was modified today and looks like the active one.
+
+  Once tests finish I'll have a full picture and will check with you on which
+  web UI / Unity project to treat as canonical before spawning build work.
+
+✻ Cooked for 21m 35s · done 12:07 PM
+
+❯ does the web app image upload and text context related to that image and      
+  necessary object masks that were specified by the user/automatic connect with 
+  the aws database and does it also create polling jobs in AWS to start 3d      
+  reconsruction                                                                 
+
+  Searched for 6 patterns, read 2 files, ran 1 shell command (ctrl+o to expand)
+
+● This is a very revealing find — let me quickly check if there's actually a
+  live backend for the web app to reach at all.
+
+  Called aws-mcp 3 times (ctrl+o to expand)
+
+● Traced this through the actual code (not the stale docs). Short answer:
+  partially wired, with real gaps — here's exactly what happens today, and what
+  doesn't.
+
+  Image upload → AWS storage: wired, but backend-config-dependent
+  POST /v1/projects/{id}/uploads writes the raw image via
+  artifact_store.put_upload(...) and the record via
+  store.save_upload_record(...) (backend/main.py:2461-2476). Both store and
+  artifact_store are backend-agnostic — they write to DynamoDB/S3 only if the
+  running API process has SKETCHSCAPE_STORAGE_BACKEND=dynamodb and
+  SKETCHSCAPE_ARTIFACTS_BACKEND=s3 set; otherwise (the default) everything goes
+  to local disk. Per the docs, DynamoDB + S3 are provisioned and smoke-tested,
+  but the env vars were never set on the EC2 API host — so as configured today,
+  this writes locally, not to AWS.
+
+  Object masks (user-typed): fully wired end-to-end
+  Typing an object name in the UI → createSelections → POST .../selections
+  creates a segment-kind ReconstructionJob, saved to store and dispatched
+  (backend/main.py:2522-2564). Checking boxes and clicking "Make 3D" →
+  generateSelectedObjects → POST .../generate creates one ProjectAsset + one
+  reconstruct-kind ReconstructionJob per selected object
+  (backend/main.py:2694-2764). This path is real and complete in
+  web-app/src/real/RealProjectPage.tsx.
+
+  Automatic masks: backend exists, but unreachable from the UI
+  There's a /detect endpoint (NemoClaw auto-suggest) and a detectObjects client
+  function in client.ts — but it's never called anywhere in web-app/src. No
+  "Suggest objects" button exists. So automatic detection is dead code from the
+  UI's perspective; only manual typed names work today.
+
+  Text context ("memory text"): modeled, but never collected by the UI
+  memory_text is a real field all the way through — UploadSelection.memory_text,
+  Contribution.memory_text, even fed into NemoClaw's composition prompt
+  (backend/main.py:3083, 3125). But RealProjectPage.tsx has no input for it, and
+  createSelections/generateSelectedObjects never send it. Every contribution
+  made through the real web app today gets memory_text="".
+
+  Polling jobs for 3D reconstruction: real, and it does become AWS-side polling 
+  in aws-local mode
+  The web app itself polls the backend API (pollProjectJobs → GET 
+  /v1/projects/{id}/jobs?active=1, ETag-cached), not AWS directly. But in
+  PIPELINE_MODE=aws-local, dispatch_job deliberately leaves reconstruct/segment
+  jobs queued in the store, and the actual GPU worker running on EC2 pulls them
+  via POST /v1/internal/jobs/claim — a real lease/claim polling loop
+  (worker/gpu_dispatcher.py) — then posts results back. In the default
+  PIPELINE_MODE=mock, none of that runs; jobs are faked in-process with no
+  AWS/GPU involvement at all.
+
+  One more thing I found that undercuts all of this in production:
+  web-app/vercel.json's API rewrite still points at the literal placeholder
+  http://REPLACE_WITH_EC2_BACKEND_HOST:8000/:path*. If that's still true on the
+  live Vercel deployment, the production web app can't reach any backend at all
+  right now, regardless of pipeline mode — every API call would fail to resolve.
+  I don't have AWS credentials in this sandbox to check whether a real EC2 host
+  is actually live, so I can't confirm whether that placeholder was fixed
+  post-deploy or is still broken.
+
+  Want me to fix the memory-text field and the auto-detect wiring in
+  RealProjectPage.tsx, and chase down the vercel.json placeholder?
+
+✻ Sautéed for 2m 23s · done 12:11 PM
+
+✻ Claude resuming /loop wakeup (Sep 26 12:11pm)
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● This has been running 8m45s with almost all time in disk-wait (D state) — the
+  Windows-mounted filesystem (/mnt/c via WSL's 9p protocol) is punishingly slow
+  for the store's many small atomic-write file operations. Let me switch to
+  running tests against WSL's native filesystem instead, which will be
+  dramatically faster.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(runtests.sh)
+  ⎿  Wrote 17 lines to runtests.sh
+       1 #!/usr/bin/env bash
+       3 rm -rf ~/sketchscape-test
+       4 mkdir -p ~/sketchscape-test
+         cape-test/backend
+         ape-test/worker
+       7 cp -r /mnt/c/Users/kriva/Desktop/Return-HackGT/shared ~/sketchsc
+       8 cp -r /mnt/c/Users/kriva/Desktop/Return-HackGT/scripts ~/sketchs
+         cape-test/scripts
+         ape-test/config
+         pe-test/infra
+     … +15 lines (ctrl+o to expand)
+
+● Background command "Run full backend + worker verification suite after CRLF
+fix" completed (exit code 0)
+
+  Read 1 file (ctrl+o to expand)
+
+● Good — the gate-status script (which reads actual code, not the stale docs)
+  gives a much more reliable status table. Now let's get real pass/fail numbers
+  by running tests on WSL's native filesystem instead of the slow /mnt/c mount.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+❯ make it so that the pipeline is not just mock, we need to test the actual     
+  pipeline, also connect with the web app and yes fix the memory text field,    
+  auto detect wiring, and fix the placeholder in vercel.json                    
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'll flag one real blocker immediately, then get moving on everything I can do
+  without it.
+
+  Searched for 4 patterns, read 2 files, ran 1 shell command (ctrl+o to expand)
+
+● Now implementing the two frontend fixes. Let's start with RealProjectPage.tsx:
+  add a memory-text field to selection creation, and wire up auto-detect.
+
+● Update(web-app\src\real\RealProjectPage.tsx)
+  ⎿  Added 1 line
+       8    createSketchCard,
+       9    createUpload,
+      10    deleteSelection,
+      11 +  detectUploadObjects,                                         
+      12    generateSelectedObjects,
+      13    getProject,
+      14    getUpload,
+
+● Update(web-app\src\real\RealProjectPage.tsx)
+  ⎿  Added 1 line
+       95          </button>
+       96        </div>
+       97        {mask.url && <img src={mask.url} alt={`Mask preview for 
+           ${selection.prompt.text}`} style={{ width: 96, height: 96, obj
+           ectFit: 'cover', borderRadius: 8 }} />}
+       98 +      {selection.memory_text && <p className="rt-field-hint" s
+          +tyle={{ margin: 0, fontStyle: 'italic' }}>&ldquo;{selection.me
+          +mory_text}&rdquo;</p>}                                        
+       99        <div style={{ display: 'flex', gap: 6, width: '100%' }}>
+      100          <input
+      101            className="rt-input"
+
+● Now the core UploadCard changes — pending-object state gets a memory field,
+  findObjects sends it, and a "Suggest an object" button wires up auto-detect:
+
+● Update(web-app\src\real\RealProjectPage.tsx)
+  ⎿  Added 23 lines, removed 3 lines
+      122    upload: UploadEntry;
+      123    onChanged: (uploadId: string) => void;
+      124  }) {
+      125 -  const [pendingNames, setPendingNames] = useState<string[]>([
+          -]);                                                           
+      125 +  const [pendingNames, setPendingNames] = useState<{ text: str
+          +ing; memory: string }[]>([]);                                 
+      126    const [draft, setDraft] = useState('');
+      127 +  const [draftMemory, setDraftMemory] = useState('');         
+      128    const [checked, setChecked] = useState<Set<string>>(new Set(
+           ));
+      129    const [busy, setBusy] = useState(false);
+      130 +  const [suggesting, setSuggesting] = useState(false);        
+      131    const [error, setError] = useState('');
+      132    const image = useAuthedImage(upload.image_url);
+      133  
+     ...
+      138        setError('A photo may have at most 8 selected objects.')
+           ;
+      139        return;
+      140      }
+      139 -    setPendingNames((v) => [...v, text]);                     
+      141 +    setPendingNames((v) => [...v, { text, memory: draftMemory.
+          +trim().slice(0, 1000) }]);                                    
+      142      setDraft('');
+      143 +    setDraftMemory('');                                       
+      144      setError('');
+      145    };
+      146  
+     ...
+      152        await createSelections(
+      153          projectId,
+      154          upload.upload_id,
+      152 -        pendingNames.map((text) => ({ selection_id: newSelecti
+          -onId(), prompt: { text } })),                                 
+      155 +        pendingNames.map((p) => ({                            
+      156 +          selection_id: newSelectionId(),                     
+      157 +          prompt: { text: p.text },                           
+      158 +          memory_text: p.memory || undefined,                 
+      159 +        })),                                                  
+      160        );
+      161        setPendingNames([]);
+      162        onChanged(upload.upload_id);
+     ...
+      167      }
+      168    };
+      169  
+      170 +  const suggestObject = async () => {                         
+      171 +    setSuggesting(true);                                      
+      172 +    setError('');                                             
+      173 +    try {                                                     
+      174 +      await detectUploadObjects(projectId, upload.upload_id); 
+      175 +      onChanged(upload.upload_id);                            
+      176 +    } catch (err) {                                           
+      177 +      setError(err instanceof ApiError ? err.message : 'Could 
+          +not suggest an object.');                                     
+      178 +    } finally {                                               
+      179 +      setSuggesting(false);                                   
+      180 +    }                                                         
+      181 +  };                                                          
+      182 +                                                              
+      183    const makeThreeD = async () => {
+      184      const ids = [...checked];
+      185      if (ids.length === 0) return;
+
+● Now update the render section: add the memory input field, show it on pending
+  chips, and add the "Suggest an object" button.
+
+● Update(web-app\src\real\RealProjectPage.tsx)
+  ⎿  Added 17 lines, removed 3 lines
+      210          {image.url && <img src={image.url} alt="Uploaded photo
+           " style={{ width: 180, height: 180, objectFit: 'cover', border
+           Radius: 12 }} />}
+      211          <div style={{ flex: 1, minWidth: 240, display: 'flex',
+            flexDirection: 'column', gap: 8 }}>
+      212            <p className="rt-field-hint" style={{ margin: 0 }}>
+      213 -            Type a name for each object you want in 3D (e.g. "
+          -blue vase"), then find them.                                  
+      213 +            Type a name for each object you want in 3D (e.g. "
+          +blue vase"), add an optional memory or reason, then find them.
+      214            </p>
+      215            <div style={{ display: 'flex', gap: 6 }}>
+      216              <input
+     ...
+      221                onKeyDown={(e) => e.key === 'Enter' && addDraft(
+           )}
+      222                style={{ flex: 1 }}
+      223              />
+      224 +            <input                                            
+      225 +              className="rt-input"                            
+      226 +              placeholder="Why this matters (optional)"       
+      227 +              value={draftMemory}                             
+      228 +              onChange={(e) => setDraftMemory(e.target.value)}
+      229 +              onKeyDown={(e) => e.key === 'Enter' && addDraft(
+          +)}                                                            
+      230 +              style={{ flex: 1 }}                             
+      231 +            />                                                
+      232              <Button size="sm" variant="secondary" icon="plus" 
+           onClick={addDraft}>
+      233                Add
+      234              </Button>
+      235            </div>
+      236 +          <div className="app-actions" style={{ marginTop: 0 }
+          +}>                                                            
+      237 +            <Button size="sm" variant="ghost" loading={suggest
+          +ing} onClick={suggestObject}>                                 
+      238 +              Suggest an object                               
+      239 +            </Button>                                         
+      240 +          </div>                                              
+      241            {pendingNames.length > 0 && (
+      242              <ul className="rt-chips" style={{ margin: 0 }}>
+      243                {pendingNames.map((n, i) => (
+      244                  <li key={i} className="rt-chip">
+      232 -                  {n}                                         
+      233 -                  <button type="button" className="rt-chip-x" 
+          -aria-label={`Remove ${n}`} onClick={() => setPendingNames((v) 
+          -=> v.filter((_, j) => j !== i))}>                             
+      245 +                  {n.text}                                    
+      246 +                  {n.memory && <span className="rt-field-hint"
+          +> — &ldquo;{n.memory}&rdquo;</span>}                          
+      247 +                  <button type="button" className="rt-chip-x" 
+          +aria-label={`Remove ${n.text}`} onClick={() => setPendingNames
+          +((v) => v.filter((_, j) => j !== i))}>                        
+      248                      <Icon name="x" size={12} strokeWidth={2.5}
+            />
+      249                    </button>
+      250                  </li>
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Good, ghost is valid. Now let's type-check the web app to confirm the edit is
+  sound.
+
+  Ran 7 shell commands (ctrl+o to expand)
+
+● Write(typecheck.sh)
+  ⎿  Wrote 10 lines to typecheck.sh
+       1 #!/usr/bin/env bash
+       2 export PATH="$HOME/node/bin:$PATH"
+       3 node --version
+       5 cd ~/sketchscape-web 2>/dev/null || { mkdir -p ~/sketchscape-web
+          && cp -r /mnt/c/Users/kriva/Desktop/Return-HackGT/web-app/. ~/s
+         ketchscape-web/ && cd ~/sketchscape-web; }
+       6 rm -rf node_modules
+       8 echo "--- tsc ---"
+       9 npx tsc -b 2>&1 | tail -100
+      10 echo "TSC_EXIT=$?"
+     … +2 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(typecheck.sh)
+  ⎿  Added 2 lines, removed 7 lines
+       1  #!/usr/bin/env bash
+       2  export PATH="$HOME/node/bin:$PATH"
+       3 -node --version                                                 
+       4 -npm --version                                                  
+       5 -cd ~/sketchscape-web 2>/dev/null || { mkdir -p ~/sketchscape-we
+         -b && cp -r /mnt/c/Users/kriva/Desktop/Return-HackGT/web-app/. ~
+         -/sketchscape-web/ && cd ~/sketchscape-web; }                   
+       6 -rm -rf node_modules                                            
+       7 -npm install --no-audit --no-fund 2>&1 | tail -60               
+       8 -echo "--- tsc ---"                                             
+       9 -npx tsc -b 2>&1 | tail -100                                    
+       3 +cd ~/sketchscape-web                                           
+       4 +npx tsc -b 2>&1                                                
+       5  echo "TSC_EXIT=$?"
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Type-check passes cleanly (exit 0, no errors). Now let's tackle vercel.json. I
+  need to be upfront about a real blocker here before going further.
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Still running but actively burning CPU now (much healthier than before). Let
+  me check the in-repo Unity project state while that finishes.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Background command "Copy repo into WSL native filesystem and run full test
+suite there" completed (exit code 0)
+
+● Good — UnitySplats confirmed present, and the Unity offline experience builder
+  exists. Test run just finished — let's get the actual results.
+
+  Read 1 file (ctrl+o to expand)
+
+● Test results are in, and I finished the two frontend fixes. Here's the full
+  picture:
+
+  Backend + worker: fully verified, mock pipeline solid
+  scripts/verify_local.sh now passes cleanly end-to-end: 247 backend tests OK (2
+  skipped), 33 worker tests OK, exit code 0. (The ERROR/Traceback lines in the
+  output are the dispatcher tests intentionally exercising
+  failure/lease-conflict paths — expected, not failures.)
+
+  Web app fixes — done, type-checked clean
+  In web-app/src/real/RealProjectPage.tsx:
+  - Added a "why this matters" input alongside each object name; it's now sent
+    as memory_text on createSelections, and shown as an italic quote once a
+    selection exists.
+  - Added a "Suggest an object" button wired to the existing (previously
+    orphaned) detectUploadObjects → /detect endpoint.
+  - Verified with a real tsc -b run in a fresh WSL Node 22 install (no
+    pre-existing Node in this sandbox) — 0 type errors.
+
+  Unity project (unity/ in-repo, the actively-modified one): looks healthy
+  UnitySplats v1.2.0 (git dependency), XR Interaction Toolkit 3.6.0, XR Hands,
+  Meta OpenXR, URP all present in the package manifest;
+  Assets/Editor/SketchScapeOfflineExperienceBuilder.cs exists.
+
+  Now I'm blocked on the two AWS-dependent asks, and want to check with you
+  before guessing:
+  - I have no AWS access in this sandbox — the aws-mcp tool errors on every call
+    (even sts.get_caller_identity), and there's no AWS CLI installed locally
+    either.
+  - Testing the actual (non-mock) pipeline means PIPELINE_MODE=aws-local against
+    a real GPU worker — which needs a running EC2 instance, and Hard Rule 3 in
+    this repo requires your explicit approval before I start one anyway (it
+    costs money).
+  - Fixing vercel.json's REPLACE_WITH_EC2_BACKEND_HOST placeholder needs the
+    real backend host/IP — I found the Terraform config allocates a stable
+    Elastic IP (aws_eip.api) for exactly this, but I can't query its value from
+    here.
+
+● User answered Claude's questions:
+  ⎿  · How do you want to handle the AWS-dependent work (starting/finding the 
+     GPU EC2 host, running the real pipeline, and getting the IP for 
+     vercel.json)? → I'll run AWS commands myself
+
+  Read 3 files, ran 1 shell command (ctrl+o to expand)
+
+● Since there's no local Terraform state on this machine (state must live
+  wherever the infra was originally applied from), running terraform apply here
+  would try to recreate everything from scratch — risky. Better to discover
+  what's actually running with plain read-only AWS CLI calls first. Please run
+  these and paste back the output:
+
+  1. Confirm your AWS CLI has credentials:
+  aws sts get-caller-identity
+
+  2. Find the GPU instance, its Elastic IP, and cloud storage (docs say
+  us-east-2, but the Terraform default is us-east-1 — check both if the first
+  comes back empty):
+  aws ec2 describe-instances --region us-east-2 --filters 
+  "Name=tag:Name,Values=sketchscape*" --query "Reservations[].Instances[].{Id:In
+  stanceId,State:State.Name,Type:InstanceType,PublicIp:PublicIpAddress}" 
+  --output table
+
+  aws ec2 describe-addresses --region us-east-2 --query 
+  "Addresses[].{IP:PublicIp,InstanceId:InstanceId,Tags:Tags}" --output table
+
+  aws dynamodb list-tables --region us-east-2
+
+  aws s3 ls
+
+  These are all read-only — nothing gets created, started, or charged. Once I
+  see the results I can:
+  - Fill in vercel.json's placeholder with the real Elastic IP.
+  - Tell you the exact aws ec2 start-instances ... command if the GPU host is
+    stopped and you want to actually run PIPELINE_MODE=aws-local against it
+    (I'll flag that step separately since it starts billing — want your explicit
+    go-ahead on that one specifically, per this repo's Hard Rule 3).
+
+  Paste the output here (or use ! <command> for each) whenever you're ready —
+  I'll keep working on the mock-mode / code-level pieces of the pipeline in the
+  meantime if there's more to check.
+
+✻ Baked for 6m 55s · done 12:19 PM
+
+❯ claude --continue --dangerously-skip-permissions                              
+
+● That looks like a shell command that was meant to be typed into a terminal (to
+  resume a Claude Code session with permission prompts skipped) rather than
+  sent here as a chat message — running it inside this conversation won't do
+  anything.
+
+  Just to confirm where we left off: I'm still waiting on the output from the
+  AWS CLI discovery commands (aws sts get-caller-identity, describe-instances,
+  describe-addresses, list-tables, s3 ls) so I can fill in the real Elastic IP
+  into vercel.json and figure out whether the GPU host is running or stopped.
+
+  Did you mean to paste that command's output here, or is there something else
+  you'd like me to do?
+
+✻ Brewed for 5s · done 12:20 PM
+
+❯ continue and now you can run the aws commands                                 
+
+  Called aws-mcp 4 times, ran 2 shell commands (ctrl+o to expand)
+
+● Found it — this call_boto3 wrapper needs PascalCase API operation names
+  (ListTables), not the snake_case boto3 SDK method names I was using. Retrying
+  everything correctly now.
+
+  Called aws-mcp (ctrl+o to expand)
+
+● Excellent — that fixed it. Real findings, and they resolve a couple of things
+  I flagged earlier:
+
+  Live infra is in us-east-1, not us-east-2 (the docs are stale on this too):
+  - EC2 instance i-05f7fe9fc8d8da00a (tag: sketchscape-gpu-worker, g6e.xlarge) —
+    currently stopped, last stopped today (2026-09-26 15:34 UTC).
+  - Elastic IP 100.63.32.83 (tag: sketchscape-api), already associated with that
+    instance's network interface — this is the real, stable backend host.
+  - DynamoDB table sketchscape-authoring — live.
+  - S3 buckets sketchscape-artifacts-... and sketchscape-bundle-... — live.
+  - (The us-east-2 instance that came back is an unrelated stray t3.micro named
+    "My Web Server" — not this project.)
+
+  Let me fix vercel.json with the real IP now (safe, reversible, no cost):
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(web-app\vercel.json)
+  ⎿  Added 1 line, removed 1 line
+      1  {
+      2    "rewrites": [
+      3 -    { "source": "/api/:path*", "destination": "http://REPLACE_WI
+        -TH_EC2_BACKEND_HOST:8000/:path*" },                             
+      3 +    { "source": "/api/:path*", "destination": "http://100.63.32.
+        +83:8000/:path*" },                                              
+      4      { "source": "/(.*)", "destination": "/index.html" }
+      5    ]
+      6  }
+
+● Let me also check whether the security group would actually let Vercel's proxy
+  reach the API — this matters for whether the vercel.json fix actually works
+  in production.
+
+  Called aws-mcp (ctrl+o to expand)
+
+● Found one more real blocker for "connect the web app": the security group only
+  allows inbound port 8000 from a single locked-down IP.
+
+● User answered Claude's questions:
+  ⎿  · The EC2 security group (sg-08c9cc4fa307fa9d0) only allows inbound :8000 
+     from one IP (104.28.209.112/32, tagged "demo network"). Vercel's rewrite 
+     proxy runs from Vercel's own infrastructure, not that IP, so the 
+     vercel.json fix alone won't let the live site reach the backend. 
+     Terraform's allowed_cidr variable explicitly forbids 0.0.0.0/0. How do you 
+     want to handle this? → Widen to 0.0.0.0/0 (Recommended)
+
+  Called aws-mcp (ctrl+o to expand)
+
+● Security group is fixed — port 8000 now open to 0.0.0.0/0 (backend's own
+  auth/CORS remains the real gate). Note: this creates drift from whatever
+  allowed_cidr is in the actual (gitignored, not-in-this-repo) terraform.tfvars
+  — a future terraform apply from wherever that state lives could revert it.
+
+  One more explicit check before I touch the GPU instance itself, since
+  AGENT.md's Hard Rule 3 calls this out specifically and it's real, metered
+  spend:
+● User answered Claude's questions:
+  ⎿  · Start the GPU instance (i-05f7fe9fc8d8da00a, g6e.xlarge, ~$1.86/hr 
+     on-demand) now to test the real PIPELINE_MODE=aws-local flow end-to-end? It
+     was configured with a 30-minute auto-stop safety timer by default, though 
+     I can't confirm from here whether that's actually active on this specific 
+     instance. → Yes, start it now
+
+  Called aws-mcp 2 times (ctrl+o to expand)
+
+● The retry succeeded — the transient capacity error cleared. Instance is now
+  pending → booting. Let's wait for it to come up, then check what's actually on
+  it.
+
+  Called aws-mcp 3 times, ran 1 shell command (ctrl+o to expand)
+
+● Instance start confirmed, security group fixed, and vercel.json patched with
+  the real IP. GPU host is booting now — I'll check back in ~2 minutes once it's
+  up and passing status checks.
+
+✻ Baked for 4m 29s · done 12:26 PM
+
+❯ check                                                                         
+
+  Called aws-mcp (ctrl+o to expand)
+
+● Instance is running with all status checks passing (instance reachability,
+  system reachability, EBS reachability all "ok"). Now let's check whether the
+  API/worker process is actually reachable from outside.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● FastAPI is definitely running and reachable (JSON 404, not a connection
+  failure) — just hit the wrong path. Let me find the right one and check
+  pipeline mode.
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● The live pipeline mode is already aws-local — real reconstruction, not mock.
+  Let's use SSM (the instance has the managed-instance role) to check whether
+  the actual worker processes and GPU are healthy on the host.
+
+  Called aws-mcp (ctrl+o to expand)
+
+● SSM agent is online. Let's run a diagnostic command to check GPU, the backend
+  API process, the persistent worker, and the dispatcher.
+
+  Called aws-mcp 2 times (ctrl+o to expand)
+
+● Fantastic — the host is far more ready than the docs claimed: DynamoDB, S3,
+  and aws-local pipeline mode are already configured, with three live systemd
+  services (SAM 3.1 warm server, Fast-SAM3D worker, API) all running on a real
+  L40S GPU. Let's actually drive a real upload through it. First, check auth
+  config and find a test image.
+
+  Called aws-mcp 4 times (ctrl+o to expand)
+
+● AWS credentials expired in this sandbox and won't refresh — I'll note that and
+  continue testing directly against the live API via curl instead, which
+  doesn't need AWS access.
+
+  Searched for 4 patterns, ran 5 shell commands (ctrl+o to expand)
+
+● Major finding: the live backend is running badly outdated code — only 23
+  routes, missing every Build Plan step 1-27 endpoint (no
+  uploads/selections/generate/contributors/rooms), and still has /v1/sketches
+  which was supposed to be deleted entirely. That's why the upload 404'd. Let me
+  check the instance's deployment state and redeploy current code.
+
+  Read 2 files, called aws-mcp 2 times (ctrl+o to expand)
+
+● While waiting for credentials, let me prepare the deployment bundle locally.
+
+  Listed 1 directory, called aws-mcp, ran 1 shell command (ctrl+o to expand)
+  ⎿  You've hit your session limit · resets 2:10pm (America/New_York)
+     Continuing automatically at 2:10pm · esc to cancel
+
+● Usage limit reached · continuing automatically at 2:10pm · esc or type
+  to cancel
+
+✻ Worked for 6m 40s · done 12:35 PM
