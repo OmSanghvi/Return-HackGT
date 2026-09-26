@@ -53,6 +53,9 @@ namespace Return.UI.XR.Editor
             var rigPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(RigPath);
             var rig = (GameObject)PrefabUtility.InstantiatePrefab(rigPrefab);
             rig.name = "XR Origin (Return)";
+            var origin = rig.GetComponent<Unity.XR.CoreUtils.XROrigin>();
+            if (origin != null) origin.RequestedTrackingOriginMode = Unity.XR.CoreUtils.XROrigin.TrackingOriginMode.Floor;
+            SetupSmoothTurn(rig);
             var cam = rig.GetComponentInChildren<Camera>(true);
             cam.clearFlags = CameraClearFlags.SolidColor; cam.backgroundColor = new Color(0.04f, 0.05f, 0.12f); cam.nearClipPlane = 0.05f; cam.farClipPlane = 200f;
             cam.gameObject.tag = "MainCamera";
@@ -83,6 +86,32 @@ namespace Return.UI.XR.Editor
         {
             foreach (var t in root.GetComponentsInChildren<Transform>(true)) if (t.name == name) return t;
             return null;
+        }
+
+        /// <summary>Bakes the smooth-turn setup into a freshly built scene so it matches what XRInputSupport patches onto
+        /// the existing ReturnHub.unity at runtime: continuous turn speed and (if present) a comfort vignette wired to it.
+        /// ControllerInputActionManager.smoothTurnEnabled lives in the optional Starter Assets sample, so it's set by
+        /// reflection here too rather than a hard reference from this asmdef.</summary>
+        static void SetupSmoothTurn(GameObject rig)
+        {
+            var turn = rig.GetComponentInChildren<UnityEngine.XR.Interaction.Toolkit.Locomotion.Turning.ContinuousTurnProvider>(true);
+            if (turn != null)
+            {
+                turn.turnSpeed = 75f; // matches XRInputSupport.TurnSpeedDegPerSec, which patches the same value onto ReturnHub.unity at runtime
+                var vignette = rig.GetComponentInChildren<UnityEngine.XR.Interaction.Toolkit.Locomotion.Comfort.TunnelingVignetteController>(true);
+                if (vignette != null)
+                {
+                    var list = vignette.locomotionVignetteProviders;
+                    bool wired = false; foreach (var p in list) if (p.locomotionProvider == turn) wired = true;
+                    if (!wired) list.Add(new UnityEngine.XR.Interaction.Toolkit.Locomotion.Comfort.LocomotionVignetteProvider { locomotionProvider = turn, enabled = true });
+                }
+            }
+            foreach (var mb in rig.GetComponentsInChildren<MonoBehaviour>(true))
+            {
+                if (mb.GetType().Name != "ControllerInputActionManager") continue;
+                var prop = mb.GetType().GetProperty("smoothTurnEnabled");
+                if (prop != null && prop.PropertyType == typeof(bool)) prop.SetValue(mb, true);
+            }
         }
     }
 }
