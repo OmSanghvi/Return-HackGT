@@ -159,7 +159,13 @@ async def create_tour(
     blueprint = await get_blueprint(project_id, request.based_on_revision)
     contributions = store.list_contributions(project_id)
     social_manifest = compile_social_manifest(blueprint)
-    validate_guided_tour(request, blueprint=blueprint, social_manifest=social_manifest, contributions=contributions)
+    validate_guided_tour(
+        request,
+        blueprint=blueprint,
+        social_manifest=social_manifest,
+        contributions=contributions,
+        letters=store.list_letters(project_id),
+    )
     return _store_tour_draft(project_id, request, author_from_identity(identity))
 
 

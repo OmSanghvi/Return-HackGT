@@ -53,6 +53,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a circular import.
     from letters import Letter, LetterOpenRecord
 
     from guided_tour import GuidedTour
+    from guide import GuideSession, GuideTurn
 
 
 STATE_VERSION = 3
@@ -113,6 +114,17 @@ def _tour_model_type() -> type:
     from guided_tour import GuidedTour
 
     return GuidedTour
+
+
+def _guide_model_types() -> tuple[type, type]:
+    """Return ``(GuideSession, GuideTurn)``, imported lazily.
+
+    ``guide`` doesn't import ``storage`` at module scope (only for
+    ``TYPE_CHECKING``), so this is one-directional, like ``_tour_model_type``.
+    """
+    from guide import GuideSession, GuideTurn
+
+    return GuideSession, GuideTurn
 
 
 def _job_status_type():
@@ -303,6 +315,50 @@ class AuthoringStore(ABC):
         losing race against ``expected``, so callers can turn it into a 409.
         """
 
+    # -- guide sessions (Build Plan step 32) ---------------------------------
+
+    @abstractmethod
+    def create_guide_session(self, session: "GuideSession") -> None:
+        """First write for a new session. Also retires any prior active
+        session for the same ``(project_id, account)`` -- one active session
+        per account, per the guide-runtime contract."""
+
+    @abstractmethod
+    def get_guide_session(self, project_id: str, session_id: str) -> "GuideSession | None": ...
+
+    @abstractmethod
+    def get_active_guide_session_id(self, project_id: str, account: str) -> str | None: ...
+
+    @abstractmethod
+    def update_guide_session(
+        self, project_id: str, session_id: str, expected_turn_count: int, updates: dict
+    ) -> "GuideSession | None":
+        """Compare-and-set on ``turn_count``. ``updates`` is the full new
+        session document (``GuideSession.model_dump(mode="json")``), matching
+        the caller's ``expected_turn_count`` -> ``expected_turn_count + 1``
+        transition. Returns the updated session, or ``None`` (never raises)
+        on a losing race so the caller can 409 with the stored turn."""
+
+    @abstractmethod
+    def append_guide_turn(self, project_id: str, turn: "GuideTurn") -> None:
+        """Append-only ``GUIDETURN#<session_id>#<turn_seq padded>`` audit row."""
+
+    @abstractmethod
+    def get_guide_turn_by_client_id(
+        self, project_id: str, session_id: str, client_turn_id: str
+    ) -> "GuideTurn | None":
+        """Idempotency lookup: the stored turn for a repeated ``client_turn_id``."""
+
+    @abstractmethod
+    def get_guide_turn_by_seq(self, project_id: str, session_id: str, turn_seq: int) -> "GuideTurn | None": ...
+
+    @abstractmethod
+    def increment_guide_daily_usage(self, project_id: str, date_key: str) -> int:
+        """Atomic ADD counter for ``GUIDEUSAGE#<yyyy-mm-dd>`` (``date_key``);
+        returns the new total. Used against
+        ``SKETCHSCAPE_GUIDE_DAILY_MODEL_TURNS`` to fall back to the mock
+        provider once a project's daily model-turn budget is spent."""
+
 
 class LocalJsonStore(AuthoringStore):
     """A JSON-file-backed, single-process authoring store.
@@ -334,6 +390,14 @@ class LocalJsonStore(AuthoringStore):
         self.tours: dict[str, list["GuidedTour"]] = {}
         self.tour_live: dict[str, int] = {}
 
+        # Step 32: project_id -> session_id -> GuideSession; project_id ->
+        # account -> active session_id; project_id -> session_id -> turn_seq
+        # -> GuideTurn; project_id -> date_key -> count.
+        self.guide_sessions: dict[str, dict[str, "GuideSession"]] = {}
+        self.guide_active_sessions: dict[str, dict[str, str]] = {}
+        self.guide_turns: dict[str, dict[str, dict[int, "GuideTurn"]]] = {}
+        self.guide_daily_usage: dict[str, dict[str, int]] = {}
+
     # -- lifecycle ---------------------------------------------------------
 
     def load(self) -> None:
@@ -358,6 +422,10 @@ class LocalJsonStore(AuthoringStore):
 
             self.tours = {}
             self.tour_live = {}
+            self.guide_sessions = {}
+            self.guide_active_sessions = {}
+            self.guide_turns = {}
+            self.guide_daily_usage = {}
             if not self._state_path.is_file():
                 return
             try:
@@ -426,6 +494,21 @@ class LocalJsonStore(AuthoringStore):
             for project_id, version in raw.get("tour_live", {}).items():
                 self.tour_live[project_id] = int(version)
 
+            GuideSession, GuideTurn = _guide_model_types()
+            for project_id, records in raw.get("guide_sessions", {}).items():
+                self.guide_sessions[project_id] = {
+                    item["session_id"]: GuideSession.model_validate(item) for item in records
+                }
+            for project_id, by_account in raw.get("guide_active_sessions", {}).items():
+                self.guide_active_sessions[project_id] = dict(by_account)
+            for project_id, by_session in raw.get("guide_turns", {}).items():
+                self.guide_turns[project_id] = {
+                    session_id: {item["turn_seq"]: GuideTurn.model_validate(item) for item in records}
+                    for session_id, records in by_session.items()
+                }
+            for project_id, by_date in raw.get("guide_daily_usage", {}).items():
+                self.guide_daily_usage[project_id] = {date_key: int(count) for date_key, count in by_date.items()}
+
     def _quarantine_corrupt_state(self) -> None:
         backup = self._state_path.with_suffix(
             self._state_path.suffix + f".corrupt-{int(datetime.now(UTC).timestamp())}"
@@ -487,6 +570,24 @@ class LocalJsonStore(AuthoringStore):
                 for project_id, versions in self.tours.items()
             },
             "tour_live": dict(self.tour_live),
+
+            "guide_sessions": {
+                project_id: [item.model_dump(mode="json") for item in sessions.values()]
+                for project_id, sessions in self.guide_sessions.items()
+            },
+            "guide_active_sessions": {
+                project_id: dict(by_account) for project_id, by_account in self.guide_active_sessions.items()
+            },
+            "guide_turns": {
+                project_id: {
+                    session_id: [item.model_dump(mode="json") for item in turns.values()]
+                    for session_id, turns in by_session.items()
+                }
+                for project_id, by_session in self.guide_turns.items()
+            },
+            "guide_daily_usage": {
+                project_id: dict(by_date) for project_id, by_date in self.guide_daily_usage.items()
+            },
         }
 
     def _flush(self) -> None:
@@ -794,6 +895,62 @@ class LocalJsonStore(AuthoringStore):
             self.tour_live[project_id] = new_version
             self._flush()
             return existing[new_version - 1]
+
+    # -- guide sessions (Build Plan step 32) ---------------------------------
+
+    def create_guide_session(self, session: "GuideSession") -> None:
+        with self._lock:
+            by_account = self.guide_active_sessions.setdefault(session.project_id, {})
+            previous_id = by_account.get(session.account)
+            project_sessions = self.guide_sessions.setdefault(session.project_id, {})
+            if previous_id is not None and previous_id in project_sessions:
+                project_sessions[previous_id] = project_sessions[previous_id].model_copy(update={"active": False})
+            project_sessions[session.session_id] = session
+            by_account[session.account] = session.session_id
+            self._flush()
+
+    def get_guide_session(self, project_id: str, session_id: str) -> "GuideSession | None":
+        return self.guide_sessions.get(project_id, {}).get(session_id)
+
+    def get_active_guide_session_id(self, project_id: str, account: str) -> str | None:
+        return self.guide_active_sessions.get(project_id, {}).get(account)
+
+    def update_guide_session(
+        self, project_id: str, session_id: str, expected_turn_count: int, updates: dict
+    ) -> "GuideSession | None":
+        GuideSession, _ = _guide_model_types()
+        with self._lock:
+            current = self.guide_sessions.get(project_id, {}).get(session_id)
+            if current is None or current.turn_count != expected_turn_count:
+                return None
+            updated = GuideSession.model_validate(updates)
+            self.guide_sessions[project_id][session_id] = updated
+            self._flush()
+            return updated
+
+    def append_guide_turn(self, project_id: str, turn: "GuideTurn") -> None:
+        with self._lock:
+            session_turns = self.guide_turns.setdefault(project_id, {}).setdefault(turn.session_id, {})
+            session_turns[turn.turn_seq] = turn
+            self._flush()
+
+    def get_guide_turn_by_client_id(
+        self, project_id: str, session_id: str, client_turn_id: str
+    ) -> "GuideTurn | None":
+        for turn in self.guide_turns.get(project_id, {}).get(session_id, {}).values():
+            if turn.client_turn_id == client_turn_id:
+                return turn
+        return None
+
+    def get_guide_turn_by_seq(self, project_id: str, session_id: str, turn_seq: int) -> "GuideTurn | None":
+        return self.guide_turns.get(project_id, {}).get(session_id, {}).get(turn_seq)
+
+    def increment_guide_daily_usage(self, project_id: str, date_key: str) -> int:
+        with self._lock:
+            per_project = self.guide_daily_usage.setdefault(project_id, {})
+            per_project[date_key] = per_project.get(date_key, 0) + 1
+            self._flush()
+            return per_project[date_key]
 
 
 class DynamoDbStore(AuthoringStore):
@@ -1557,6 +1714,123 @@ class DynamoDbStore(AuthoringStore):
             new_tour = new_tour.model_copy(update={"status": "active"})
             self._put_tour(new_tour)
             return new_tour
+
+    # -- guide sessions (Build Plan step 32) ---------------------------------
+    #
+    # GuideSession = PK "PROJECT#<project_id>" / SK "GUIDESESSION#<session_id>".
+    # The active-session pointer = SK "GUIDEACTIVESESSION#<account>", holding
+    # just the session_id -- one active session per (project_id, account),
+    # mirroring TOURLIVE's pointer-row shape. GuideTurn = SK
+    # "GUIDETURN#<session_id>#<turn_seq padded>", append-only. Daily model-turn
+    # usage = SK "GUIDEUSAGE#<yyyy-mm-dd>", an atomic ADD counter.
+
+    def _guide_session_key(self, project_id: str, session_id: str) -> dict:
+        return {"pk": f"PROJECT#{project_id}", "sk": f"GUIDESESSION#{session_id}"}
+
+    def _guide_active_key(self, project_id: str, account: str) -> dict:
+        return {"pk": f"PROJECT#{project_id}", "sk": f"GUIDEACTIVESESSION#{account}"}
+
+    def _guide_turn_key(self, project_id: str, session_id: str, turn_seq: int) -> dict:
+        padded = f"{turn_seq:0{self._SORT_WIDTH}d}"
+        return {"pk": f"PROJECT#{project_id}", "sk": f"GUIDETURN#{session_id}#{padded}"}
+
+    def create_guide_session(self, session: "GuideSession") -> None:
+        GuideSession, _ = _guide_model_types()
+        with self._lock:
+            table = self._require_table()
+            previous_id = self.get_active_guide_session_id(session.project_id, session.account)
+            if previous_id is not None:
+                previous = self.get_guide_session(session.project_id, previous_id)
+                if previous is not None:
+                    table.put_item(
+                        Item={
+                            **self._guide_session_key(session.project_id, previous_id),
+                            "document": previous.model_copy(update={"active": False}).model_dump_json(),
+                        }
+                    )
+            table.put_item(
+                Item={
+                    **self._guide_session_key(session.project_id, session.session_id),
+                    "document": session.model_dump_json(),
+                    "turn_count": session.turn_count,
+                }
+            )
+            table.put_item(
+                Item={
+                    **self._guide_active_key(session.project_id, session.account),
+                    "session_id": session.session_id,
+                }
+            )
+
+    def get_guide_session(self, project_id: str, session_id: str) -> "GuideSession | None":
+        GuideSession, _ = _guide_model_types()
+        response = self._require_table().get_item(Key=self._guide_session_key(project_id, session_id))
+        item = response.get("Item")
+        if item is None:
+            return None
+        return GuideSession.model_validate_json(item["document"])
+
+    def get_active_guide_session_id(self, project_id: str, account: str) -> str | None:
+        response = self._require_table().get_item(Key=self._guide_active_key(project_id, account))
+        item = response.get("Item")
+        return item["session_id"] if item else None
+
+    def update_guide_session(
+        self, project_id: str, session_id: str, expected_turn_count: int, updates: dict
+    ) -> "GuideSession | None":
+        GuideSession, _ = _guide_model_types()
+        updated = GuideSession.model_validate(updates)
+        with self._lock:
+            try:
+                self._require_table().put_item(
+                    Item={
+                        **self._guide_session_key(project_id, session_id),
+                        "document": updated.model_dump_json(),
+                        "turn_count": updated.turn_count,
+                    },
+                    ConditionExpression="attribute_exists(pk) AND turn_count = :expected",
+                    ExpressionAttributeValues={":expected": expected_turn_count},
+                )
+            except Exception as error:  # noqa: BLE001 - narrowed below
+                if self._is_conditional_check_failure(error):
+                    return None
+                raise
+            return updated
+
+    def append_guide_turn(self, project_id: str, turn: "GuideTurn") -> None:
+        self._require_table().put_item(
+            Item={
+                **self._guide_turn_key(project_id, turn.session_id, turn.turn_seq),
+                "document": turn.model_dump_json(),
+            }
+        )
+
+    def get_guide_turn_by_client_id(
+        self, project_id: str, session_id: str, client_turn_id: str
+    ) -> "GuideTurn | None":
+        _, GuideTurn = _guide_model_types()
+        for item in self._query_children(project_id, f"GUIDETURN#{session_id}"):
+            turn = GuideTurn.model_validate_json(item["document"])
+            if turn.client_turn_id == client_turn_id:
+                return turn
+        return None
+
+    def get_guide_turn_by_seq(self, project_id: str, session_id: str, turn_seq: int) -> "GuideTurn | None":
+        _, GuideTurn = _guide_model_types()
+        response = self._require_table().get_item(Key=self._guide_turn_key(project_id, session_id, turn_seq))
+        item = response.get("Item")
+        if item is None:
+            return None
+        return GuideTurn.model_validate_json(item["document"])
+
+    def increment_guide_daily_usage(self, project_id: str, date_key: str) -> int:
+        response = self._require_table().update_item(
+            Key={"pk": f"PROJECT#{project_id}", "sk": f"GUIDEUSAGE#{date_key}"},
+            UpdateExpression="ADD guide_turns_count :one",
+            ExpressionAttributeValues={":one": 1},
+            ReturnValues="UPDATED_NEW",
+        )
+        return int(response["Attributes"]["guide_turns_count"])
 
 
 def create_store(

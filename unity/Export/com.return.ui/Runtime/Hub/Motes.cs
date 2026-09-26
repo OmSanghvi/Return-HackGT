@@ -37,13 +37,7 @@ namespace Return.UI
 
             var r = go.GetComponent<ParticleSystemRenderer>();
             r.renderMode = ParticleSystemRenderMode.Billboard;
-            var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit") ?? Shader.Find("Return/Flat");
-            var mat = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
-            if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", Shapes.Radial.texture);
-            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f);
-            if (mat.HasProperty("_Blend")) mat.SetFloat("_Blend", 0f); // alpha blend, not additive: motes should read as solid flecks, not glow
-            if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
-            r.sharedMaterial = mat;
+            r.sharedMaterial = Shapes.ParticleMaterial(additive: false); // alpha blend, not additive: motes should read as solid flecks, not glow
 
             ps.Play();
             return ps;

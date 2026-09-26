@@ -94,7 +94,7 @@ Same gate command as steps 13–29.
 |---|------|-----------|--------|-------|
 | 30 | Guided tour contract: `GuidedTour` JSON schema, validation, storage, authoring + activation API, mock tour author | 5 (mock), 15, 17 | Built, untested (2026-09-26) | `guided-tour-contract` |
 | 31 | NemoClaw `author_guided_tour` tool (live path; drafts a tour after the scene is built) | 3, 30, R14 token | Built, untested (2026-09-26) | `nemoclaw-tour-authoring` |
-| 32 | Guide runtime: `/v1/rooms/{id}/guide/*`, Muse Spark `guide_turn` tool call, grounding validator, session memory, MMS TTS audio | 30 | Not started | `muse-guide-runtime` |
+| 32 | Guide runtime: `/v1/rooms/{id}/guide/*`, Muse Spark `guide_turn` tool call, grounding validator, session memory, MMS TTS audio | 30 | Built, untested (2026-09-26) | `muse-guide-runtime` |
 | 33 | Unity guide bot (single headset): client, action executor, input, spatial audio, highlight/reveal | 32 | Not started | `unity-guide-bot` |
 | 34 | Shared guide bot across headsets (one bot per room, session-owner drives it) | 22, 33 | Not started | `unity-guide-bot` |
 

@@ -20,6 +20,22 @@ namespace Return.Design
         public static Sprite GradientDown => Get("gd", () => Gradient(true));
         /// <summary>Soft radial falloff for glow and center scrims.</summary>
         public static Sprite Radial => Get("rad", BuildRadial);
+
+        /// <summary>Soft-dot URP particle material. Sets the blend render state explicitly: at runtime _Surface/_Blend alone
+        /// don't change it (only the material inspector does), so the quad would draw opaque.</summary>
+        public static Material ParticleMaterial(bool additive)
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit") ?? Shader.Find("Return/Flat");
+            var mat = new Material(shader) { hideFlags = HideFlags.HideAndDontSave, renderQueue = 3000 };
+            if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", Radial.texture);
+            mat.SetFloat("_Surface", 1f);
+            mat.SetFloat("_Blend", additive ? 2f : 0f);
+            mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            mat.SetFloat("_DstBlend", (float)(additive ? UnityEngine.Rendering.BlendMode.One : UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha));
+            mat.SetFloat("_ZWrite", 0f);
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            return mat;
+        }
         public static Sprite White => Get("w", () =>
         {
             var t = new Texture2D(4, 4, TextureFormat.RGBA32, false) { hideFlags = HideFlags.HideAndDontSave };

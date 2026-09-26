@@ -125,7 +125,7 @@ namespace Return.UI
             for (int i = 0; i < portals.Count; i++)
             {
                 var p = portals[i]; if (p == null) continue;
-                ReturnAudio.PlayAt(ReturnAudio.Chime, p.transform.position, 0.55f + i * 0.02f);
+                ReturnAudio.PlayAt(ReturnAudio.Chime, p.transform.position, 0.3f + i * 0.02f);
                 _ = BloomOne(p);
                 await Wait(0.25f);
             }

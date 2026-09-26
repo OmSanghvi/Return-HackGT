@@ -31,14 +31,7 @@ namespace Return.UI
 
             var r = go.GetComponent<ParticleSystemRenderer>();
             r.renderMode = ParticleSystemRenderMode.Billboard;
-            var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit") ?? Shader.Find("Return/Flat");
-            var mat = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
-            if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", Shapes.Radial.texture);
-            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f); // transparent
-            if (mat.HasProperty("_Blend")) mat.SetFloat("_Blend", 2f); // additive
-            if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
-            mat.EnableKeyword("_ALPHAPREMULTIPLY_ON");
-            r.sharedMaterial = mat;
+            r.sharedMaterial = Shapes.ParticleMaterial(additive: true);
 
             var f = go.AddComponent<Fireflies>();
             f._ps = ps;

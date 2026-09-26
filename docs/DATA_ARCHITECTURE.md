@@ -57,6 +57,8 @@ needs them.
 | Active tour pointer **(new)** | `PROJECT#<id>` | `TOURLIVE` | `tour_version` (number; compare-and-set, same pattern as `LIVE`) | step 30 |
 | Guide session **(new)** | `PROJECT#<id>` | `GUIDESESSION#<session_id>` | document (tour_version, account, current_step_id, visited_step_ids, said_fact_ids, revealed_element_ids, last 20 events); top-level `turn_count` (compare-and-set per turn); `ttl` (24 h) | step 32 |
 | Guide turn log **(new)** | `PROJECT#<id>` | `GUIDETURN#<session_id>#<turn_seq padded 4>` | document (event, response, `source` scripted\|model\|repaired\|fallback, validation repairs, token usage, latency, `client_turn_id`); `ttl` (7 days) | step 32 |
+| Active guide session pointer **(new)** | `PROJECT#<id>` | `GUIDEACTIVESESSION#<account>` | `session_id`; one active session per `(project_id, account)`, overwritten on the next `POST /guide/sessions` (no compare-and-set needed -- a stray old session is simply orphaned, not corrupted) | step 32 |
+| Guide daily model-turn usage **(new)** | `PROJECT#<id>` | `GUIDEUSAGE#<yyyy-mm-dd>` | atomic `ADD` counter; `ttl` (3 days); compared against `SKETCHSCAPE_GUIDE_DAILY_MODEL_TURNS` to fall back to the mock provider once a project's daily budget is spent | step 32 |
 | ~~Meta link~~ | ~~`META#<meta_user_id>`~~ | ~~`LINK`~~ | ~~`clerk_user_id`~~ | step 18 — **retired, not built** (R13) |
 | ~~Meta link (reverse, uniqueness)~~ | ~~`USERLINK#<clerk_user_id>`~~ | ~~`META`~~ | ~~`meta_user_id`~~ | step 18 — **retired, not built** (R13) |
 | ~~Link code~~ | ~~`LINKCODE#<sha256(code)>`~~ | ~~`META`~~ | ~~`meta_user_id`, `code_id`, `status` pending\|linked; `ttl` (10 min)~~ | step 18 — **retired, not built** (R13) |
