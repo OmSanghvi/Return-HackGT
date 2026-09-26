@@ -11,6 +11,7 @@ namespace Return.UI
     {
         /// <summary>Anything with a footprint bigger than this reads as ground/water, not a prop resting on it.</summary>
         const float MaxFootprintSqm = 40f;
+        const float MaxRadius = 1.2f;
         const float Padding = 1.15f; // a little bigger than the prop's own footprint so the blob reads under it, not just at its center
 
         static Mesh _mesh;
@@ -18,7 +19,8 @@ namespace Return.UI
 
         public static void Build(Transform root, Bounds worldBounds)
         {
-            foreach (var r in WorldSceneRoot.PropRenderers(root))
+            // snapshot first: the loop adds shadow objects under the same root, which a lazy walk would visit (and shadow) forever
+            foreach (var r in System.Linq.Enumerable.ToList(WorldSceneRoot.PropRenderers(root)))
             {
                 if (Skip(root, r)) continue;
                 var b = r.bounds;
@@ -38,8 +40,9 @@ namespace Return.UI
             }
         }
 
-        /// <summary>Blob radius from a prop's world-space footprint. Pure so it can be unit tested without a scene.</summary>
-        public static float Radius(Vector3 footprintSize) => Mathf.Max(footprintSize.x, footprintSize.z) * 0.5f * Padding;
+        /// <summary>Blob radius from a prop's world-space footprint. Pure so it can be unit tested without a scene.
+        /// Capped: a contact shadow grounds where a prop meets the floor, so a tree or house gets a blob at its base, not its canopy.</summary>
+        public static float Radius(Vector3 footprintSize) => Mathf.Min(Mathf.Max(footprintSize.x, footprintSize.z) * 0.5f * Padding, MaxRadius);
 
         static bool Skip(Transform worldRoot, Renderer r)
         {
@@ -48,7 +51,7 @@ namespace Return.UI
             for (var t = r.transform; t != null && t != worldRoot; t = t.parent)
             {
                 var n = t.name.ToLowerInvariant();
-                if (n.Contains("floor") || n.Contains("ground") || n.Contains("sky") || n.Contains("dome")) return true;
+                if (n.Contains("floor") || n.Contains("ground") || n.Contains("sky") || n.Contains("dome") || n.Contains("contactshadow")) return true;
             }
             return false;
         }
@@ -83,7 +86,7 @@ namespace Return.UI
         {
             if (_material != null) return _material;
             _material = WorldShaders.Create(WorldShaders.ContactShadow, "ContactShadow");
-            if (_material.HasProperty("_Color")) _material.SetColor("_Color", new Color(0f, 0f, 0f, 0.5f));
+            if (_material.HasProperty("_Color")) _material.SetColor("_Color", new Color(0f, 0f, 0f, 0.35f));
             return _material;
         }
     }

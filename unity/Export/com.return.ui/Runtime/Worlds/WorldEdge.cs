@@ -46,7 +46,7 @@ namespace Return.UI
             float discRadius = worldRadius * 2.2f + 3f; // well beyond the world's own footprint
             var disc = new GameObject("Ground");
             disc.transform.SetParent(transform, false);
-            disc.transform.position = new Vector3(bounds.center.x, bounds.min.y + 0.01f, bounds.center.z);
+            disc.transform.position = new Vector3(bounds.center.x, bounds.min.y - 0.05f, bounds.center.z); // just under the scene's own ground, so it only shows past the ground's edge
             disc.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
             disc.transform.localScale = new Vector3(discRadius * 2f, discRadius * 2f, 1f);
             disc.AddComponent<MeshFilter>().sharedMesh = SkyBackdrop.Quad();
@@ -55,7 +55,7 @@ namespace Return.UI
             mr.receiveShadows = false;
 
             _material = WorldShaders.Create(WorldShaders.WorldEdge, "WorldEdge");
-            var ground = Color.Lerp(horizon, Color.black, 0.45f); ground.a = 1f; // darker than the horizon so the disc still reads as ground near the props
+            var ground = Color.Lerp(horizon, Color.black, 0.2f); ground.a = 1f; // a touch darker than the horizon so it still reads as ground
             var edgeColor = horizon; edgeColor.a = 0f;
             if (_material.HasProperty("_GroundColor")) _material.SetColor("_GroundColor", ground);
             if (_material.HasProperty("_EdgeColor")) _material.SetColor("_EdgeColor", edgeColor);

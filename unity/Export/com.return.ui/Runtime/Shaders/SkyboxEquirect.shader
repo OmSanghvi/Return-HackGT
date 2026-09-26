@@ -20,7 +20,7 @@ Shader "Return/SkyboxEquirect"
         Pass
         {
             Name "Unlit"
-            Tags { "LightMode" = "UniversalForward" }
+            // no LightMode tag: URP's skybox draw skips passes tagged UniversalForward (built-in skybox shaders have none)
             Cull Off
             ZWrite Off
             ZTest LEqual
@@ -54,7 +54,7 @@ Shader "Return/SkyboxEquirect"
                 float rad = radians(_Rotation);
                 float cs = cos(rad), sn = sin(rad);
                 float2 dxz = float2(d.x * cs - d.z * sn, d.x * sn + d.z * cs);
-                float2 uv = float2(atan2(dxz.x, dxz.y) / (2.0 * PI) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / PI);
+                float2 uv = float2(atan2(dxz.x, dxz.y) / (2.0 * PI) + 0.5, 1.0 - acos(clamp(d.y, -1.0, 1.0)) / PI); // v = 1 is the top row of the image (sky), so straight up maps there
                 half3 col = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, uv).rgb * _Exposure * _Tint.rgb;
                 // haze: brightens/pales everything within _HazeHeight of the horizon, strongest right at d.y = 0
                 float haze = saturate(1.0 - abs(d.y) / max(_HazeHeight, 0.001));

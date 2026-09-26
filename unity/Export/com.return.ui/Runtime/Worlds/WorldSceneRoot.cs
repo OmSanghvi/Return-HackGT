@@ -32,6 +32,7 @@ namespace Return.UI
             if (buildSky && room != null) HubEnvironment.Build(transform, head, room.scene, UIAssets.IsDusk(room.scene), 200f);
 
             var bounds = PropBounds(transform);
+            EnsureSun();
             if (buildEdge) WorldEdge.Build(transform, room, bounds);
             if (buildAmbience) WorldAmbience.Build(transform, room, bounds);
             if (buildContactShadows) ContactShadow.Build(transform, bounds);
@@ -40,6 +41,19 @@ namespace Return.UI
 
         /// <summary>Renderers under this root that are world props, i.e. everything except the sky dome/panorama/floor
         /// HubEnvironment builds under its own "Environment" child.</summary>
+        /// <summary>World scenes may ship without a light; props then read flat and WorldLife's dust has no direction. Adds one
+        /// soft warm sun at the same angle Return > Bake World Lighting uses, only when the scene has no directional light.</summary>
+        void EnsureSun()
+        {
+            foreach (var l in GetComponentsInChildren<Light>()) if (l.type == LightType.Directional) { if (RenderSettings.sun == null) RenderSettings.sun = l; return; }
+            var go = new GameObject("Sun"); go.transform.SetParent(transform, false);
+            go.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+            var sun = go.AddComponent<Light>();
+            sun.type = LightType.Directional; sun.color = new Color(1f, 0.96f, 0.9f); sun.intensity = 1.1f;
+            sun.shadows = LightShadows.Soft; sun.shadowStrength = 0.6f;
+            RenderSettings.sun = sun;
+        }
+
         public static IEnumerable<Renderer> PropRenderers(Transform root)
         {
             foreach (Transform child in root)

@@ -84,7 +84,7 @@ namespace Return.UI
             var r = go.AddComponent<MeshRenderer>(); r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
             _halo = ReturnShaders.Create(ReturnShaders.ParticleGlow);
             _haloBase = Color.Lerp(horizon, new Color(1f, 0.96f, 0.88f), 0.6f);
-            _haloBase.a = 0.35f;
+            _haloBase.a = ThemeManager.Current == ReturnTheme.Dusk ? 0.35f : 0.12f; // additive: over a bright day sky a strong halo washes out into fog
             _halo.SetColor(GlowColor, _haloBase);
             r.sharedMaterial = _halo;
         }
