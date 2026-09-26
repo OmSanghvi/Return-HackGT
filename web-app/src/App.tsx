@@ -12,8 +12,10 @@ import Dashboard from './screens/Dashboard';
 import CreateRoom from './screens/CreateRoom';
 import RoomUpload from './screens/RoomUpload';
 import RoomPage from './screens/RoomPage';
+import { REAL_MODE } from './config';
 
 const SkyWorld = lazy(() => import('./world/SkyWorld'));
+const RealApp = lazy(() => import('./real/RealApp'));
 
 function Private({ children }: { children: React.ReactNode }) {
   const { loaded, signedIn } = useSession();
@@ -37,7 +39,21 @@ function useSimulator() {
   }, [loc.pathname]);
 }
 
-export default function App() {
+// Real mode (VITE_SKETCHSCAPE_API_URL set): an entirely separate route tree
+// talking to the real backend -- account picker, real uploads, real jobs.
+// See web-app/hardcode.MD and src/config.ts. Mock mode (no env var) below is
+// untouched: same routes, same local store, same timed animations as before.
+function RealModeRoot() {
+  return (
+    <MotionConfig reducedMotion="user">
+      <Suspense fallback={null}>
+        <RealApp />
+      </Suspense>
+    </MotionConfig>
+  );
+}
+
+function MockApp() {
   const loc = useLocation();
   useSimulator();
   return (
@@ -61,4 +77,8 @@ export default function App() {
       <Bloom />
     </MotionConfig>
   );
+}
+
+export default function App() {
+  return REAL_MODE ? <RealModeRoot /> : <MockApp />;
 }

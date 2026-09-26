@@ -570,9 +570,15 @@ def cors_settings(mode: str | None = None) -> tuple[list[str], list[str]]:
     """
     resolved_mode = (mode if mode is not None else os.environ.get("SKETCHSCAPE_AUTH_MODE", "mock")).strip().lower()
     if resolved_mode in ("clerk", "demo"):
-        return web_origins(), ["Authorization", "Content-Type", "X-SketchScape-Dev-User"]
+        return web_origins(), ["Authorization", "Content-Type", "If-None-Match", "X-SketchScape-Dev-User"]
     return os.environ.get("SKETCHSCAPE_ALLOWED_ORIGINS", "*").split(","), ["*"]
 
+
+# PATCH: project room_prompt (step 17). DELETE: remove a selection (step 26).
+CORS_METHODS = ["GET", "POST", "PATCH", "DELETE"]
+# Job and room-state polling read these; a cross-origin browser hides them
+# from JavaScript unless they're exposed.
+CORS_EXPOSE_HEADERS = ["ETag", "Retry-After"]
 
 _cors_origins, _cors_headers = cors_settings()
 
@@ -580,8 +586,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=CORS_METHODS,
     allow_headers=_cors_headers,
+    expose_headers=CORS_EXPOSE_HEADERS,
 )
 
 

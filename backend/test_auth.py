@@ -561,8 +561,9 @@ class CorsPreflightTests(unittest.TestCase):
             CORSMiddleware,
             allow_origins=origins,
             allow_credentials=False,
-            allow_methods=["GET", "POST"],
+            allow_methods=main.CORS_METHODS,
             allow_headers=headers,
+            expose_headers=main.CORS_EXPOSE_HEADERS,
         )
         with TestClient(probe) as client:
             response = client.options(
@@ -591,8 +592,9 @@ class CorsPreflightTests(unittest.TestCase):
             CORSMiddleware,
             allow_origins=origins,
             allow_credentials=False,
-            allow_methods=["GET", "POST"],
+            allow_methods=main.CORS_METHODS,
             allow_headers=headers,
+            expose_headers=main.CORS_EXPOSE_HEADERS,
         )
         with TestClient(probe) as client:
             response = client.options(
@@ -600,6 +602,53 @@ class CorsPreflightTests(unittest.TestCase):
                 headers={"Origin": "https://evil.example.com", "Access-Control-Request-Method": "GET"},
             )
         self.assertNotEqual(response.headers.get("access-control-allow-origin"), "https://evil.example.com")
+
+    def _demo_probe(self):
+        from fastapi.middleware.cors import CORSMiddleware
+        from starlette.applications import Starlette
+
+        with patch.dict(os.environ, {"SKETCHSCAPE_WEB_ORIGINS": "http://localhost:5173"}):
+            origins, headers = main.cors_settings("demo")
+        probe = Starlette()
+        probe.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=False,
+            allow_methods=main.CORS_METHODS,
+            allow_headers=headers,
+            expose_headers=main.CORS_EXPOSE_HEADERS,
+        )
+        return probe
+
+    def test_patch_and_delete_pass_preflight_in_demo_mode(self) -> None:
+        # R2: room_prompt save (PATCH) and selection removal (DELETE).
+        with TestClient(self._demo_probe()) as client:
+            for method in ("PATCH", "DELETE"):
+                response = client.options(
+                    "/v1/projects/any-project",
+                    headers={
+                        "Origin": "http://localhost:5173",
+                        "Access-Control-Request-Method": method,
+                        "Access-Control-Request-Headers": "X-SketchScape-Dev-User, Content-Type",
+                    },
+                )
+                self.assertEqual(response.status_code, 200, method)
+
+    def test_polling_conditional_get_passes_preflight_and_exposes_etag(self) -> None:
+        with TestClient(self._demo_probe()) as client:
+            preflight = client.options(
+                "/v1/projects/any-project/jobs",
+                headers={
+                    "Origin": "http://localhost:5173",
+                    "Access-Control-Request-Method": "GET",
+                    "Access-Control-Request-Headers": "If-None-Match, X-SketchScape-Dev-User",
+                },
+            )
+            self.assertEqual(preflight.status_code, 200)
+            actual = client.get("/anything", headers={"Origin": "http://localhost:5173"})
+            exposed = actual.headers.get("access-control-expose-headers", "").lower()
+            self.assertIn("etag", exposed)
+            self.assertIn("retry-after", exposed)
 
     def test_mock_mode_default_allows_any_origin(self) -> None:
         origins, headers = main.cors_settings("mock")

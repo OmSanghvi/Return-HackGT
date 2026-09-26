@@ -124,7 +124,7 @@ cd backend
 .venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py test_auth.py test_jobs.py
 ```
 
-205 tests (2 are skipped either way, depending on whether `boto3` is
+207 tests (2 are skipped either way, depending on whether `boto3` is
 installed). They exercise only `PIPELINE_MODE=mock`; they don't contact AWS,
 make any network call, or load a model. `test_storage.py`'s
 `DynamoDbStoreContractTests` and `S3ArtifactStoreContractTests` run the exact
