@@ -5,8 +5,9 @@ using UnityEngine;
 namespace Return.UI
 {
     /// <summary>
-    /// The hub's sky: a star dome, the painted sky as a curved panorama behind the portals, and a fogged floor.
-    /// Parallax comes from the viewer's head offset. Used for the hub and, with a different painting, for stub worlds.
+    /// The hub's sky: a star dome, the painted sky as a curved panorama behind the portals, and still water underfoot.
+    /// Parallax comes from the viewer's head offset. Used for the hub and, with a different painting, for stub worlds
+    /// (extras off there: no water/fireflies/motes/lanterns, just the plain fogged floor, so stub worlds stay cheap).
     /// </summary>
     public class HubEnvironment : MonoBehaviour
     {
@@ -15,12 +16,14 @@ namespace Return.UI
 
         Transform _head; Vector3 _headHome;
         Material _pano, _dome, _floor;
+        bool _extras;
 
-        /// <summary>Build under parent. arcDegrees is how wide the painting spans (behind the portal ring); the dome covers the rest.</summary>
-        public static HubEnvironment Build(Transform parent, Transform head, SceneKey scene, bool dusk, float arcDegrees = 150f)
+        /// <summary>Build under parent. arcDegrees is how wide the painting spans (behind the portal ring); the dome covers the rest.
+        /// extras adds the still-water floor, fireflies, motes and lanterns, and toggles the hub ambience loop with this object's enabled state; leave false for stub worlds.</summary>
+        public static HubEnvironment Build(Transform parent, Transform head, SceneKey scene, bool dusk, float arcDegrees = 150f, bool extras = false)
         {
             var go = new GameObject("Environment"); go.transform.SetParent(parent, false);
-            var env = go.AddComponent<HubEnvironment>(); env._head = head; env._headHome = head != null ? head.position : new Vector3(0, 1.6f, 0);
+            var env = go.AddComponent<HubEnvironment>(); env._head = head; env._headHome = head != null ? head.position : new Vector3(0, 1.6f, 0); env._extras = extras;
             var pal = ReturnColors.Get(dusk ? ReturnTheme.Dusk : ReturnTheme.Day);
 
             // star dome
@@ -45,16 +48,32 @@ namespace Return.UI
             env._pano.SetColor(Fog, dusk ? (Color)ReturnColorsDusk.Canvas : (Color)ReturnColorsDay.Canvas);
             pr.sharedMaterial = env._pano;
 
-            // fogged floor: a soft disc that melts the panorama's bottom edge into the dome
-            var floor = new GameObject("Floor"); floor.transform.SetParent(go.transform, false);
-            floor.AddComponent<MeshFilter>().sharedMesh = SkyBackdrop.Quad();
-            floor.transform.localRotation = Quaternion.Euler(90, 0, 0); floor.transform.localPosition = new Vector3(0, -0.02f, 0); floor.transform.localScale = new Vector3(26, 26, 1);
-            env._floor = new Material(Shader.Find("Return/Flat")) { hideFlags = HideFlags.HideAndDontSave };
-            var fc = dusk ? (Color)ReturnColorsDusk.SkyBottom : (Color)pal.SkyBottom; fc.a = 0.35f;
-            env._floor.SetColor(Color_, fc); env._floor.SetFloat("_Radial", 1);
-            floor.AddComponent<MeshRenderer>().sharedMaterial = env._floor;
+            if (extras)
+            {
+                // still water instead of the fogged disc: reflects the sky, ripples where controllers point or dip in
+                WaterFloor.Create(go.transform);
+                Fireflies.Create(go.transform);
+                Motes.Create(go.transform);
+                Lanterns.Create(go.transform);
+            }
+            else
+            {
+                // fogged floor: a soft disc that melts the panorama's bottom edge into the dome
+                var floor = new GameObject("Floor"); floor.transform.SetParent(go.transform, false);
+                floor.AddComponent<MeshFilter>().sharedMesh = SkyBackdrop.Quad();
+                floor.transform.localRotation = Quaternion.Euler(90, 0, 0); floor.transform.localPosition = new Vector3(0, -0.02f, 0); floor.transform.localScale = new Vector3(26, 26, 1);
+                env._floor = new Material(Shader.Find("Return/Flat")) { hideFlags = HideFlags.HideAndDontSave };
+                var fc = dusk ? (Color)ReturnColorsDusk.SkyBottom : (Color)pal.SkyBottom; fc.a = 0.35f;
+                env._floor.SetColor(Color_, fc); env._floor.SetFloat("_Radial", 1);
+                floor.AddComponent<MeshRenderer>().sharedMaterial = env._floor;
+            }
             return env;
         }
+
+        // hub ambience follows this object's active state, which HubController drives by toggling the hub root (HubVisible):
+        // on for the real hub (extras true), left alone for stub worlds so their HubEnvironment doesn't fight the hub's own.
+        void OnEnable() { if (_extras) ReturnAudio.Ambience(true, 2f); }
+        void OnDisable() { if (_extras) ReturnAudio.Ambience(false, 1.2f); }
 
         void LateUpdate()
         {

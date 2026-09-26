@@ -52,7 +52,7 @@ namespace Return.UI
 
             _active = this;
             ThemeManager.SetForced(ReturnTheme.Dusk);
-            var env = HubEnvironment.Build(_hubRoot, head, SceneKey.Hub, true, 150f);
+            var env = HubEnvironment.Build(_hubRoot, head, SceneKey.Hub, true, 150f, true); // extras: water floor, fireflies, motes, lanterns, ambience
             env.transform.rotation = Quaternion.Euler(0, _yaw, 0);
 
             var camGo = head != null ? (head.GetComponent<Camera>() != null ? head : head.GetComponentInChildren<Camera>()?.transform ?? head) : null;
