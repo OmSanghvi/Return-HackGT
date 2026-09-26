@@ -88,7 +88,7 @@ class SceneObject(BaseModel):
     rotation: list[float] = Field(default_factory=lambda: [0, 0, 0], min_length=3, max_length=3)
     scale: list[float] = Field(min_length=3, max_length=3)
     asset_url: str | None = None
-    source: Literal["placeholder", "sam3d"] = "placeholder"
+    source: Literal["placeholder", "sam3d", "sketch_card"] = "placeholder"
     actions: list[Literal["scale_by", "translate_by", "rotate_by"]] = Field(
         default_factory=lambda: ["scale_by", "translate_by", "rotate_by"]
     )
@@ -169,14 +169,22 @@ class AssetView(BaseModel):
     recorded_at: datetime
 
 
+AssetKind = Literal["reconstruction", "sketch_card"]
+
+
 class ProjectAsset(BaseModel):
     asset_id: str
     project_id: str
     label: str
     status: AssetStatus
+    # `sketch_card` is a Notability page shown as a flat textured card (Build
+    # Plan step 7, Path 1): no reconstruction job, ready on upload, and
+    # `artifact_url` is the image itself.
+    kind: AssetKind = "reconstruction"
     # Legacy single-job convenience field — mirrors views[0].reconstruction_job_id
     # when the asset was created via the single-view path. Multi-view assets set
     # this to the first view's job ID. Always use `views` for provenance.
+    # Empty for sketch cards.
     reconstruction_job_id: str
     artifact_url: str | None = None
     mask_url: str | None = None
@@ -302,6 +310,9 @@ class BlueprintObject(BaseModel):
     interactions: list[Literal["highlight", "inspect", "scale", "translate", "rotate", "activate"]] = Field(
         default_factory=list
     )
+    # The contribution this object stands for; compile_blueprint turns it into
+    # the social manifest. None for unattributed objects (e.g. set dressing).
+    contribution_id: str | None = Field(default=None, max_length=80)
 
 
 class PortalSettings(BaseModel):
@@ -463,6 +474,11 @@ class SceneActionRequest(BaseModel):
     target_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
     action: Literal["scale_by", "translate_by", "rotate_by"]
     value: list[float] = Field(min_length=3, max_length=3)
+    # Set by a session tied to one contributor; it may then edit only objects
+    # the social manifest attributes to them. Empty/None keeps the authoring
+    # (MCP/editor) behavior. Self-asserted until the room API (step 21)
+    # replaces it with room tokens.
+    contributor_id: str | None = Field(default=None, max_length=80)
 
 
 class InteractiveObject(BaseModel):
@@ -827,6 +843,41 @@ def sync_project_asset(job: ReconstructionJob) -> None:
         store.save_project(project)
 
 
+# Distinct, colorblind-friendly attribution tints, assigned in join order.
+ATTRIBUTION_COLORS = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999"]
+
+
+def compile_social_manifest(blueprint: ExperienceBlueprint) -> dict[str, Any]:
+    """Sidecar manifest (shared/social-manifest.schema.json): who each object belongs to."""
+    project = get_project(blueprint.project_id)
+    contributions = {item.contribution_id: item for item in store.list_contributions(project.project_id)}
+    contributors = {item.contributor_id: item for item in store.list_contributors(project.project_id)}
+    entries = []
+    for item in blueprint.objects:
+        contribution = contributions.get(item.contribution_id or "")
+        if contribution is None:
+            continue
+        contributor = contributors.get(contribution.contributor_id)
+        order = (
+            project.contributor_ids.index(contribution.contributor_id)
+            if contribution.contributor_id in project.contributor_ids
+            else len(project.contributor_ids)
+        )
+        entries.append(
+            {
+                "object_id": item.id,
+                "contribution_id": contribution.contribution_id,
+                "contributor_id": contribution.contributor_id,
+                "contributor_display_name": contributor.display_name if contributor else "",
+                "source_type": contribution.source_type,
+                "attribution_color": ATTRIBUTION_COLORS[order % len(ATTRIBUTION_COLORS)],
+                # Filled by stage_immersive_reveal (step 6).
+                "staging_cue_id": None,
+            }
+        )
+    return {"version": 1, "objects": entries}
+
+
 def compile_blueprint(blueprint: ExperienceBlueprint) -> SceneDocument:
     scene_objects: list[SceneObject] = []
     for item in blueprint.objects:
@@ -841,7 +892,11 @@ def compile_blueprint(blueprint: ExperienceBlueprint) -> SceneDocument:
                 rotation=item.rotation.copy(),
                 scale=item.scale.copy(),
                 asset_url=asset.artifact_url,
-                source="sam3d" if asset.artifact_url else "placeholder",
+                source=(
+                    "sketch_card"
+                    if asset.kind == "sketch_card"
+                    else "sam3d" if asset.artifact_url else "placeholder"
+                ),
                 actions=[
                     action
                     for action in ("scale_by", "translate_by", "rotate_by")
@@ -860,6 +915,7 @@ def compile_blueprint(blueprint: ExperienceBlueprint) -> SceneDocument:
             "environment": blueprint.environment.model_dump(),
             "navigation": blueprint.navigation.model_dump(),
             "portals": [portal.model_dump() for portal in blueprint.portals],
+            "social": compile_social_manifest(blueprint),
         },
     )
 
@@ -1530,6 +1586,19 @@ def validate_blueprint_assets(project: ProjectRecord, request: ExperienceBluepri
     )
     if unavailable:
         raise HTTPException(409, f"Blueprint assets are not ready: {', '.join(unavailable)}")
+    attributed = [item for item in request.objects if item.contribution_id is not None]
+    if attributed:
+        contributions = {item.contribution_id: item for item in store.list_contributions(project.project_id)}
+        mismatched = sorted(
+            item.id
+            for item in attributed
+            if item.contribution_id not in contributions
+            or contributions[item.contribution_id].asset_id != item.asset_id
+        )
+        if mismatched:
+            raise HTTPException(
+                422, f"Blueprint objects reference unknown or mismatched contributions: {', '.join(mismatched)}"
+            )
 
 
 @app.post(
@@ -2308,6 +2377,110 @@ async def renew_internal_job_lease(
     return {"renewed": renewed}
 
 
+# -- Notability sketches (Build Plan step 7) -----------------------------------
+#
+# Path 1 ("card", default): the page is stored as-is and shown as a flat
+# textured card. No SAM 3.1, no Fast-SAM3D, no GPU, no paid API.
+# Path 2 ("plaque", opt-in): the page goes through the existing reconstruction
+# pipeline unchanged. Unverified: check that page text survives Fast-SAM3D
+# legibly before relying on it, and fall back to a card if it doesn't.
+
+SKETCH_CARD_LONG_SIDE_METERS = 0.8
+SKETCH_CARD_BASE_HEIGHT = 0.9
+_SKETCH_CARD_TYPES = {"image/png": "sketch.png", "image/jpeg": "sketch.jpg"}
+
+
+def image_dimensions(data: bytes) -> tuple[int, int]:
+    """Width and height of a PNG or baseline/progressive JPEG, without Pillow."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) >= 24:
+        return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    if data[:2] == b"\xff\xd8":
+        index = 2
+        while index + 9 < len(data):
+            if data[index] != 0xFF:
+                index += 1
+                continue
+            marker = data[index + 1]
+            if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7 or marker == 0xFF:
+                index += 1 if marker == 0xFF else 2
+                continue
+            length = int.from_bytes(data[index + 2 : index + 4], "big")
+            if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                height = int.from_bytes(data[index + 5 : index + 7], "big")
+                width = int.from_bytes(data[index + 7 : index + 9], "big")
+                return width, height
+            index += 2 + length
+    raise HTTPException(422, "Could not read the sketch image's dimensions.")
+
+
+def sketch_card_url(project_id: str, asset_id: str, filename: str) -> str:
+    return f"/v1/projects/{project_id}/assets/{asset_id}/sketch/{filename}"
+
+
+@app.post("/v1/projects/{project_id}/sketch-assets", response_model=ProjectAsset, status_code=201)
+async def create_sketch_asset(
+    project_id: str,
+    background_tasks: BackgroundTasks,
+    http_response: Response,
+    image: Annotated[UploadFile, File(description="Notability page export (PNG or JPEG)")],
+    label: Annotated[str | None, Form(max_length=100)] = None,
+    display: Annotated[Literal["card", "plaque"], Form()] = "card",
+) -> ProjectAsset:
+    """Register a Notability sketch as a flat card, or reconstruct it as a plaque."""
+    if display == "plaque":
+        response = await create_project_asset(
+            project_id=project_id,
+            background_tasks=background_tasks,
+            image=image,
+            mask=None,
+            subject_hint=(label or "").strip() or "paper page",
+        )
+        http_response.status_code = 202  # queued like any photo reconstruction
+        return response
+
+    project = get_project(project_id)
+    filename = _SKETCH_CARD_TYPES.get(image.content_type or "")
+    if filename is None:
+        raise HTTPException(415, "Sketch cards must be PNG or JPEG (render PDF pages to PNG first).")
+    asset_id = uuid.uuid4().hex
+    raw = await read_upload_bytes(image)
+    width, height = image_dimensions(raw)
+    if width <= 0 or height <= 0:
+        raise HTTPException(422, "The sketch image has no pixels.")
+    scale = SKETCH_CARD_LONG_SIDE_METERS / max(width, height)
+    card_width, card_height = round(width * scale, 4), round(height * scale, 4)
+    await artifact_store.put(
+        asset_id, filename, _bytes_upload_file(raw, filename), size_limit=MAX_UPLOAD_BYTES
+    )
+
+    now = utc_now()
+    asset = ProjectAsset(
+        asset_id=asset_id,
+        project_id=project.project_id,
+        label=((label or "").strip() or Path(image.filename or "sketch").stem or "sketch")[:80],
+        status=AssetStatus.READY,
+        kind="sketch_card",
+        reconstruction_job_id="",
+        artifact_url=sketch_card_url(project.project_id, asset_id, filename),
+        preview_url=sketch_card_url(project.project_id, asset_id, filename),
+        bounds=[card_width, card_height, 0.02],
+        suggested_scale=[card_width, card_height, 1.0],
+    )
+    store.save_asset(asset)
+    store.link_asset(project.project_id, asset_id)
+    project.updated_at = now
+    store.save_project(project)
+    return asset
+
+
+@app.get("/v1/projects/{project_id}/assets/{asset_id}/sketch/{filename}")
+async def get_sketch_card_image(project_id: str, asset_id: str, filename: str) -> Response:
+    asset = await get_project_asset(project_id, asset_id)
+    if asset.kind != "sketch_card" or filename not in _SKETCH_CARD_TYPES.values():
+        raise HTTPException(404, "Unknown sketch image.")
+    return await artifact_store.serve(asset_id, filename)
+
+
 # -- connection/compose (Build Plan step 5) ------------------------------------
 #
 # The mock composer is deterministic over the contributions' labels and memory
@@ -2426,14 +2599,17 @@ def compose_connection_mock(
         facing = round((math.degrees(angle) + 180.0) % 360.0, 3)
         asset = assets[contribution.asset_id]
         object_id = f"contribution-{contribution.contribution_id[:24]}"
+        # A sketch card stands upright with its lower edge at table height.
+        y = round(SKETCH_CARD_BASE_HEIGHT + asset.suggested_scale[1] / 2, 3) if asset.kind == "sketch_card" else 0.0
         objects.append(
             BlueprintObject(
                 id=object_id,
                 asset_id=asset.asset_id,
-                position=[x, 0.0, z],
+                position=[x, y, z],
                 rotation=[0.0, facing, 0.0],
                 scale=list(asset.suggested_scale),
                 interactions=list(_MOCK_OBJECT_INTERACTIONS),
+                contribution_id=contribution.contribution_id,
             )
         )
         name = contributors[contribution.contributor_id].display_name if contribution.contributor_id in contributors else "A contributor"
@@ -2560,6 +2736,13 @@ async def get_interactives() -> InteractiveRegistryResponse:
 async def apply_scene_action(request: SceneActionRequest) -> SceneResponse:
     """Apply an allowlisted, bounded transform action to one named object."""
     target = find_scene_object(request.target_id)
+    if request.contributor_id:
+        owners = {
+            entry["object_id"]: entry["contributor_id"]
+            for entry in current_scene.meta.get("social", {}).get("objects", [])
+        }
+        if owners.get(request.target_id) != request.contributor_id:
+            raise HTTPException(403, f"{request.target_id} was not contributed by this contributor.")
     if request.action not in target.actions:
         raise HTTPException(403, f"{request.action} is not enabled for {request.target_id}.")
     if request.action == "scale_by":

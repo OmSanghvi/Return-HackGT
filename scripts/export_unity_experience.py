@@ -37,6 +37,9 @@ def download(url: str, destination: Path, *, maximum_bytes: int) -> None:
         temporary.unlink(missing_ok=True)
 
 
+ARTIFACT_PATTERNS = ("*.ply", "*.png", "*.jpg")
+
+
 def export(api_url: str, project_id: str, unity_project: Path) -> None:
     if not SAFE_ID.fullmatch(project_id):
         raise ValueError("project_id contains unsupported characters")
@@ -73,15 +76,24 @@ def export(api_url: str, project_id: str, unity_project: Path) -> None:
         target_origin = urlparse(resolved)
         if (target_origin.scheme, target_origin.netloc) != (api_origin.scheme, api_origin.netloc):
             raise RuntimeError(f"Refusing cross-origin artifact URL: {resolved}")
-        if not target_origin.path.lower().endswith(".ply"):
+        path = target_origin.path.lower()
+        if item.get("source") == "sketch_card":
+            # Notability page shown as a flat card (Build Plan step 7).
+            extension = next((ext for ext in (".png", ".jpg") if path.endswith(ext)), None)
+            if extension is None:
+                raise RuntimeError(f"Expected a PNG/JPEG sketch card for {object_id}: {resolved}")
+            download(resolved, staging / f"{object_id}{extension}", maximum_bytes=16 * 1024 * 1024)
+            continue
+        if not path.endswith(".ply"):
             raise RuntimeError(f"Expected a PLY artifact for {object_id}: {resolved}")
         download(resolved, staging / f"{object_id}.ply", maximum_bytes=512 * 1024 * 1024)
 
     artifacts.mkdir(parents=True, exist_ok=True)
-    for old_file in artifacts.glob("*.ply"):
-        old_file.unlink()
-    for staged_file in staging.glob("*.ply"):
-        staged_file.replace(artifacts / staged_file.name)
+    for pattern in ARTIFACT_PATTERNS:
+        for old_file in artifacts.glob(pattern):
+            old_file.unlink()
+        for staged_file in staging.glob(pattern):
+            staged_file.replace(artifacts / staged_file.name)
     shutil.rmtree(staging)
 
     authoring.mkdir(parents=True, exist_ok=True)

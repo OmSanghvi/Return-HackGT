@@ -516,6 +516,117 @@ class ContributorContributionApiTests(unittest.TestCase):
             self.assertEqual(client.get(f"/v1/projects/{pid}/contributions").json(), [])
 
 
+def _png_bytes(width: int, height: int) -> bytes:
+    """A real (tiny-payload) PNG of the given size."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload))
+
+    rows = b"".join(b"\x00" + b"\xff" * width for _ in range(height))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
+    )
+
+
+class SketchAssetApiTests(unittest.TestCase):
+    """Verify Notability sketch cards and plaques (Build Plan step 7)."""
+
+    def _make_project(self, client) -> str:
+        return client.post("/v1/projects", json={"name": "Sketch room", "description": ""}).json()["project_id"]
+
+    def test_card_is_ready_immediately_and_sized_from_the_page(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            page = _png_bytes(300, 600)
+            r = client.post(
+                f"/v1/projects/{pid}/sketch-assets",
+                data={"label": "our treehouse"},
+                files={"image": ("page.png", io.BytesIO(page), "image/png")},
+            )
+            self.assertEqual(r.status_code, 201, r.text)
+            asset = r.json()
+            self.assertEqual(asset["kind"], "sketch_card")
+            self.assertEqual(asset["status"], "ready")
+            self.assertEqual(asset["label"], "our treehouse")
+            self.assertEqual(asset["suggested_scale"], [0.4, 0.8, 1.0])
+            image = client.get(asset["artifact_url"])
+            self.assertEqual(image.status_code, 200)
+            self.assertEqual(image.content, page)
+
+    def test_card_rejects_formats_unity_cannot_decode(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            r = client.post(
+                f"/v1/projects/{pid}/sketch-assets",
+                files={"image": ("page.webp", io.BytesIO(b"RIFF0000WEBP"), "image/webp")},
+            )
+            self.assertEqual(r.status_code, 415)
+
+    def test_jpeg_dimensions_are_read_from_the_frame_header(self) -> None:
+        # SOI, an APP0 segment, then a baseline SOF0 for 640x480.
+        jpeg = (
+            b"\xff\xd8"
+            + b"\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+            + b"\xff\xc0\x00\x11\x08\x01\xe0\x02\x80\x03\x01\x22\x00\x02\x11\x01\x03\x11\x01"
+        )
+        self.assertEqual(main.image_dimensions(jpeg), (640, 480))
+
+    def test_plaque_goes_through_the_existing_reconstruction(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            r = client.post(
+                f"/v1/projects/{pid}/sketch-assets",
+                data={"display": "plaque"},
+                files={"image": ("page.png", io.BytesIO(_png_bytes(20, 30)), "image/png")},
+            )
+            self.assertEqual(r.status_code, 202, r.text)
+            asset = r.json()
+            self.assertEqual(asset["kind"], "reconstruction")
+            self.assertTrue(asset["reconstruction_job_id"])
+            settled = client.get(f"/v1/projects/{pid}/assets/{asset['asset_id']}").json()
+            self.assertEqual(settled["status"], "ready")
+
+    def test_card_composes_and_compiles_as_a_sketch_card(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            photo = client.post(
+                f"/v1/projects/{pid}/assets",
+                data={"subject_hint": "mug"},
+                files={"image": ("mug.png", io.BytesIO(b"PNG-DATA"), "image/png")},
+            ).json()
+            self.assertEqual(client.get(f"/v1/projects/{pid}/assets/{photo['asset_id']}").json()["status"], "ready")
+            card = client.post(
+                f"/v1/projects/{pid}/sketch-assets",
+                files={"image": ("kitchen.png", io.BytesIO(_png_bytes(400, 300)), "image/png")},
+            ).json()
+            for name, asset, source_type in [("Alice", photo, "photo"), ("Bo", card, "sketch")]:
+                contributor = client.post(f"/v1/projects/{pid}/contributors", json={"display_name": name}).json()
+                r = client.post(
+                    f"/v1/projects/{pid}/contributions",
+                    json={
+                        "contributor_id": contributor["contributor_id"],
+                        "asset_id": asset["asset_id"],
+                        "source_type": source_type,
+                        "memory_text": "Sunday dinners",
+                    },
+                )
+                self.assertEqual(r.status_code, 201, r.text)
+
+            blueprint = client.post(f"/v1/projects/{pid}/connection/compose").json()["blueprint"]
+            card_object = next(item for item in blueprint["objects"] if item["asset_id"] == card["asset_id"])
+            self.assertGreater(card_object["position"][1], 0.9)
+            revision = client.post(f"/v1/projects/{pid}/blueprints", json=blueprint).json()["revision"]
+            scene = client.post(f"/v1/projects/{pid}/blueprints/{revision}/publish").json()["scene"]
+            compiled = next(item for item in scene["objects"] if item["id"] == card_object["id"])
+            self.assertEqual(compiled["source"], "sketch_card")
+            self.assertEqual(compiled["asset_url"], card["artifact_url"])
+
+
 class ConnectionComposeApiTests(unittest.TestCase):
     """Verify the mock connection/compose endpoint (Build Plan step 5)."""
 
@@ -601,6 +712,60 @@ class ConnectionComposeApiTests(unittest.TestCase):
             self.assertEqual(len(positions), 4)
             for name in ["Alice", "Bo", "Cass", "Dev"]:
                 self.assertIn(name, body["insight"]["explanation"])
+
+    def test_three_contributor_room_is_attributed_and_edits_are_owner_only(self) -> None:
+        """Step 8: the published scene says who owns each object, and a
+        contributor session may only edit its own objects."""
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            contributions = [
+                self._contribute(client, pid, "Alice", "mug", "Tea at grandma's"),
+                self._contribute(client, pid, "Bo", "guitar", "First song I learned"),
+                self._contribute(client, pid, "Cass", "kite", ""),
+            ]
+            composed = self._assert_composes(client, pid, contributions)
+            revision = client.post(f"/v1/projects/{pid}/blueprints", json=composed["blueprint"]).json()["revision"]
+            published = client.post(f"/v1/projects/{pid}/blueprints/{revision}/publish")
+            self.assertEqual(published.status_code, 200, published.text)
+            scene = published.json()["scene"]
+
+            social = scene["meta"]["social"]
+            self.assertEqual(social["version"], 1)
+            self.assertEqual(len(social["objects"]), 3)
+            by_contribution = {item["contribution_id"]: item for item in contributions}
+            object_ids = {item["id"] for item in scene["objects"]}
+            for entry in social["objects"]:
+                self.assertIn(entry["object_id"], object_ids)
+                self.assertEqual(
+                    entry["contributor_id"], by_contribution[entry["contribution_id"]]["contributor_id"]
+                )
+            self.assertEqual(
+                {entry["contributor_display_name"] for entry in social["objects"]}, {"Alice", "Bo", "Cass"}
+            )
+            self.assertEqual(len({entry["attribution_color"] for entry in social["objects"]}), 3)
+
+            alice, bo = social["objects"][0], social["objects"][1]
+            edit = {"target_id": alice["object_id"], "action": "rotate_by", "value": [0.0, 15.0, 0.0]}
+            rejected = client.post("/v1/scene/actions", json={**edit, "contributor_id": bo["contributor_id"]})
+            self.assertEqual(rejected.status_code, 403)
+            accepted = client.post("/v1/scene/actions", json={**edit, "contributor_id": alice["contributor_id"]})
+            self.assertEqual(accepted.status_code, 200, accepted.text)
+            # Authoring (MCP/editor) callers without a contributor keep working.
+            authoring = client.post("/v1/scene/actions", json=edit)
+            self.assertEqual(authoring.status_code, 200, authoring.text)
+
+    def test_blueprint_with_mismatched_contribution_is_rejected(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            contributions = [
+                self._contribute(client, pid, "Alice", "mug", ""),
+                self._contribute(client, pid, "Bo", "guitar", ""),
+            ]
+            blueprint = self._assert_composes(client, pid, contributions)["blueprint"]
+            first, second = blueprint["objects"][0], blueprint["objects"][1]
+            first["contribution_id"], second["contribution_id"] = second["contribution_id"], first["contribution_id"]
+            r = client.post(f"/v1/projects/{pid}/blueprints", json=blueprint)
+            self.assertEqual(r.status_code, 422)
 
     def test_compose_below_min_contributors_is_409(self) -> None:
         with TestClient(app) as client:

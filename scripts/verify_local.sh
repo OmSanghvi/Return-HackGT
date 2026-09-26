@@ -29,6 +29,7 @@ bash -n \
 python3 -m json.tool "$ROOT/config/nemoclaw/mcp-servers.example.json" >/dev/null
 python3 -m json.tool "$ROOT/config/nemoclaw/sketchscape-tools.json" >/dev/null
 python3 -m json.tool "$ROOT/shared/experience-blueprint.schema.json" >/dev/null
+python3 -m json.tool "$ROOT/shared/social-manifest.schema.json" >/dev/null
 python3 -m json.tool "$ROOT/config/unity/sketchscape-scene.profile.json" >/dev/null
 python3 -m json.tool "$ROOT/config/unity/sketchscape-scene.profile.schema.json" >/dev/null
 python3 -m json.tool "$ROOT/config/collab-vr/gates.json" >/dev/null

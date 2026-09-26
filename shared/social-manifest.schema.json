@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SketchScape Social Manifest",
+  "description": "Sidecar compiled into scene.meta.social by compile_blueprint. Says which contributor each object belongs to, for diegetic attribution (marker/tint, never a text panel) and per-contributor bounded edits. Unattributed objects (e.g. set dressing) are omitted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "objects"],
+  "properties": {
+    "version": { "const": 1 },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "object_id",
+          "contribution_id",
+          "contributor_id",
+          "contributor_display_name",
+          "source_type",
+          "attribution_color",
+          "staging_cue_id"
+        ],
+        "properties": {
+          "object_id": { "type": "string", "minLength": 1 },
+          "contribution_id": { "type": "string", "minLength": 1 },
+          "contributor_id": { "type": "string", "minLength": 1 },
+          "contributor_display_name": { "type": "string" },
+          "source_type": { "enum": ["photo", "sketch", "letter"] },
+          "attribution_color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+          "staging_cue_id": { "type": ["string", "null"], "description": "Reference into the step 6 StagingPlan; null until step 6 lands." }
+        }
+      }
+    }
+  }
+}

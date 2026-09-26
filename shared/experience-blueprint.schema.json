@@ -158,6 +158,10 @@
               "activate"
             ]
           }
+        },
+        "contribution_id": {
+          "type": ["string", "null"],
+          "maxLength": 80
         }
       }
     },
