@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SketchScape Scene Document",
+  "type": "object",
+  "required": ["objects", "instructions", "meta"],
+  "properties": {
+    "objects": { "type": "array", "items": { "type": "object", "required": ["id", "type", "position", "rotation", "scale", "source", "actions"], "properties": { "id": { "type": "string" }, "type": { "type": "string" }, "position": { "$ref": "#/$defs/vector3" }, "rotation": { "$ref": "#/$defs/vector3" }, "scale": { "$ref": "#/$defs/vector3" }, "asset_url": { "type": ["string", "null"] }, "source": { "enum": ["placeholder", "sam3d"] }, "actions": { "type": "array", "uniqueItems": true, "items": { "enum": ["scale_by", "translate_by", "rotate_by"] } } } } },
+    "instructions": { "type": "array" },
+    "meta": { "type": "object" }
+  },
+  "$defs": { "vector3": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 } }
+}

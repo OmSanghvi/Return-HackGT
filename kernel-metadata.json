@@ -1,0 +1,18 @@
+{
+  "id": "omsanghvi/notebookbc16ccfd57",
+  "id_no": 134424601,
+  "title": "notebookbc16ccfd57",
+  "code_file": "fastsam3d_kaggle_notebook.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "keywords": [],
+  "dataset_sources": ["omsanghvi/sam3d-fast-checkpoints-private"],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": [],
+  "machine_shape": "NvidiaTeslaT4"
+}

@@ -1,0 +1,10 @@
+services:
+  api:
+    build: ./backend
+    environment:
+      PIPELINE_MODE: mock
+      SKETCHSCAPE_DATA_DIR: /data
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/backend:/data

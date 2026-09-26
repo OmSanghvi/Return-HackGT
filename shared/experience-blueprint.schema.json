@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sketchscape.dev/schemas/experience-blueprint.schema.json",
+  "title": "SketchScape Experience Blueprint",
+  "description": "Authoring contract for a versioned experience. A published blueprint is the source of truth consumed by scene compilers and platform adapters.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project_id",
+    "revision",
+    "experience",
+    "environment",
+    "objects",
+    "portals",
+    "navigation",
+    "created_at"
+  ],
+  "properties": {
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "experience": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "theme", "units"],
+      "properties": {
+        "mode": {
+          "enum": ["desktop", "ar", "vr", "ar_vr"]
+        },
+        "theme": {
+          "type": "string",
+          "minLength": 1
+        },
+        "units": {
+          "const": "meters"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lighting_preset", "skybox", "floor", "ambient_audio"],
+      "properties": {
+        "lighting_preset": {
+          "type": "string",
+          "minLength": 1
+        },
+        "skybox": {
+          "type": ["string", "null"]
+        },
+        "floor": {
+          "type": "boolean"
+        },
+        "ambient_audio": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sceneObject"
+      }
+    },
+    "portals": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/portal"
+      }
+    },
+    "navigation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vr", "ar"],
+      "properties": {
+        "vr": {
+          "enum": ["teleport", "smooth", "none"]
+        },
+        "ar": {
+          "enum": ["surface-placement", "world-anchor", "none"]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "vector3": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "transform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position", "rotation", "scale"],
+      "properties": {
+        "position": {
+          "$ref": "#/$defs/vector3"
+        },
+        "rotation": {
+          "$ref": "#/$defs/vector3"
+        },
+        "scale": {
+          "$ref": "#/$defs/vector3"
+        }
+      }
+    },
+    "sceneObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "asset_id",
+        "position",
+        "rotation",
+        "scale",
+        "interactions"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "asset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "position": {
+          "$ref": "#/$defs/vector3"
+        },
+        "rotation": {
+          "$ref": "#/$defs/vector3"
+        },
+        "scale": {
+          "$ref": "#/$defs/vector3"
+        },
+        "interactions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "highlight",
+              "inspect",
+              "scale",
+              "translate",
+              "rotate",
+              "activate"
+            ]
+          }
+        }
+      }
+    },
+    "portal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "target_project_id", "position", "rotation", "scale"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_revision": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Pinned published revision, or null to resolve the target project's current published revision."
+        },
+        "position": {
+          "$ref": "#/$defs/vector3"
+        },
+        "rotation": {
+          "$ref": "#/$defs/vector3"
+        },
+        "scale": {
+          "$ref": "#/$defs/vector3"
+        }
+      }
+    }
+  }
+}
