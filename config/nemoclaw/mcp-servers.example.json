@@ -2,25 +2,25 @@
   "description": "Desired MCP inventory for a NemoClaw development sandbox. This is documentation, not a credential-bearing NemoClaw state file.",
   "servers": [
     {
-      "name": "unity-editor",
+      "name": "unity-mcp",
       "purpose": "Inspect and configure the local HackGTUnity editor and scenes.",
       "transport": "streamable-http",
-      "endpoint": "http://host.open-shell.internal:<UNITY_MCP_PORT>/mcp",
+      "endpoint": "https://<WINDOWS_WSL_GATEWAY_IP>:9443/mcp/",
       "trust": "trusted-private",
       "required": false,
-      "allowed_tool_groups": [
-        "assets-read",
-        "console-read",
-        "scenes-read",
-        "scenes-write",
-        "tests"
+      "registration": "nemoclaw <sandbox> mcp add unity-mcp --url <endpoint> --env UNITY_MCP_BRIDGE_TOKEN --trusted-private-host <WINDOWS_WSL_GATEWAY_IP> --deny-tool Unity_AssetGeneration_GenerateAsset (done by scripts/unity-mcp-bridge/nemoclaw-register.sh; the token is a random placeholder because the bridge has no auth)",
+      "denied_tools": [
+        "Unity_AssetGeneration_GenerateAsset"
+      ],
+      "approval_gated_tools": [
+        "Unity_RunCommand"
       ],
       "denied_capabilities": [
         "shell",
         "package-publish",
         "player-deploy"
       ],
-      "notes": "Replace the endpoint only after the chosen Unity MCP implementation advertises its actual transport and port. Pin the resolved private endpoint through NemoClaw rather than opening it publicly."
+      "notes": "Served by scripts/unity-mcp-bridge (a TLS proxy in front of mcp-proxy, which wraps Unity's relay_win.exe --mcp), bound to the Windows side of the WSL switch only. The sandbox must be onboarded with this machine's private CA (NEMOCLAW_CORPORATE_CA_BUNDLE); a plain rebuild drops it. Never expose the endpoint publicly. The Unity_RunCommand approval gate is a target, not yet enforced."
     },
     {
       "name": "nemoclaw-docs",

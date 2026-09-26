@@ -160,6 +160,72 @@
       "implementation_status": "built-untested-2026-09-26 (deterministic read/write/retry logic unit-tested in backend/test_tour_author.py with a stub model_call; no live NemoClaw runtime to verify tool-calling or the real model_call against yet, per nemoclaw-tour-authoring's definition of done)"
     }
   ],
+  "unity_mcp_connection": {
+    "server_name": "unity-mcp",
+    "sandbox": "sketchscape",
+    "endpoint": "https://<windows-side WSL gateway IP>:9443/mcp/ (trusted-private; never public)",
+    "setup": "scripts/unity-mcp-bridge/Setup-UnityMcpBridge.ps1 (see its README). Bridge: tls_proxy.py -> mcp-proxy -> relay_win.exe --mcp -> Unity Editor. The sandbox trusts the per-machine private CA via NEMOCLAW_CORPORATE_CA_BUNDLE at onboard.",
+    "agent_tool_id_format": "unity-mcp__<toolName>",
+    "implementation_status": "implemented-verified-2026-09-26 (live NemoClaw agent tools/call to meta_get_config_information returned real Editor data)"
+  },
+  "unity_mcp_tools": [
+    {
+      "id": "unity.meta_get_config_information",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__meta_get_config_information",
+      "purpose": "Read Meta Quest configuration guidance (OVRManager etc.). Read-only; must run before any meta_ tool.",
+      "approval_required": false,
+      "implementation_status": "implemented-verified-2026-09-26"
+    },
+    {
+      "id": "unity.get_console_logs",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__Unity_GetConsoleLogs",
+      "purpose": "Read the Unity Editor console. Read-only.",
+      "approval_required": false,
+      "implementation_status": "exposed-unverified-via-nemoclaw (verified from Claude Code only)"
+    },
+    {
+      "id": "unity.scene_captures",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__Unity_SceneView_Capture2DScene, unity-mcp__Unity_SceneView_CaptureMultiAngleSceneView, unity-mcp__Unity_Camera_Capture",
+      "purpose": "Capture scene/camera images for visual review. Read-only.",
+      "approval_required": false,
+      "implementation_status": "exposed-unverified-via-nemoclaw"
+    },
+    {
+      "id": "unity.asset_generation_models",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__Unity_AssetGeneration_GetModels",
+      "purpose": "List Unity AI asset-generation models. Read-only.",
+      "approval_required": false,
+      "implementation_status": "exposed-unverified-via-nemoclaw"
+    },
+    {
+      "id": "unity.run_command",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__Unity_RunCommand",
+      "purpose": "Compile and run an arbitrary C# IRunCommand in the Editor. Currently the only write path (backend/blueprint_to_unity.py generates its input). Must be gated behind a person's approval before NemoClaw may use it (top-tier-nemoclaw-tool-design).",
+      "approval_required": true,
+      "implementation_status": "exposed-ungated (approval gate not built yet; do not rely on NemoClaw calling it unattended)"
+    },
+    {
+      "id": "unity.asset_generation_generate",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__Unity_AssetGeneration_GenerateAsset",
+      "purpose": "Generate assets with Unity AI (spends Unity AI credits).",
+      "approval_required": true,
+      "implementation_status": "denied (registered with --deny-tool)"
+    },
+    {
+      "id": "unity.meta_horizon_extension_tools",
+      "method": "MCP_TOOL",
+      "path": "(not exposed)",
+      "purpose": "Meta Unity MCP Extension for Horizon write tools: create/update/delete GameObjects, relative move/rotate, grabbable, teleport hotspots.",
+      "approval_required": true,
+      "implementation_status": "target (absent from tools/list on 2026-09-26; likely needs the Meta XR SDK v78+, unverified)"
+    }
+  ],
   "unity_mcp_menu_tasks": [
     {
       "id": "unity.configure-current-scene",

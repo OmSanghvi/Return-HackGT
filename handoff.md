@@ -169,16 +169,57 @@ never touched Unity.
 ## Still open / not started
 
 - Everything in "Immediate next action" above, in that priority order.
-- **NemoClaw's own direct Unity MCP connection** — still blocked. The relay
-  binds to Windows loopback only (`127.0.0.1:9002`); WSL can't reach it
-  (confirmed: `curl 127.0.0.1:9002` fails from WSL, `curl` to the WSL2
-  gateway IP times out — real cross-VM boundary, not a typo). Deprioritized
-  in favor of the Claude Code path unless item 2 above forces a revisit. If
-  revisited: `netsh interface portproxy` + HTTPS + canonical DNS hostname +
-  `--trusted-private-host` to satisfy NemoClaw's OpenShell MCP-add
-  validator (read `~/.nemoclaw/source/src/lib/actions/sandbox/
-  mcp-bridge-url-validation.ts` in WSL first — v0.0.116 rejects some alias
-  shortcuts), or run OpenClaw/NemoClaw natively on Windows instead of WSL.
+- **NemoClaw's own direct Unity MCP connection — WORKING (2026-09-26, 15:58).**
+  A live agent turn in the new **`sketchscape`** sandbox made a real
+  `tools/call` to `meta_get_config_information` and got real Editor data
+  back (OpenShell log: `ALLOWED ... rule_methods=tools/call`).
+  **Setup is now scripted:** `scripts/unity-mcp-bridge/Setup-UnityMcpBridge.ps1`
+  (see its README). It's idempotent: rerun it after a reboot or a Unity
+  restart. On a new laptop, run it with `-Onboard -AcceptThirdPartySoftware`.
+  Verified here: fresh venv via uv, takeover of the old hand-started
+  proxies, strict-TLS check, endpoint-change re-registration, `-Stop`, and
+  an agent `tools/call` through the script-started bridge. **Not run yet:**
+  the `-Onboard` path on a clean machine. The old hand-built
+  `C:\Users\kriva\unity-mcp-bridge\` folder is now unused. Chain:
+  1. `mcp-proxy` 0.9.0 (venv in
+     `%LOCALAPPDATA%\SketchScape\unity-mcp-bridge`) wraps
+     `~/.unity/relay/relay_win.exe --mcp` as Streamable HTTP on
+     `127.0.0.1:19443`.
+  2. `scripts/unity-mcp-bridge/tls_proxy.py` serves HTTPS on
+     **`172.30.144.1:9443` only** (the Windows side of the WSL switch, never
+     `0.0.0.0`/LAN). Its cert is a leaf for `unity-mcp.private` +
+     `IP:172.30.144.1`, signed by a private CA.
+  3. Private CA + keys: WSL `~/.config/sketchscape/unity-mcp-pki/` (mode 700;
+     never commit or share). The CA is baked into the `sketchscape` image via
+     `NEMOCLAW_CORPORATE_CA_BUNDLE` + `nemoclaw onboard --from
+     ~/.nemoclaw/source/Dockerfile`, so OpenShell's L7 proxy trusts the
+     upstream TLS. A plain `nemoclaw <sb> rebuild` reuses NVIDIA's prebuilt
+     image and does NOT bake the CA. That's why `my-assistant` couldn't be
+     fixed in place: NemoClaw refuses a custom-image recreate of it without
+     `NEMOCLAW_RECREATE_WITHOUT_BACKUP=1`.
+  4. Registered: `nemoclaw sketchscape mcp add unity-mcp --url
+     https://172.30.144.1:9443/mcp/ --env UNITY_MCP_BRIDGE_TOKEN
+     --trusted-private-host 172.30.144.1 --deny-tool
+     Unity_AssetGeneration_GenerateAsset`. The token is a random placeholder
+     (the bridge has no auth). Asset generation is denied because it spends
+     Unity AI credits and was half the tool-schema size. To re-register, use
+     `mcp remove unity-mcp --force`, then `openshell provider delete
+     sketchscape-mcp-unity-mcp` (remove keeps the provider, which blocks a
+     re-add).
+  - **Not automatic at login:** the proxies don't survive a reboot, and
+    `172.30.144.1` can change. Rerunning the setup script handles both.
+  - **Model caveat:** `qwen3.5:9b` (16k context, CPU) calls the tools only
+    with very directive prompts (`tool_call` id
+    `unity-mcp__<toolName>`), then often fails to write a reply. The first
+    try overflowed context. Expect this to improve on `meta`/`xai`/`nebius`.
+    Swap with `nemoclaw inference set`; don't rebuild without the CA.
+  - **Tool surface:** Unity exposes only 8 tools (base AI Assistant package):
+    `Unity_RunCommand`, `Unity_GetConsoleLogs`, scene/camera captures, asset
+    generation, `meta_get_config_information`. **None of the Meta Horizon
+    extension's GameObject/grabbable/teleport tools appear.** This is
+    probably because the Meta XR SDK isn't installed yet (unverified).
+  - `my-assistant` keeps a stale, non-working `unity-mcp` registration.
+    Use `sketchscape` for Unity work.
 - Real per-asset prefabs instead of placeholder cubes in the write bridge
   (needs an actual asset pipeline into Unity — not scoped yet).
 - A **leftover zombie `Unity.exe` process** (PID 32404 as of the original
