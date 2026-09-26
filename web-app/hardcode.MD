@@ -5,6 +5,58 @@ Rule from `features.txt`: fake the plumbing, never lie about it. If a judge asks
 
 Status: **done** = already hardcoded in `src/`, **todo** = should be hardcoded, not yet.
 
+## 0. Real mode (Build Plan steps 19-20)
+
+Everything below this section (1-9) describes **mock mode**: the live demo at
+returnweb-hazel.vercel.app, unchanged, used whenever `VITE_SKETCHSCAPE_API_URL`
+is unset at build time. Setting it switches the whole site into **real mode**
+instead -- see `src/config.ts`, which is the single switch (`REAL_MODE`) that
+`App.tsx` branches on before any mock code runs.
+
+- **done** Account picker (`src/real/RealShell.tsx`) replaces the fake
+  sign-in: a header control between the two hardcoded accounts
+  (`VITE_SKETCHSCAPE_ACCOUNTS`, defaulting to `demo-alice,demo-bob` to match
+  the backend's `SKETCHSCAPE_DEMO_USERS` default). Every API call sends
+  `X-SketchScape-Dev-User: <chosen account>` (`src/api/client.ts`).
+- **done** Typed API client (`src/api/client.ts`, `src/api/types.ts`): every
+  project/contributor/upload/selection/generate/jobs call the backend
+  actually exposes, JSON error mapping (401/403/409/413/415), and
+  `XMLHttpRequest`-based upload progress.
+- **done** Real project create/join (`src/real/RealProjectsPage.tsx`), photo
+  upload with per-object typed names (text-only SAM 3.1 prompts, no
+  click/drag selection -- matches the backend's semantic-only segmentation),
+  refine/delete a selection, "Make 3D" generate, and a shared batch
+  job-polling loop with ETag/If-None-Match and the documented backoff
+  (2s/5s/10s + jitter, paused while the tab is hidden, `Retry-After`
+  honored) -- `src/real/RealProjectPage.tsx`, `src/api/polling.ts`.
+- **done** Generated objects and a Notability flat-card sketch upload are
+  shown once ready (`src/real/RealProjectPage.tsx`'s asset gallery).
+- **todo** Notability sketches: only the flat-card path is wired (PNG/JPEG
+  upload straight to `/sketch-assets`); no PDF-page-to-PNG conversion in the
+  browser yet, and no 3D memory-plaque option from the web UI.
+- **todo** Letters (step 28) -- not built here on purpose, per
+  `web-uploads-and-linking`.
+- **known gap (not fixed here, see AGENT.md Hard Rule 9 / task notes):** the
+  backend's CORS middleware hard-codes `allow_methods=["GET", "POST"]` in
+  every auth mode (`backend/main.py`, where `app.add_middleware(CORSMiddleware,
+  ...)` is configured) -- it never varies with `SKETCHSCAPE_AUTH_MODE`. A
+  browser preflight for `PATCH /v1/projects/{id}` (room prompt) or
+  `DELETE .../selections/{id}` (remove a chip) gets back
+  `Access-Control-Allow-Methods: GET, POST` and blocks the real request, when
+  the web app and backend are on different origins (exactly the local-dev
+  setup: Vite on :5173, backend on :8000). Confirmed with
+  `curl -X OPTIONS .../v1/projects/x -H "Access-Control-Request-Method: PATCH"`
+  -> `400 Disallowed CORS method`. It does **not** affect the production path
+  through `vercel.json`'s `/api/*` rewrite (same-origin from the browser's
+  perspective, so no preflight is sent at all), and it was left alone here
+  because another agent is editing `backend/main.py` -- the fix is adding
+  `"PATCH"` and `"DELETE"` to that `allow_methods` list.
+- Local dev: run the backend with `SKETCHSCAPE_AUTH_MODE=demo`,
+  `SKETCHSCAPE_WEB_ORIGINS=http://localhost:5173`, `PIPELINE_MODE=mock`, then
+  `VITE_SKETCHSCAPE_API_URL=http://localhost:8000 npm run dev` (or put that
+  line in `web-app/.env.development`, which is git-ignored). See the repo's
+  top-level report for exact commands.
+
 ## 1. Landing page
 - **done** All copy, imagery and the VR chapter are static. No live stats, no counters.
 - **done** Theme is always dusk. No clock, no toggle, no day mode.

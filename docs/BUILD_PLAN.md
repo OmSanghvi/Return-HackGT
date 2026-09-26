@@ -67,8 +67,8 @@ and `docs/KNOWN_ISSUES.md` R13 for what this changed and why.
 | 15 | Backend revision safety (`based_on_revision` 409, conditional DynamoDB writes, LIVE pointer) | — | Done | `backend-revision-concurrency` |
 | 16 | Backend auth core: hardcoded demo accounts, mock mode, fail-fast config | 15 | Done | `backend-auth-clerk` |
 | 17 | Membership, invite codes, Contributor ↔ account binding, ownership, `room_prompt` | 2, 16 | Done | `room-api-and-ownership` |
-| 19 | Web app foundation: `app/` React + Vite, hardcoded-account picker, API client, mock mode | 16 | Not started | `web-app-foundation` |
-| 20 | Web uploads: person types a name for each object → SAM 3.1 semantic masks → refine → generate PLYs; several photos at once; Notability sketches; optional text; invites | 7, 17, 19, 26 | Not started | `web-uploads-and-linking` |
+| 19 | Web app foundation: `web-app/` React + Vite, hardcoded-account picker, API client, mock mode | 16 | Done (built in `web-app/`, the repo's existing React+Vite app, not a new `app/`) | `web-app-foundation` |
+| 20 | Web uploads: person types a name for each object → SAM 3.1 semantic masks → refine → generate PLYs; several photos at once; Notability sketches; optional text; invites | 7, 17, 19, 26 | Mostly done: upload/selections/refine/generate/batch polling/invites/room prompt built; Notability sketch upload is flat-card-only (no PDF→PNG, no plaque) from the web UI | `web-uploads-and-linking` |
 | 21 | Public room API `/v1/rooms/{project_id}/state` + `/edits`, and the Quest account switcher's backend half | 15, 17 | Not started | `room-api-and-ownership` |
 | 22 | Unity networking: anonymous Unity sign-in + account switcher, Multiplayer Services, NGO 2.x, Distributed Authority | — | Not started | `unity-cloud-collaborative-vr` |
 | 23 | Unity backprop client: save on settle, session-owner polling | 21, 22 | Not started | `vr-edit-cloud-backprop-sync` |
@@ -657,11 +657,18 @@ delivers:
   locked to web origins, fail-fast startup.
 - **17** — invite codes, membership checks on every project route,
   account binding for contributors, ownership, `room_prompt`.
-- **19** — the web app shell with an account picker, an authenticated API
-  client, and a mock mode that works offline.
-- **20** — photo upload with progress; Notability flat card or 3D plaque
-  (PDF → PNG in the browser if needed; HEIC converted or rejected);
-  optional label, memory text, and room prompt; invites.
+- **19** — done. Built directly in the existing `web-app/` (not a new `app/`):
+  a build-time switch (`VITE_SKETCHSCAPE_API_URL`, `src/config.ts`) so mock
+  mode (unset) behaves exactly as before, and real mode (set) swaps in an
+  account picker (`src/real/RealShell.tsx`) and a typed API client
+  (`src/api/client.ts`) instead of the fake sign-in. See `web-app/hardcode.MD`
+  section 0.
+- **20** — mostly done, same real-mode branch: photo upload with progress,
+  typed per-object names → selections → refine → generate, batch job polling
+  (ETag + backoff), room prompt, and project create/join by invite code
+  (`src/real/RealProjectPage.tsx`, `src/api/polling.ts`). Not yet from the web
+  UI: PDF → PNG for Notability exports and the 3D memory-plaque option (flat
+  card works); letters (step 28, out of scope here on purpose).
 - **21** — `/v1/rooms/*` with idempotent, owner-checked, bounded,
   revision-checked edits built on the live revision, authenticated with
   the hardcoded-account header.
