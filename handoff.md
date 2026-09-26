@@ -8,6 +8,94 @@ The last session (`65c057b2-388a-42b5-a56f-ed1265d08877`) ran on a different
 Claude account, so it can't be resumed from the next one. This file is the
 handoff.
 
+## LATEST (2026-09-26, late evening) — Muse Spark agent builds Quest rooms in Unity end-to-end
+
+This supersedes "What's about to happen" in START HERE below. Items 1–3
+there are done or decided.
+
+- **Model:** NemoClaw `sketchscape` runs **Muse Spark** (`compatible-endpoint`,
+  `muse-spark-1.3`, `https://api.meta.ai/v1`).
+  - To (re)enter the key, run `scripts/nemoclaw-set-muse-spark.sh` in your
+    own WSL shell. It reads the key silently, so it never goes through chat
+    or a file.
+  - Re-run it after anything that restarts NemoClaw's route adapter (such as
+    a reboot). The adapter never persists the key.
+- **Local NemoClaw patch (re-apply after any NemoClaw update):**
+  - The bug: NemoClaw's SSRF preflight sorts resolved addresses as strings,
+    so IPv6 `2a03:…` comes before IPv4 `57.144…`. The HTTPS-pin adapter
+    connects to `pinnedAddresses[0]`, and WSL has no IPv6 route, so every
+    model call got a 502 within about 3–50 ms (`ENETUNREACH`).
+  - The patch: in
+    `~/.nemoclaw/source/dist/lib/inference/https-pin-runtime-adapter.js`,
+    `pinnedAddress:` now prefers the first IPv4 entry. The original is saved
+    next to it as `.orig`.
+  - After patching, kill the adapter (its pid is in
+    `~/.nemoclaw/https-pin-runtime-adapter.pid`), then re-run the key
+    script.
+  - The symptom if the patch is lost: `nemoclaw sketchscape status` shows
+    Inference unhealthy (HTTP 502), and
+    `~/.nemoclaw/https-pin-runtime-adapter.log` shows `status:502` with a
+    `durationMs` in the single digits.
+- **After an inference switch, restart the agent gateway:** run
+  `nemoclaw sketchscape gateway restart`. Until then, OpenClaw keeps the old
+  model's in-memory settings. Sessions still recorded `qwen3.5:9b`, and the
+  agent stopped after one tool call.
+- **Approval gates: none, by user decision.** The user's words: "no gates or
+  anything are needed". `config/nemoclaw/sketchscape-tools.json` records
+  this on each Unity write tool.
+- **New job-shaped tool, `compose_room`**
+  (`backend/unity_room.py`, `backend/unity_room_cli.py`, 11 tests in
+  `backend/test_unity_room.py`):
+  - It runs the layout step, then staging.
+  - It generates the C# that builds the room in its **own** scene,
+    `Assets/SketchScape/AgentRooms/<slug>.unity`. That scene has mood key
+    and ambient light, tinted placeholder cubes, a connection glow, and a
+    floor light-path motif. The build refuses to run if another scene has
+    unsaved changes.
+  - It lists the ordered Meta XR calls: camera rig, interaction rig, one
+    grabbable per object, and teleport hotspots.
+  - A finalize script saves the scene and reports what is really in it.
+  - CLI outputs stay small on purpose, because OpenClaw truncates tool
+    results at 16k characters. That truncation is why the first version
+    stalled.
+- **OpenClaw skill `sketchscape-unity-room`**
+  (`config/nemoclaw/skills/sketchscape-unity-room/SKILL.md`), plus the
+  re-deployed `sketchscape-scene-tools`:
+  - The rebuilt sandbox had lost the old deployment.
+  - Deploy or redeploy with `bash scripts/nemoclaw-deploy-skills.sh` (in
+    WSL). It installs to `/sandbox/.openclaw/workspace/skills/<name>`,
+    bundles the backend Python and the schema, and installs `jsonschema`.
+- **Verified end to end:** session `room-e2e-3`. A single natural-language
+  prompt (4 objects plus a connection) made Muse Spark do everything itself:
+  - calls: `compose_room`, `build_code`, then `Unity_RunCommand`, then
+    `meta_get_config_information`, `meta_add_camerarig`,
+    `meta_add_interactionrig`, 4× `meta_add_grabbable`, 4×
+    `meta_add_teleport_hotspot`, then `finalize_code` and
+    `Unity_RunCommand`.
+  - result: `Assets/SketchScape/AgentRooms/Evenings_at_Home.unity`, saved.
+  - An independent hierarchy dump plus a multi-angle capture confirmed it.
+  - First real run of the `meta_add_*` tools, and first time the patched
+    `GetInteractorsState` line ran.
+- **Unity-side notes:**
+  - The team's `First` scene was not modified. The Editor now has
+    `Evenings_at_Home` open.
+  - The throwaway `Smoke_Test.unity` was deleted by hand. That's the only
+    way: `AssetDatabase.DeleteAsset` over MCP is refused as "requires user
+    interaction".
+  - All the gotchas found this session are also listed in
+    `scripts/unity-mcp-bridge/README.md` → Gotchas: the IPv6 pin, gateway
+    restart, 16k tool-result truncation, the skills path, zero-byte
+    uploads, and DeleteAsset.
+  - After a scene-view reframe, the console shows Editor-internal "Invalid
+    sorting group ID" `GUIView` errors. They're harmless.
+- **Next:**
+  - Real per-object assets instead of cubes (needs the PLY/splat import
+    path from step 11).
+  - Wire narration and haptics: the staging data is returned to the agent
+    but not applied in the Editor, because `ImmersiveStagingDirector` lives
+    in the repo's `unity/` project.
+  - Agent-driven `read_sketch_layout` vision (Muse Spark takes images).
+
 ## START HERE (2026-09-26, evening)
 
 ### State right now (all verified before the account switch)

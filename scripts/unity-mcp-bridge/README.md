@@ -133,6 +133,47 @@ spends Unity AI credits.
   is gone. Prevention: never time out `wsl.exe` from Windows. The scripts
   bound `nemoclaw` calls with `timeout` inside WSL (`NC_TIMEOUT`, default
   300s), where NemoClaw can recover the lock itself.
+- **Muse Spark (or any HTTPS model endpoint with IPv6 DNS) returns 502 in
+  milliseconds.** NemoClaw's endpoint preflight sorts resolved addresses as
+  strings, so an IPv6 address (`2a03:…`) sorts first, and its HTTPS-pin
+  adapter connects to `pinnedAddresses[0]`. WSL has no IPv6 route, so it
+  gets `ENETUNREACH`, which is reported as 502 with a `durationMs` in single
+  digits in `~/.nemoclaw/https-pin-runtime-adapter.log`.
+  - Local fix (applied 2026-09-26, lost on a NemoClaw update): edit
+    `~/.nemoclaw/source/dist/lib/inference/https-pin-runtime-adapter.js`
+    so `pinnedAddress:` is
+    `route.pinnedAddresses.find((a) => !a.includes(":")) ?? route.pinnedAddresses[0]`.
+    The original is kept as `.orig`.
+  - Then kill the adapter (`~/.nemoclaw/https-pin-runtime-adapter.pid`) and
+    rerun `scripts/nemoclaw-set-muse-spark.sh`. The adapter never persists
+    the key.
+- After `nemoclaw inference set`, run `nemoclaw <sb> gateway restart`. The
+  running OpenClaw gateway otherwise keeps the previous model's in-memory
+  settings. The symptom: session transcripts
+  (`/sandbox/.openclaw/agents/main/sessions/<id>.jsonl`) still show the old
+  model name, and the agent ends its turn after one tool call with empty
+  content.
+- **OpenClaw truncates tool results at 16k characters**, including its own
+  wrapper. When that happens the agent silently stops, so skill CLIs must
+  keep each output small. `unity_room_cli.py` splits its output into
+  `compose_room` (a compact plan), `build_code` and `finalize_code` for this
+  reason, and a test enforces a 10k cap.
+- **Skills install to `/sandbox/.openclaw/workspace/skills/<name>`**, not
+  `/sandbox/.openclaw/skills`. A sandbox rebuild wipes them; rerun
+  `scripts/nemoclaw-deploy-skills.sh`.
+- **`nemoclaw <sb> upload` of a file freshly written under `/mnt/c` can
+  arrive as all zero bytes.** Copy it to the WSL filesystem first (for
+  example `~/ss-tmp/`) and upload from there.
+- The Unity MCP bridge runs as the `openclaw`/`node` binaries only. The
+  sandbox policy doesn't let a skill's Python reach it, so the agent passes
+  generated C# to `Unity_RunCommand` itself. Don't work around that
+  boundary.
+- `AssetDatabase.DeleteAsset` through `Unity_RunCommand` is refused ("User
+  interactions are not supported for MCP tool calls"). Delete assets by hand
+  in the Editor.
+- The `DENIED DELETE …/mcp/` line in `openshell logs` at the end of an
+  agent turn is the MCP session teardown, which the policy doesn't allow.
+  It's harmless.
 - After a reboot, Docker Desktop and the Unity Editor must be running before
   you rerun the setup script. The Ollama auth proxy (port 11435) also
   doesn't come back on its own; `nemoclaw <sb> status` then reports the

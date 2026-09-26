@@ -6,7 +6,7 @@ description: Turn a list of SketchScape contributed objects into an immersive Un
 # SketchScape scene tools
 
 Three deterministic, offline reasoning tools live at
-`/sandbox/sketchscape/backend/scene_tools_cli.py`. They are the actual
+`{baseDir}/backend/scene_tools_cli.py`. They are the actual
 composition mechanism (Build Plan steps 4 and 6 of this project) -- never
 bypass them by inventing your own coordinates or guessing a layout by hand.
 Always shell out to the CLI and return its real JSON output.
@@ -22,7 +22,7 @@ label-driven relative scale (a "reading lamp" comes out much smaller than a
 publishes anything.
 
 ```
-python3 /sandbox/sketchscape/backend/scene_tools_cli.py place_objects_in_scene '{
+python3 {baseDir}/backend/scene_tools_cli.py place_objects_in_scene '{
   "objects": [
     {"asset_id": "a1", "label": "reading lamp"},
     {"asset_id": "a2", "label": "family sofa"}
@@ -45,7 +45,7 @@ relations) until the live vision path is wired up -- do not treat its
 absence as a failure; `place_objects_in_scene` works fine without a hint.
 
 ```
-python3 /sandbox/sketchscape/backend/scene_tools_cli.py read_sketch_layout '{}'
+python3 {baseDir}/backend/scene_tools_cli.py read_sketch_layout '{}'
 ```
 
 ## stage_immersive_reveal
@@ -59,7 +59,7 @@ between the objects, spoken narration text (the connection must be
 signature per object.
 
 ```
-python3 /sandbox/sketchscape/backend/scene_tools_cli.py stage_immersive_reveal '{
+python3 {baseDir}/backend/scene_tools_cli.py stage_immersive_reveal '{
   "connection_insight": {"theme": "Two homes, one memory", "explanation": "Both objects carry the warmth of a childhood living room."},
   "objects": [ /* the "objects" array returned by place_objects_in_scene */ ]
 }'

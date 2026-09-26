@@ -11,6 +11,8 @@ python3 -m py_compile \
   "$ROOT/backend/scene_tools.py" \
   "$ROOT/backend/blueprint_to_unity.py" \
   "$ROOT/backend/blueprint_to_unity_cli.py" \
+  "$ROOT/backend/unity_room.py" \
+  "$ROOT/backend/unity_room_cli.py" \
   "$ROOT/backend/auth.py" \
   "$ROOT/backend/upload_pipeline.py" \
   "$ROOT/backend/room_tools.py" \
@@ -29,6 +31,7 @@ python3 -m py_compile \
   "$ROOT/backend/test_subject_labeler.py" \
   "$ROOT/backend/test_scene_tools.py" \
   "$ROOT/backend/test_blueprint_to_unity.py" \
+  "$ROOT/backend/test_unity_room.py" \
   "$ROOT/backend/test_auth.py" \
   "$ROOT/backend/test_jobs.py" \
   "$ROOT/backend/test_gpu_worker.py" \
@@ -78,7 +81,7 @@ done
 if [[ -n "$VENV_PY" ]]; then
   (
     cd "$ROOT/backend"
-    "$VENV_PY" -m unittest test_api.py test_storage.py test_subject_labeler.py test_scene_tools.py test_blueprint_to_unity.py test_auth.py test_jobs.py test_gpu_worker.py test_room_tools.py test_tour_author.py test_guided_tour.py test_guide.py test_letters.py
+    "$VENV_PY" -m unittest test_api.py test_storage.py test_subject_labeler.py test_scene_tools.py test_blueprint_to_unity.py test_unity_room.py test_auth.py test_jobs.py test_gpu_worker.py test_room_tools.py test_tour_author.py test_guided_tour.py test_guide.py test_letters.py
   )
   # worker/segment_sam31_local.py and gpu_dispatcher.py's testable functions
   # only need numpy/Pillow (already in backend/.venv via requirements.txt +
