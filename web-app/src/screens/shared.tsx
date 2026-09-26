@@ -8,8 +8,10 @@ import { useSession } from '../auth';
 import { SCENES } from '../world/scenes';
 import type { Room } from '../data/store';
 import lockupWhite from '../design-system/logos/return-lockup-white.svg';
+import lockupInk from '../design-system/logos/return-lockup-ink.svg';
 import { DEMO_ACCOUNTS, REAL_MODE } from '../config';
 import { accountLabel, useAccount } from '../api/account';
+import './pages.css';
 
 export const coverOf = (r: Room) => r.cover || SCENES[r.scene].image;
 
@@ -23,8 +25,13 @@ export const reveal = (i = 0) => ({
   transition: { duration: MOTION.reveal, ease: MOTION.ease, delay: i * 0.1 },
 });
 
-export function Logo() {
-  return <img src={lockupWhite} alt="return" height={26} />;
+/* display:none removes an image from the a11y tree, so both lockups can carry the same alt text;
+ * only the one CSS shows for the current theme is ever announced. */
+export function Logo({ plain }: { plain?: boolean } = {}) {
+  return <>
+    <img className="app-logo-white" src={lockupWhite} alt="return" height={26} />
+    {plain && <img className="app-logo-ink" src={lockupInk} alt="return" height={26} />}
+  </>;
 }
 
 /** Avatar plus first name; opens a small menu so signing out is never a surprise. */
@@ -65,7 +72,7 @@ function AccountMenu() {
 export function AppNav({ plain, active = 'none' }: { plain?: boolean; active?: 'rooms' | 'none' }) {
   const navigate = useNavigate();
   return (
-    <GlassNav plain={plain} brand={<a href="/" onClick={(e) => { e.preventDefault(); navigate('/'); }} aria-label="return home"><Logo /></a>}
+    <GlassNav plain={plain} brand={<a href="/" onClick={(e) => { e.preventDefault(); navigate('/'); }} aria-label="return home"><Logo plain={plain} /></a>}
       items={[{ label: 'My rooms', active: active === 'rooms', onClick: () => navigate('/rooms') }]}
       cta={<>
         <Button variant="primary" size="sm" icon="plus" onClick={() => navigate('/rooms/new')}>Create a room</Button>

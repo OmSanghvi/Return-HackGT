@@ -94,7 +94,7 @@ export default function Landing() {
   return (
     <>
       <div ref={track} className="app-landing-track">
-        <Stage scene={c.scene} fast scrim={shown ? 'bottom' : 'center'} className={'app-landing-stage ' + (shown ? 'rt-hero-bottom-left' : 'rt-hero-center')} label="return">
+        <Stage scene={c.scene} fast petals scrim={shown ? 'bottom' : 'center'} className={'app-landing-stage ' + (shown ? 'rt-hero-bottom-left' : 'rt-hero-center')} label="return">
           <div className="rt-hero-top">
             <GlassNav brand={<Logo />} items={[{ label: 'How it works', onClick: () => toChapter(1) }, { label: 'Rooms', onClick: () => navigate('/rooms') }]}
               cta={<>{!signedIn && <Button variant="ghost" size="sm" onClick={() => navigate('/sign-in')}>Sign in</Button>}

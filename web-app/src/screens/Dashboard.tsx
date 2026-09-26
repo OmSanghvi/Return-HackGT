@@ -110,11 +110,12 @@ export default function Dashboard() {
   return (
     <div className="app-shell" onClick={() => setMenu(null)}>
       <div className="app-nav-row"><AppNav plain active="rooms" /></div>
-      <Stage scene="painted" scrim="bottom" className="rt-hero-bottom-left app-header" label="Your rooms">
+      <Stage scene="painted" petals scrim="bottom" className="rt-hero-bottom-left app-header" label="Your rooms">
         <div className="rt-hero-body rt-on-image">
           <motion.p className="rt-kicker" style={{ margin: 0 }} {...reveal(0)}>Welcome back, {session.firstName}</motion.p>
           <motion.h1 className="rt-hero-title" {...reveal(1)}>Your <em>rooms</em></motion.h1>
-          {synced && <motion.p className="rt-hero-sub" {...reveal(2)}>{summary(yours, invites)}</motion.p>}
+          <motion.p className="app-italic" {...reveal(2)}>every place you can go back to</motion.p>
+          {synced && <motion.p className="rt-hero-sub" {...reveal(3)}>{summary(yours, invites)}</motion.p>}
         </div>
       </Stage>
 
@@ -125,7 +126,7 @@ export default function Dashboard() {
             <AnimatePresence>
               {invites.map((r, i) => (
                 <Tilt key={r.id} i={i} scene={r.scene}>
-                  <RoomCard src={coverOf(r)} title={r.title} {...cardInfo(r)} onOpen={() => navigate(routeForRoom(r))}
+                  <RoomCard src={coverOf(r)} title={r.title} {...cardInfo(r)} className={r.cover ? 'app-photo' : undefined} onOpen={() => navigate(routeForRoom(r))}
                     action={<><Button size="sm" variant="light" loading={joining === r.id} onClick={() => void joinRoom(r)}>Join room</Button>
                       <Button size="sm" variant="glass" onClick={() => (REAL_MODE ? backend.decline(r.id) : act.decline(r.id))}>Decline</Button></>} />
                 </Tilt>
@@ -144,7 +145,7 @@ export default function Dashboard() {
                 const owner = mine(r)?.isOwner;
                 return (
                   <Tilt key={r.id} i={i + 1} scene={r.scene}>
-                    <RoomCard src={coverOf(r)} title={r.title} {...cardInfo(r)} people={r.members.map((m) => ({ name: m.name }))} onOpen={(e) => open(r, e)}
+                    <RoomCard src={coverOf(r)} title={r.title} {...cardInfo(r)} className={r.cover ? 'app-photo' : undefined} people={r.members.map((m) => ({ name: m.name }))} onOpen={(e) => open(r, e)}
                       onManage={(e) => { e.stopPropagation(); triggerRef.current = e.currentTarget as HTMLButtonElement; setMenu(menu === r.id ? null : r.id); }} />
                     <AnimatePresence>
                       {menu === r.id && (

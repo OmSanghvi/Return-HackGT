@@ -21,8 +21,8 @@ export default function SignInPage() {
       <a className="app-corner-logo" href="/" onClick={(e) => { e.preventDefault(); navigate('/'); }}><Logo /></a>
       <motion.form className="app-signin rt-glass-strong" {...reveal(1)} onSubmit={(e) => { e.preventDefault(); useRooms.getState().signIn(); }}>
         <p className="rt-kicker app-kicker-ink">Sign in</p>
-        <h1 className="display-m" style={{ margin: 0 }}>Welcome <em>back</em></h1>
-        <p className="body" style={{ margin: 0, color: 'var(--ink-muted)' }}>Your rooms are waiting where you left them.</p>
+        <h1 className="display-m" style={{ margin: 0 }}>Welcome back</h1>
+        <p className="app-italic">your rooms are where you left them</p>
         {REAL_MODE ? DEMO_ACCOUNTS.map((id, i) => (
           <Button key={id} variant={i ? 'secondary' : 'primary'} size="lg" arrow fullWidth
             onClick={() => { useAccount.getState().setAccount(id); useRooms.getState().signIn(); }}>Continue as {accountLabel(id)}</Button>

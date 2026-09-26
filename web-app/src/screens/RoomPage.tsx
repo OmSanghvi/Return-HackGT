@@ -70,7 +70,7 @@ function Waiting({ room }: { room: Room }) {
 
   return (
     <div className="app-shell">
-      <Stage scene={building ? room.scene : 'plain'} mist={building ? Math.max(0, 1 - room.progress * 1.1) : 0} scrim="none" className="app-full app-center" label={room.title}>
+      <Stage scene={room.scene} blur={building ? 0 : 0.5} mist={building ? Math.max(0, 1 - room.progress * 1.1) : 0} scrim="none" className="app-full app-center" label={room.title}>
         <div className="rt-hero-top app-hero-top"><AppNav /></div>
         <AnimatePresence>
           {toast && (
@@ -83,7 +83,7 @@ function Waiting({ room }: { room: Room }) {
           {building ? (
             <motion.div key="build" className="rt-glass-strong app-panel app-panel-wide" {...reveal(0)} exit={{ opacity: 0, filter: 'blur(12px)' }}>
               <Stepper current={2} />
-              <DevelopProgress src={coverOf(room)} title={room.title} progress={room.progress}
+              <DevelopProgress src={coverOf(room)} title={room.title} progress={room.progress} photo={!!room.cover}
                 actions={<><Button variant="ghost" icon="back" onClick={() => navigate('/rooms')}>Back to rooms</Button>
                   {REAL_MODE && <Button variant="text" onClick={() => navigate(`/rooms/${room.id}/studio`)}>See each object</Button>}</>} />
             </motion.div>
@@ -91,6 +91,7 @@ function Waiting({ room }: { room: Room }) {
             <motion.div key="wait" className="rt-glass-strong app-panel app-panel-wide" {...reveal(0)} exit={{ opacity: 0, filter: 'blur(12px)' }}>
               <Stepper current={2} />
               <h1 className="display-m" style={{ margin: 0 }}>Waiting for {who}</h1>
+              <p className="app-italic">the room fills in as each view arrives</p>
               <p className="body" style={{ margin: 0, color: 'var(--ink-muted)' }}>
                 {done} of {room.members.length} have added their photos. We start building the moment everyone is in{REAL_MODE ? '.' : ', and email you when the room is ready.'}
               </p>
@@ -125,15 +126,16 @@ function Ready({ room }: { room: Room }) {
 
   return (
     <div className="app-shell">
-      <Stage scene="night" scrim="bottom" className="app-full rt-hero-bottom-left" label={room.title}>
+      <Stage scene={room.scene} blur={0.7} petals scrim="bottom" className="app-full rt-hero-bottom-left" label={room.title}>
         <div className="rt-hero-top app-hero-top"><AppNav /></div>
         <div className="app-ready">
           <div className="rt-hero-body rt-on-image app-ready-copy">
             <motion.div {...reveal(0)}><Eyebrow badge="Ready">Built from {photos} photos by {room.members.length} {room.members.length === 1 ? 'person' : 'people'}</Eyebrow></motion.div>
-            <motion.h1 className="rt-hero-title" {...reveal(1)}><span className="fn-name">{room.title}</span> is <em>ready</em></motion.h1>
-            <motion.p className="rt-hero-sub" {...reveal(2)}>It's waiting in your headset now. Everyone who added photos can step in, together or on their own.</motion.p>
-            <motion.div {...reveal(3)}><PresenceStack people={room.members.map((m) => ({ name: m.name }))} size="lg" onImage /></motion.div>
-            <motion.div className="rt-hero-actions" {...reveal(4)}><Button variant="light" size="lg" icon="back" onClick={() => navigate('/rooms')}>Back to rooms</Button>
+            <motion.h1 className="rt-hero-title" {...reveal(1)}><span className="app-ready-name">{room.title}</span><span className="app-ready-is">is ready</span></motion.h1>
+            <motion.p className="app-italic" {...reveal(2)}>waiting in your headset</motion.p>
+            <motion.p className="rt-hero-sub" {...reveal(3)}>It's waiting in your headset now. Everyone who added photos can step in, together or on their own.</motion.p>
+            <motion.div {...reveal(4)}><PresenceStack people={room.members.map((m) => ({ name: m.name }))} size="lg" onImage /></motion.div>
+            <motion.div className="rt-hero-actions" {...reveal(5)}><Button variant="light" size="lg" icon="back" onClick={() => navigate('/rooms')}>Back to rooms</Button>
               {REAL_MODE && <Button variant="glass" size="lg" onClick={() => navigate(`/rooms/${room.id}/studio`)}>Objects and letters</Button>}</motion.div>
           </div>
           <div className="app-ready-side">
