@@ -380,7 +380,16 @@ resource "aws_iam_role_policy" "dynamodb_authoring" {
         "dynamodb:Query",
         "dynamodb:DescribeTable",
       ]
-      Resource = aws_dynamodb_table.authoring[0].arn
+      # The base table ARN alone does not authorize Query calls that pass
+      # IndexName=gsi1/gsi2 (storage.DynamoDbStore.list_project_jobs,
+      # claim_next_job, release_expired_leases) -- IAM evaluates those against
+      # the index's own ARN (".../index/<name>"), a distinct resource from the
+      # table ARN. Without this, every GSI query is denied even though plain
+      # pk/sk reads and writes work fine.
+      Resource = [
+        aws_dynamodb_table.authoring[0].arn,
+        "${aws_dynamodb_table.authoring[0].arn}/index/*",
+      ]
     }]
   })
 }
@@ -400,7 +409,16 @@ resource "aws_iam_role_policy" "artifacts_bucket" {
         "s3:GetObject",
         "s3:DeleteObject",
       ]
-      Resource = "${aws_s3_bucket.artifacts[0].arn}/artifacts/*"
+      # Two prefixes in this bucket: artifacts/<job_id>/... (PLY/mask/preview
+      # output, ArtifactStore.put/copy_local/serve) and
+      # uploads/<project_id>/<upload_id>/... (source photos and masks,
+      # ArtifactStore.put_upload/open_upload -- Build Plan step 26). Scoping
+      # this policy to artifacts/* only denies every uploads/ call the worker
+      # and API make once cloud storage is active.
+      Resource = [
+        "${aws_s3_bucket.artifacts[0].arn}/artifacts/*",
+        "${aws_s3_bucket.artifacts[0].arn}/uploads/*",
+      ]
     }]
   })
 }

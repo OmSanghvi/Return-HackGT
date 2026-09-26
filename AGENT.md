@@ -482,7 +482,7 @@ All .ply files in catalog
    place of failed objects.
 
 8. **Run `bash scripts/verify_local.sh` after every backend change** and
-   confirm all tests pass before reporting done. Currently 151 tests (2 are
+   confirm all tests pass before reporting done. Currently 176 tests (2 are
    skipped either way, depending on whether `boto3` is installed).
 
 9. **Collaborative VR + web accounts steps (13–29) are gated.** Before writing any code or
@@ -561,7 +561,7 @@ its current contents before relying on any of them.
 
 | Area | Status |
 |---|---|
-| Backend API (upload, poll, mock pipeline, safe edits) | ✅ done, 151 tests passing (2 skipped) |
+| Backend API (upload, poll, mock pipeline, safe edits) | ✅ done, 176 tests passing (2 skipped) |
 | Identity (`SKETCHSCAPE_AUTH_MODE=mock\|demo\|clerk`; `demo` — two hardcoded accounts — is the real identity model for this track, decision 2026-09-26; authors on revisions) | ✅ done — NemoClaw's service identity needs a small follow-up (R14) before step 24 |
 | Membership, invites, ownership, `room_prompt` | ✅ done — Build Plan step 17 |
 | `identify_subject` mock labeler (`SKETCHSCAPE_SUBJECT_LABELER=mock`) | ✅ done — live NemoClaw path waits on Build Plan step 3 |
@@ -974,7 +974,7 @@ step 7 for what replaces this.
 
 ```bash
 # After any backend Python change:
-bash scripts/verify_local.sh          # must pass, currently 151 tests (2 skipped)
+bash scripts/verify_local.sh          # must pass, currently 176 tests (2 skipped)
 
 # After any Terraform change:
 cd infra/aws

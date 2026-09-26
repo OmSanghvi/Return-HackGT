@@ -4,3 +4,9 @@ httpx2>=2.0,<3.0
 # Optional cloud backend, so the DynamoDB store's CRUD test path is exercisable
 # in a dev/CI environment. Runtime keeps boto3 optional (see requirements-cloud.txt).
 boto3>=1.34,<2.0
+# Mocks DynamoDB and S3 in-memory (moto.mock_aws) so test_storage.py's
+# DynamoDbStoreContractTests / S3ArtifactStoreContractTests exercise real
+# boto3/botocore behavior -- ConditionExpression evaluation, GSI Query
+# semantics, LastEvaluatedKey pagination -- without any network call or real
+# AWS credentials. Test-only; never imported by application code.
+moto[dynamodb,s3]>=5.0,<6.0

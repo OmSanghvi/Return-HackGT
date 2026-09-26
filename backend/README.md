@@ -86,13 +86,22 @@ skips membership enforcement so local demos keep working.
 ```bash
 cd backend
 .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py test_auth.py
+.venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py test_auth.py test_jobs.py
 ```
 
-151 tests (2 are skipped either way, depending on whether `boto3` is
-installed). They exercise only `PIPELINE_MODE=mock`; they don't contact AWS
-or load a model. From the repo root, `bash scripts/verify_local.sh` runs
-these plus the syntax, JSON, and secret checks.
+176 tests (2 are skipped either way, depending on whether `boto3` is
+installed). They exercise only `PIPELINE_MODE=mock`; they don't contact AWS,
+make any network call, or load a model. `test_storage.py`'s
+`DynamoDbStoreContractTests` and `S3ArtifactStoreContractTests` run the exact
+same contract as the local-store tests against `moto`'s in-memory AWS
+emulation (`mock_aws`) — a real `boto3` DynamoDB table shaped like
+`infra/aws/main.tf`'s and a real S3 bucket, so `ConditionExpression`
+evaluation, GSI `Query` semantics, and `LastEvaluatedKey` pagination are all
+exercised for real, not approximated by a hand-written fake. `moto` is a
+test-only dependency (`requirements-dev.txt`); it is never imported by
+application code and those test classes are skipped automatically if
+`moto`/`boto3` aren't installed. From the repo root, `bash scripts/verify_local.sh`
+runs these plus the syntax, JSON, and secret checks.
 
 ## Subject labeling
 
@@ -153,17 +162,20 @@ A failed additional view never demotes an asset that already has a READY view.
 The legacy `reconstruction_job_id` field mirrors `views[0].reconstruction_job_id`
 for backward compatibility.
 
-Projects, assets, blueprint revisions, and publication records are durably
-persisted through `backend/storage.py` (local JSON by default, DynamoDB in
-cloud mode; see below), so this authoring state survives an API restart.
-
-Reconstruction *jobs* are still process-local: a restart loses them, and a
-second API instance can't answer a poll for them. Durable, lease-based jobs
-in the store are planned in Build Plan step 26, so run one API process
-until then. Publication
-history is append-only — republishing an earlier revision appends a new record
-rather than rewriting the log. The schema is
-`shared/experience-blueprint.schema.json`.
+Projects, assets, blueprint revisions, publication records, contributors,
+contributions, connection insights, the LIVE-revision pointer, durable jobs,
+project→asset links, and upload records are all durably persisted through
+`backend/storage.py` (local JSON by default, DynamoDB in cloud mode; see
+below), so all of this survives an API restart. Reconstruction/segmentation
+*jobs* are durable too (Build Plan step 26: `save_job`/`get_job`/
+`claim_next_job`/`renew_lease`/`complete_job`/`release_expired_leases`), so
+more than one API instance can answer a poll for the same job and a restart
+doesn't lose in-flight work. Publication history is append-only —
+republishing an earlier revision appends a new record rather than rewriting
+the log. Blueprint writes are conditional (Build Plan step 15): a duplicate
+or stale revision raises `RevisionConflict` instead of silently overwriting,
+and the LIVE pointer is a compare-and-set so two racing publishes can't move
+the live room backwards. The schema is `shared/experience-blueprint.schema.json`.
 
 ### Storage backends
 
@@ -173,38 +185,135 @@ selected by `SKETCHSCAPE_STORAGE_BACKEND`:
 - `local` (default): `LocalJsonStore` writes `authoring-state.json` under
   `SKETCHSCAPE_DATA_DIR` with atomic replace-on-write. No external service or
   extra dependency is required. This powers the demo and the tests.
-- `dynamodb`: `DynamoDbStore` gives cloud durability, live-verified against
-  the real table. Its appends aren't conditional yet, so two API instances
-  can still overwrite each other's revisions; Build Plan step 15 fixes
-  that. It reads
-  `SKETCHSCAPE_DYNAMODB_TABLE` (and optional `AWS_REGION`) and uses the standard
-  AWS credential chain. `boto3` is imported lazily and is *not* in the base
-  install — add it with `pip install -r requirements-cloud.txt`. Selecting this
-  backend without `boto3` or a table name fails with an actionable message.
+- `dynamodb`: `DynamoDbStore` gives cloud durability with real conditional
+  writes (blueprint revisions, the LIVE pointer, job claims/completions all
+  use a DynamoDB `ConditionExpression`, not just an in-process lock — the
+  lock only serializes one instance; the condition is what actually
+  protects against a second one). It reads `SKETCHSCAPE_DYNAMODB_TABLE`
+  (and optional `AWS_REGION`) and uses the standard AWS credential chain.
+  `boto3` is imported lazily and is *not* in the base install — add it with
+  `pip install -r requirements-cloud.txt`. Selecting this backend without
+  `boto3`, a table name, or the table's GSI1/GSI2 indexes fails with an
+  actionable message (`DynamoDbStore.load()` calls `describe_table` and
+  refuses to start otherwise).
 
-The DynamoDB table uses a single-table `pk`/`sk` layout so a project's assets,
-blueprint revisions, and publication log are queryable together:
+The DynamoDB table uses a single-table `pk`/`sk` layout so a project's
+assets, blueprint revisions, publication log, contributors, contributions,
+jobs, and uploads are queryable together:
 
 | pk | sk | item |
 | --- | --- | --- |
 | `PROJECT#<project_id>` | `META` | project record |
+| `PROJECT#<project_id>` | `LIVE` | live-revision pointer (compare-and-set) |
 | `PROJECT#<project_id>` | `BLUEPRINT#<0-padded revision>` | one blueprint revision |
 | `PROJECT#<project_id>` | `PUBLICATION#<0-padded sequence>` | one append-only publication record |
+| `PROJECT#<project_id>` | `CONTRIBUTOR#<contributor_id>` | one contributor |
+| `PROJECT#<project_id>` | `CONTRIBUTION#<contribution_id>` | one contribution |
+| `PROJECT#<project_id>` | `INSIGHT#<0-padded revision>` | one connection-insight revision |
+| `PROJECT#<project_id>` | `ASSET#<asset_id>` | project→asset link (child item, not a list-in-blob) |
+| `PROJECT#<project_id>` | `UPLOAD#<upload_id>` | one upload record |
 | `ASSET#<asset_id>` | `META` | catalog asset |
+| `JOB#<job_id>` | `META` | one durable job, with `gsi1pk=PROJECTJOBS#<project_id>` (batch polling) and `gsi2pk=JOBQ#<status>` (the claim query), both ordered by `<created_at>#<job_id>` |
 
-Zero-padded sort keys keep `Query` results in creation order. Blueprint
-revisions and publication records are never overwritten, preserving the
-append-only publication history.
+Zero-padded sort keys keep ordered `Query` results (blueprints, publications,
+insights) in creation order. Blueprint revisions and publication records are
+never overwritten. A project's contributions/contributors/uploads/jobs are
+always queried by project (`_query_children`/GSI1, one `Query` per project,
+paginated with `LastEvaluatedKey`) and then filtered client-side by the
+account that owns them (`Contributor.clerk_user_id`,
+`UploadRecord.uploader_user_id`) — the two hardcoded demo accounts never
+need a separate cross-project index for this, since every route is already
+scoped to one project.
 
 Both store backends persist metadata only. Reconstruction artifacts (PLY,
 mask, preview) go through `backend/artifact_store.py`, selected by
 `SKETCHSCAPE_ARTIFACTS_BACKEND`: `local` (default, the data directory) or
-`s3` (`S3ArtifactStore`, presigned-redirect serving, live-verified).
-Uploaded source images stay on the API host's disk in both modes until
-Build Plan step 26. The full planned data layout is in
-`docs/DATA_ARCHITECTURE.md`.
+`s3` (`S3ArtifactStore`, presigned-redirect serving, live-verified). Upload
+input bytes (source photos, masks) go through the same `ArtifactStore` via
+`put_upload`/`open_upload` under a separate `uploads/<project_id>/<upload_id>/`
+key prefix (distinct from `artifacts/<job_id>/`) so more than one API
+instance, and the GPU worker, can all reach the same upload — see
+`infra/aws/main.tf`'s `artifacts_bucket` IAM policy, which must grant both
+prefixes. The full planned data layout is in `docs/DATA_ARCHITECTURE.md`.
 
-## Named interactive actions
+## Cloud backend activation (Build Plan step 10)
+
+Everything above is code-side prep, verified offline with `moto` — **no real
+AWS resource has been touched or paid for.** Turning the cloud backends on
+against the real, already-provisioned `sketchscape-authoring` table and
+`sketchscape-artifacts-*` bucket is a separate, irreversible-adjacent action
+that costs real (if small) money and must not be done without the person's
+explicit approval first — see `AGENT.md`'s hard rules and the
+`gpu-cloud-activation` skill. This section is the checklist for *that*
+person to run later; it is not run as part of this change.
+
+### Env vars this backend reads for cloud mode
+
+| Variable | Values | Read by |
+| --- | --- | --- |
+| `SKETCHSCAPE_STORAGE_BACKEND` | `local` (default) \| `dynamodb` | `storage.create_store` |
+| `SKETCHSCAPE_DYNAMODB_TABLE` | the table name, e.g. `sketchscape-authoring` | `storage.DynamoDbStore` (required when the backend above is `dynamodb`) |
+| `SKETCHSCAPE_ARTIFACTS_BACKEND` | `local` (default) \| `s3` | `artifact_store.create_artifact_store` |
+| `SKETCHSCAPE_ARTIFACTS_BUCKET` | the bucket name, e.g. `sketchscape-artifacts-<random>` | `artifact_store.S3ArtifactStore` (required when the backend above is `s3`) |
+| `AWS_REGION` | e.g. `us-east-2` | both backends above; optional — falls back to the standard AWS credential/region chain if unset |
+
+There is no separate env var for AWS credentials: both backends use the
+standard `boto3` credential chain (an EC2 instance role in the deployed
+case, per `infra/aws/main.tf`'s `aws_iam_role.instance`). Never put an AWS
+access key in `/etc/sketchscape.env`, Unity, or the web app.
+
+### Step-by-step activation checklist
+
+1. **Get explicit approval** for this specific action before doing anything
+   below — it is not covered by having approved code changes or a prior
+   Terraform review.
+2. Confirm the table/bucket are already provisioned (per `AGENT.md`'s "what
+   is fully built" table, they should be — this does **not** need a new
+   `terraform apply` unless `infra/aws/DATA_ARCHITECTURE.md`'s GSI1/GSI2
+   change or this change's IAM-policy fix (see below) haven't been applied
+   yet, in which case that specific `terraform apply` also needs its own
+   explicit approval):
+   ```bash
+   cd infra/aws
+   terraform output -raw dynamodb_table_name
+   terraform output -raw artifacts_bucket
+   ```
+3. **If the IAM policy fix in this change hasn't been applied to the real
+   AWS account yet**, apply it before activating — otherwise the API will
+   get `AccessDenied` on every upload (`uploads/` prefix) or every job poll
+   (`gsi1`/`gsi2` index Query), instead of the base `artifacts/` PLY path
+   that was previously the only thing exercised:
+   ```bash
+   cd infra/aws
+   terraform plan   # review: only the two aws_iam_role_policy resources should change
+   terraform apply  # requires its own explicit approval
+   ```
+4. Run the **live** smoke test (real AWS, real (small) cost, self-cleaning)
+   from `backend/`, following `infra/aws/SMOKE_TEST_GUIDE.md` exactly:
+   ```bash
+   SKETCHSCAPE_DYNAMODB_TABLE=$(terraform -chdir=../infra/aws output -raw dynamodb_table_name) \
+   SKETCHSCAPE_ARTIFACTS_BUCKET=$(terraform -chdir=../infra/aws output -raw artifacts_bucket) \
+   AWS_REGION=$(terraform -chdir=../infra/aws output -raw aws_region) \
+   python ../scripts/smoke_test_aws_storage.py
+   ```
+   This is the one thing the offline `moto` tests cannot confirm: that the
+   real table actually has GSI1/GSI2 provisioned and the real bucket's IAM
+   policy actually permits both the `artifacts/` and `uploads/` prefixes.
+5. Only once step 4 passes, set the env vars from the table above on the
+   **running** API process (`/etc/sketchscape.env` on the EC2 host, or the
+   process environment locally) and restart it:
+   ```bash
+   sudo grep -E 'SKETCHSCAPE_(STORAGE|DYNAMODB|ARTIFACTS)|AWS_REGION' /etc/sketchscape.env
+   sudo systemctl restart sketchscape.service
+   curl -s http://127.0.0.1:8000/health
+   ```
+6. Confirm a real end-to-end request (project create, an upload, a poll)
+   against the running process, then stop here — nothing further is
+   automated, and no GPU instance needs to be running just to activate
+   these two backends.
+
+None of steps 1–6 were run as part of this change; no AWS credentials were
+used and no network call was made producing it.
 
 `GET /v1/interactives` returns the current object IDs, semantic types, and their
 allowlisted actions. Unity and MCP authoring tools use the same structured

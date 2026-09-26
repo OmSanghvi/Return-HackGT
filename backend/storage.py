@@ -982,16 +982,44 @@ class DynamoDbStore(AuthoringStore):
             return None
         return ReconstructionJob.model_validate_json(item["document"])
 
+    def _query_index(
+        self, index_name: str, key_condition, *, scan_index_forward: bool = True
+    ) -> list[dict]:
+        """Paginated ``Query`` against a GSI, mirroring ``_query_children``'s loop.
+
+        The job-queue queries (``list_project_jobs``, ``claim_next_job``,
+        ``release_expired_leases``) must see every matching item, not just the
+        first page. A single unpaginated ``Query`` silently truncates at ~1 MB
+        or the table's per-page item count -- for ``claim_next_job`` that can
+        mean a job is never claimed because it happens to be filtered out of
+        (or simply never queried into) the truncated first page, and for
+        ``list_project_jobs``/``release_expired_leases`` it silently drops
+        jobs from a busy project or a large backlog.
+        """
+        table = self._require_table()
+        items: list[dict] = []
+        kwargs = {
+            "IndexName": index_name,
+            "KeyConditionExpression": key_condition,
+            "ScanIndexForward": scan_index_forward,
+        }
+        while True:
+            response = table.query(**kwargs)
+            items.extend(response.get("Items", []))
+            start_key = response.get("LastEvaluatedKey")
+            if not start_key:
+                break
+            kwargs["ExclusiveStartKey"] = start_key
+        return items
+
     def list_project_jobs(self, project_id: str, active_only: bool = False) -> list[ReconstructionJob]:
         from boto3.dynamodb.conditions import Key  # noqa: PLC0415
 
         ReconstructionJob, _ = _job_upload_types()
-        response = self._require_table().query(
-            IndexName="gsi1",
-            KeyConditionExpression=Key("gsi1pk").eq(f"PROJECTJOBS#{project_id}"),
-            ScanIndexForward=False,
+        items = self._query_index(
+            "gsi1", Key("gsi1pk").eq(f"PROJECTJOBS#{project_id}"), scan_index_forward=False
         )
-        jobs = [ReconstructionJob.model_validate_json(item["document"]) for item in response.get("Items", [])]
+        jobs = [ReconstructionJob.model_validate_json(item["document"]) for item in items]
         if active_only:
             jobs = [job for job in jobs if job.status in _ACTIVE_JOB_STATUSES]
         return jobs
@@ -1005,12 +1033,8 @@ class DynamoDbStore(AuthoringStore):
         ReconstructionJob, _ = _job_upload_types()
         table = self._require_table()
         with self._lock:
-            response = table.query(
-                IndexName="gsi2",
-                KeyConditionExpression=Key("gsi2pk").eq("JOBQ#queued"),
-                ScanIndexForward=True,
-            )
-            for item in response.get("Items", []):
+            items = self._query_index("gsi2", Key("gsi2pk").eq("JOBQ#queued"), scan_index_forward=True)
+            for item in items:
                 job = ReconstructionJob.model_validate_json(item["document"])
                 if job.kind not in kinds:
                     continue
@@ -1097,11 +1121,8 @@ class DynamoDbStore(AuthoringStore):
         released = 0
         table = self._require_table()
         with self._lock:
-            response = table.query(
-                IndexName="gsi2",
-                KeyConditionExpression=Key("gsi2pk").eq("JOBQ#running"),
-            )
-            for item in response.get("Items", []):
+            items = self._query_index("gsi2", Key("gsi2pk").eq("JOBQ#running"))
+            for item in items:
                 job = ReconstructionJob.model_validate_json(item["document"])
                 if job.lease_expires_at is None or job.lease_expires_at > now:
                     continue
