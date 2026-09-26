@@ -4,7 +4,6 @@ using Return.Design;
 using UnityEngine;
 using UnityEngine.EventSystems;
 #if ENABLE_INPUT_SYSTEM
-using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
 #endif
 
@@ -27,7 +26,6 @@ namespace Return.UI
 
         [Header("Behaviour")]
         [Tooltip("Off = rooms live in memory only.")] public bool persist = true;
-        [Tooltip("'.' fast-forwards the room you face or have open (demo).")] public bool demoSimulator = true;
 
         public IRoomStore Store { get; private set; }
         public HubController Hub { get; private set; }
@@ -49,16 +47,6 @@ namespace Return.UI
             Hub = gameObject.AddComponent<HubController>();
             Hub.store = Store; Hub.head = head; Hub.leftHand = leftHand; Hub.loader = loader; Hub.fadeSeconds = fadeSeconds;
             Hub.Bootstrap();
-        }
-
-        void Update()
-        {
-            if (Store == null) return;
-            Store.Step(Time.unscaledDeltaTime);
-#if ENABLE_INPUT_SYSTEM
-            if (demoSimulator && Keyboard.current != null && Keyboard.current.periodKey.wasPressedThisFrame)
-            { var id = Hub.FocusedRoomId(); if (id != null) Store.FastForward(id); }
-#endif
         }
     }
 

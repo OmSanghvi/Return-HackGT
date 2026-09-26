@@ -42,6 +42,19 @@ namespace Return.UI.Tests
         }
 
         [Test]
+        public void ReadyRoomsFor_OnlyJoinedOrDoneReadyRooms_PerAccount()
+        {
+            var rooms = RoomLogic.Seed(1_000_000);
+            var mine = RoomLogic.ReadyRoomsFor(rooms, RoomLogic.MeId);
+            Assert.AreEqual(4, mine.Count);
+            CollectionAssert.DoesNotContain(mine.Select(r => r.id).ToList(), "ava-graduation"); // still just invited
+
+            var maya = RoomLogic.ReadyRoomsFor(rooms, RoomLogic.MayaId);
+            Assert.GreaterOrEqual(maya.Count, 3);
+            CollectionAssert.IsSubsetOf(maya.Select(r => r.id), mine.Select(r => r.id)); // overlaps with Dylan's ready rooms
+        }
+
+        [Test]
         public void ParseObjects_TrimsDedupesCaps()
         {
             Assert.IsEmpty(RoomLogic.ParseObjects("  "));

@@ -9,6 +9,16 @@ namespace Return.Data
     {
         public static readonly Person Me = new Person { name = "Dylan Houle", email = "dylan@return.world" };
         public const string MeId = "me";
+        public const string MayaId = "maya";
+
+        public struct Account { public string id, name, email; }
+
+        /// <summary>The two demo accounts the VR hub's account picker signs in as. The web app's real auth replaces this.</summary>
+        public static readonly Account[] Accounts =
+        {
+            new Account { id = MeId, name = Me.name, email = Me.email },
+            new Account { id = MayaId, name = "Maya Chen", email = "maya.chen@gmail.com" },
+        };
 
         public static readonly Person[] KnownPeople =
         {
@@ -17,6 +27,7 @@ namespace Return.Data
             new Person { name = "Samira Ali", email = "samira@hey.com" },
             new Person { name = "Ava Lin", email = "ava@lin.dev" },
             new Person { name = "Jordan Reyes", email = "jordan@reyes.me" },
+            new Person { name = "Maya Chen", email = "maya.chen@gmail.com" },
         };
 
         public const long Min = 60_000, Hour = 60 * Min;
@@ -44,6 +55,12 @@ namespace Return.Data
         static Member MeMember(long now, MemberStatus status, int count = 0, bool owner = false, string note = null, long? invitedAt = null)
             => new Member { id = MeId, name = Me.name, email = Me.email, status = status, count = count, isOwner = owner, note = note, invitedAt = invitedAt ?? now - 30 * Hour };
 
+        static Member MayaMember(long now, MemberStatus status, int count = 0, bool owner = false, string note = null, long? invitedAt = null)
+            => new Member { id = MayaId, name = "Maya Chen", email = "maya.chen@gmail.com", status = status, count = count, isOwner = owner, note = note, invitedAt = invitedAt ?? now - 28 * Hour };
+
+        /// <summary>Dylan's 4 ready, joined worlds (distinct skies) plus the two demo accounts' rooms overlap by 3; grandma's porch, last
+        /// summer and Ava's graduation stay not-ready so both the VR hub's ring filter and the flat app's collecting/building flow have
+        /// something to exercise.</summary>
         public static List<Room> Seed(long now)
         {
             Room R(string id, string title, string place, string date, SceneKey scene, Phase phase, float progress, long age, string invitedBy, params Member[] members)
@@ -53,8 +70,8 @@ namespace Return.Data
             {
                 R("lake-house", "The lake house", "Lake Norman", "July 14, 2019", SceneKey.Meadow, Phase.Ready, 1, 72 * Hour, null,
                     MeMember(now, MemberStatus.Done, 4, true),
-                    NewMember("maria.houle@gmail.com", now, MemberStatus.Done, 5, Notes[0]),
-                    NewMember("sam.park@gatech.edu", now, MemberStatus.Done, 4)),
+                    MayaMember(now, MemberStatus.Done, 3),
+                    NewMember("maria.houle@gmail.com", now, MemberStatus.Done, 5, Notes[0])),
                 R("grandmas-porch", "Grandma's porch", "Asheville", null, SceneKey.Home, Phase.Collecting, 0, 26 * Hour, null,
                     MeMember(now, MemberStatus.Done, 4, true, Notes[1]),
                     NewMember("maria.houle@gmail.com", now, MemberStatus.Done, 5),
@@ -62,6 +79,16 @@ namespace Return.Data
                 R("last-summer", "Last day of summer", "Tybee Island", null, SceneKey.Beach, Phase.Building, 0.35f, 5 * Hour, null,
                     MeMember(now, MemberStatus.Done, 6, true),
                     NewMember("jordan@reyes.me", now, MemberStatus.Done, 5)),
+                R("cabin-weekend", "The cabin weekend", "Blue Ridge", "January 8, 2023", SceneKey.Painted, Phase.Ready, 1, 40 * Hour, null,
+                    MayaMember(now, MemberStatus.Done, 6, true),
+                    MeMember(now, MemberStatus.Done, 4),
+                    NewMember("sam.park@gatech.edu", now, MemberStatus.Done, 3)),
+                R("beach-day", "Beach day", "Tybee Island", "June 3, 2023", SceneKey.Plain, Phase.Ready, 1, 15 * Hour, null,
+                    MeMember(now, MemberStatus.Done, 5, true),
+                    MayaMember(now, MemberStatus.Done, 4)),
+                R("night-hike", "The night hike", "Blood Mountain", "October 21, 2023", SceneKey.Night, Phase.Ready, 1, 60 * Hour, null,
+                    MeMember(now, MemberStatus.Done, 3, true),
+                    NewMember("jordan@reyes.me", now, MemberStatus.Done, 4)),
                 R("ava-graduation", "Ava's graduation", "Athens", null, SceneKey.Clouds, Phase.Collecting, 0, 3 * Hour, "Ava Lin",
                     NewMember("ava@lin.dev", now, MemberStatus.Done, 7, owner: true),
                     MeMember(now, MemberStatus.Invited, invitedAt: now - 3 * Hour)),
@@ -77,8 +104,14 @@ namespace Return.Data
         }
 
         public static Member Mine(Room r) => r.members.FirstOrDefault(m => m.id == MeId);
+        /// <summary>Same as Mine, for whichever account is signed in (the VR hub's account picker; the flat app is always MeId).</summary>
+        public static Member MineAs(Room r, string accountId) => r.members.FirstOrDefault(m => m.id == accountId);
         public static List<Member> Pending(Room r) => r.members.Where(m => m.status != MemberStatus.Done).ToList();
         public static bool IsMine(Room r) => Mine(r)?.isOwner == true;
+
+        /// <summary>The VR hub's ring: worlds the account is already in (joined or done, not just invited) and that are built and ready to enter.</summary>
+        public static List<Room> ReadyRoomsFor(IEnumerable<Room> rooms, string accountId)
+            => rooms.Where(r => r.phase == Phase.Ready && (MineAs(r, accountId)?.status == MemberStatus.Joined || MineAs(r, accountId)?.status == MemberStatus.Done)).ToList();
 
         public enum Route { Add, Room }
         /// <summary>Where a room opens, from its status.</summary>

@@ -75,7 +75,7 @@ namespace Return.UI.Editor
             rt.Release();
         }
 
-        /// <summary>Renders the VR hub from the head: sign-in, the portal ring, create room, and inside a stub world. -executeMethod Return.UI.Editor.ScreenshotTool.CaptureHub -out DIR</summary>
+        /// <summary>Renders the VR hub from the head: the account picker, the portal ring, and inside a stub world. -executeMethod Return.UI.Editor.ScreenshotTool.CaptureHub -out DIR</summary>
         public static void CaptureHub()
         {
             var dir = Arg("-out", Path.Combine(Application.dataPath, "../Shots")); Directory.CreateDirectory(dir);
@@ -98,14 +98,12 @@ namespace Return.UI.Editor
                 File.WriteAllBytes(Path.Combine(dir, name + ".png"), tex.EncodeToPNG());
                 Object.DestroyImmediate(tex); RenderTexture.active = null; Debug.Log("Return: shot " + name);
             }
-            Shot("hub-1-signin");
-            app.Store.SignIn(); app.Hub.Router.ContinueAfterSignIn();
+            Shot("hub-1-picker");
+            app.Store.SignIn(); app.Hub.ShowRing();
             Shot("hub-2-ring");
             camGo.transform.rotation = Quaternion.Euler(0, -45, 0); Shot("hub-2b-ring-left");
             camGo.transform.rotation = Quaternion.Euler(0, 45, 0); Shot("hub-2c-ring-right");
             camGo.transform.rotation = Quaternion.identity;
-            app.Hub.Router.Go(Route.RoomUpload, "ava-graduation", true); Shot("hub-3-add-photos");
-            app.Hub.Router.Go(Route.Dashboard, null, true);
             var room = app.Store.Get("lake-house");
             GameObject.Find("ReturnHub").SetActive(false);
             new StubWorldLoader().Build(room, camGo.transform); Shot("hub-4-world");

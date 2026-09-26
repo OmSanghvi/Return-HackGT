@@ -11,9 +11,12 @@ namespace Return.Data
     {
         IReadOnlyList<Room> Rooms { get; }
         bool SignedIn { get; }
+        /// <summary>Which demo account is signed in (RoomLogic.Accounts). Meaningless while signed out.</summary>
+        string CurrentAccountId { get; }
         event Action Changed;
         Room Get(string id);
-        void SignIn(); void SignOut(); void Reset();
+        /// <summary>accountId null = RoomLogic.MeId (the flat app always signs in as the single demo user).</summary>
+        void SignIn(string accountId = null); void SignOut(); void Reset();
         string CreateRoom(string title, IEnumerable<string> emails);
         void Invite(string id, string email); void Uninvite(string id, string memberId); void Resend(string id, string memberId);
         void Join(string id); void Decline(string id);
@@ -25,7 +28,7 @@ namespace Return.Data
     /// <summary>Demo store: seeded rooms, local actions, a simulator that plays the other people, JSON persistence. Port of the zustand store.</summary>
     public class RoomStore : IRoomStore
     {
-        [Serializable] class Saved { public List<Room> rooms; public bool signedIn; }
+        [Serializable] class Saved { public List<Room> rooms; public bool signedIn; public string accountId; }
 
         readonly string _path;
         Saved _s;
@@ -34,6 +37,7 @@ namespace Return.Data
 
         public IReadOnlyList<Room> Rooms => _s.rooms;
         public bool SignedIn => _s.signedIn;
+        public string CurrentAccountId => string.IsNullOrEmpty(_s.accountId) ? RoomLogic.MeId : _s.accountId;
         public Room Get(string id) => _s.rooms.FirstOrDefault(r => r.id == id);
 
         /// <summary>persistPath null = in-memory only (tests).</summary>
@@ -44,7 +48,7 @@ namespace Return.Data
             if (_s == null || _s.rooms == null) _s = new Saved { rooms = RoomLogic.Seed(Clock()), signedIn = false };
         }
 
-        public static string DefaultPath => Path.Combine(Application.persistentDataPath, "return-demo-v1.json");
+        public static string DefaultPath => Path.Combine(Application.persistentDataPath, "return-demo-v2.json");
 
         float _lastSave;
 
@@ -57,7 +61,7 @@ namespace Return.Data
         void Patch(string id, Action<Room> fn) { var r = Get(id); if (r == null) return; fn(r); Commit(); }
         void Drop(string id) { _s.rooms.RemoveAll(r => r.id == id); Commit(); }
 
-        public void SignIn() { _s.signedIn = true; Commit(); }
+        public void SignIn(string accountId = null) { _s.signedIn = true; _s.accountId = accountId ?? RoomLogic.MeId; Commit(); }
         public void SignOut() { _s.signedIn = false; Commit(); }
         public void Reset() { _s = new Saved { rooms = RoomLogic.Seed(Clock()), signedIn = false }; Commit(); }
 
