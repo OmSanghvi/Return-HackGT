@@ -2,15 +2,18 @@
   "dependencies": {
     "com.arloopa.unitysplats": "https://github.com/arloopa/UnitySplats.git#v1.2.0",
     "com.netpyoung.webp": "https://github.com/netpyoung/unity.webp.git?path=unity_project/Assets/unity.webp#0.3.22",
+    "com.return.ui": "file:../Export/com.return.ui-0.2.0.tgz",
     "com.unity.ai.assistant": "2.19.0-pre.2",
     "com.unity.cloud.gltfast": "6.20.0",
     "com.unity.collab-proxy": "2.13.6",
     "com.unity.feature.development": "1.0.2",
     "com.unity.inputsystem": "1.20.0",
     "com.unity.multiplayer.center": "2.0.1",
+    "com.unity.render-pipelines.universal": "17.6.0",
     "com.unity.timeline": "6.6.0",
     "com.unity.ugui": "2.6.0",
     "com.unity.visualscripting": "1.9.12",
+    "com.unity.xr.hands": "1.9.0",
     "com.unity.xr.interaction.toolkit": "3.6.0",
     "com.unity.xr.management": "4.7.0",
     "com.unity.xr.meta-openxr": "2.6.1",
@@ -51,5 +54,8 @@
     "com.unity.modules.video": "1.0.0",
     "com.unity.modules.wind": "1.0.0",
     "com.unity.modules.xr": "1.0.0"
-  }
+  },
+  "testables": [
+    "com.return.ui"
+  ]
 }
