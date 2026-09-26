@@ -71,7 +71,7 @@ namespace Return.UI
         /// <summary>Glide the rig ~1m into the portal's arch. Call before hiding the hub / loading the world.</summary>
         public Task EnterStep(RoomPortal portal, Transform head)
         {
-            ReturnAudio.Play(ReturnAudio.WhooshIn, 0.7f);
+            ReturnAudio.Play(ReturnAudio.WhooshIn, 0.45f);
             var rig = head != null ? head.root : null;
             _rigStart = rig != null ? rig.position : Vector3.zero;
             return Glide(rig, _rigStart, _rigStart + FlatForward(head) * GlideDistance, portal);
@@ -80,7 +80,7 @@ namespace Return.UI
         /// <summary>Glide the rig ~1m back out, restoring the position it had before EnterStep. Call after the hub is shown again.</summary>
         public Task ExitStep(Transform head)
         {
-            ReturnAudio.Play(ReturnAudio.WhooshOut, 0.7f);
+            ReturnAudio.Play(ReturnAudio.WhooshOut, 0.45f);
             var rig = head != null ? head.root : null;
             var current = rig != null ? rig.position : Vector3.zero;
             return Glide(rig, current, _rigStart, null);

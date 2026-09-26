@@ -17,6 +17,7 @@ namespace Return.Design
         public const string GreetingSwell = "greeting_swell";
         public const string LanternBump = "lantern_bump";
         public const string Ripple = "ripple";
+        public const string PianoBed = "piano_bed";
 
         const string Root = "ReturnUI/Audio/";
         const int SpatialPoolSize = 6;
@@ -28,7 +29,7 @@ namespace Return.Design
         static AudioSource _oneShot;
         static AudioSource[] _spatialPool;
         static int _spatialCursor;
-        static AudioSource _ambience;
+        static AudioSource _ambience, _piano;
 
         public static float MasterVolume { get; set; } = 1f;
 
@@ -108,19 +109,22 @@ namespace Return.Design
         public static void Ambience(bool on, float fadeSeconds = 2f)
         {
             EnsureRoot();
-            const float target = 0.35f;
+            FadeBed(ref _ambience, AmbienceHub, 0.2f, on, fadeSeconds);
+            FadeBed(ref _piano, PianoBed, 0.12f, on, fadeSeconds);
+        }
+
+        static void FadeBed(ref AudioSource src, string key, float target, bool on, float fadeSeconds)
+        {
             if (on)
             {
-                if (_ambience == null)
-                {
-                    _ambience = Loop(AmbienceHub, _runner.transform, 0f, false);
-                    if (_ambience == null) return;
-                }
-                _runner.Fade(_ambience, target * MasterVolume, fadeSeconds, false);
+                if (src == null) src = Loop(key, _runner.transform, 0f, false);
+                if (src == null) return;
+                if (!src.isPlaying) src.Play();
+                _runner.Fade(src, target * MasterVolume, fadeSeconds, false);
             }
-            else if (_ambience != null)
+            else if (src != null)
             {
-                _runner.Fade(_ambience, 0f, fadeSeconds, true);
+                _runner.Fade(src, 0f, fadeSeconds, true);
             }
         }
 

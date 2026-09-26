@@ -62,7 +62,7 @@ namespace Return.UI
                 if (dist < BumpRadius && dist > 0.001f)
                 {
                     _vel += d / dist * (BumpRadius - dist) * BumpForce;
-                    if (Time.time >= _nextBumpSound) { ReturnAudio.PlayAt(ReturnAudio.LanternBump, transform.position, 0.6f); _nextBumpSound = Time.time + 0.3f; }
+                    if (Time.time >= _nextBumpSound) { ReturnAudio.PlayAt(ReturnAudio.LanternBump, transform.position, 0.3f); _nextBumpSound = Time.time + 0.3f; }
                 }
             }
             _offset += _vel * Time.deltaTime;

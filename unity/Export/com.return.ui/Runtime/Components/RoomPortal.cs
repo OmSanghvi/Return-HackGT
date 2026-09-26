@@ -66,7 +66,7 @@ namespace Return.UI
             _m.SetVector(TouchUV, new Vector4(local.x + 0.5f, local.y + 0.5f, 0, 0));
             _m.SetFloat(TouchTime, Time.time);
             AnyHoverOrTouch?.Invoke();
-            if (Time.time - _lastTouchSfx > 0.15f) { _lastTouchSfx = Time.time; ReturnAudio.PlayAt(ReturnAudio.UiHover, transform.position, 0.5f); }
+            if (Time.time - _lastTouchSfx > 0.15f) { _lastTouchSfx = Time.time; ReturnAudio.PlayAt(ReturnAudio.UiHover, transform.position, 0.18f); }
         }
 
         public void Activate() { Activated?.Invoke(roomId); }

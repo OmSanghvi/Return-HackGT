@@ -72,8 +72,8 @@ namespace Return.UI
             _ripples[_cursor] = new Vector4(worldPos.x, worldPos.z, 0, Time.time);
             _cursor = (_cursor + 1) % RippleCount;
             _mat.SetVectorArray(RipplesId, _ripples);
-            if (!quiet) ReturnAudio.PlayAt(ReturnAudio.Ripple, worldPos, 0.5f);
-            else if (Random.value < 0.5f) ReturnAudio.PlayAt(ReturnAudio.Ripple, worldPos, 0.25f); // spontaneous ripples are quieter and not every time
+            if (!quiet) ReturnAudio.PlayAt(ReturnAudio.Ripple, worldPos, 0.25f);
+            else if (Random.value < 0.5f) ReturnAudio.PlayAt(ReturnAudio.Ripple, worldPos, 0.12f); // spontaneous ripples are quieter and not every time
         }
 
         void OnDestroy() { if (_mat != null) Destroy(_mat); }
