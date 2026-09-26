@@ -5,7 +5,7 @@ using UnityEngine;
 namespace Return.Design
 {
     /// <summary>Which procedural bed a portal's hum should use, matched to the room's scene key.</summary>
-    public enum Ambience { Water, Wind }
+    public enum AmbienceKind { Water, Wind }
 
     /// <summary>Ambient audio bed for the Return hub: loads clips from Resources/ReturnUI/Audio, pools sources, fades the ambience loop.</summary>
     public static class ReturnAudio
@@ -27,7 +27,7 @@ namespace Return.Design
 
         static readonly Dictionary<string, AudioClip> Cache = new Dictionary<string, AudioClip>();
         static readonly HashSet<string> Warned = new HashSet<string>();
-        static readonly Dictionary<Ambience, AudioClip> ProceduralCache = new Dictionary<Ambience, AudioClip>();
+        static readonly Dictionary<AmbienceKind, AudioClip> ProceduralCache = new Dictionary<Ambience, AudioClip>();
 
         static Runner _runner;
         static AudioSource _oneShot;
@@ -124,37 +124,37 @@ namespace Return.Design
         }
 
         /// <summary>Which procedural bed matches a room's painted scene: water for lake/beach scenes, wind everywhere else (plains, clouds, sky).</summary>
-        public static Ambience AmbienceFor(Return.Data.SceneKey scene)
+        public static AmbienceKind AmbienceFor(Return.Data.SceneKey scene)
         {
             switch (scene)
             {
                 case Return.Data.SceneKey.Meadow:
                 case Return.Data.SceneKey.Night:
                 case Return.Data.SceneKey.Beach:
-                    return Ambience.Water;
+                    return AmbienceKind.Water;
                 default:
-                    return Ambience.Wind;
+                    return AmbienceKind.Wind;
             }
         }
 
         /// <summary>Short looping bed of filtered noise for portal hums: no sourced clip is scene-specific yet, so this generates one
         /// (low-pass rumble for water, brighter hiss with slow gusts for wind), the same way portal_hum/whoosh were made (in-house
         /// synthesis, see THIRD-PARTY.md). Generated once per kind and cached.</summary>
-        public static AudioClip ProceduralAmbience(Ambience kind)
+        public static AudioClip ProceduralAmbience(AmbienceKind kind)
         {
             if (ProceduralCache.TryGetValue(kind, out var cached) && cached != null) return cached;
             const int sampleRate = 22050;
             const float seconds = 4f;
             int n = (int)(sampleRate * seconds);
             var data = new float[n];
-            var rng = new System.Random(kind == Ambience.Water ? 917 : 419);
+            var rng = new System.Random(kind == AmbienceKind.Water ? 917 : 419);
             float lp = 0f;
-            float alpha = kind == Ambience.Water ? 0.05f : 0.18f;
+            float alpha = kind == AmbienceKind.Water ? 0.05f : 0.18f;
             for (int i = 0; i < n; i++)
             {
                 float white = (float)(rng.NextDouble() * 2.0 - 1.0);
                 lp += alpha * (white - lp);
-                float gust = kind == Ambience.Wind ? 0.65f + 0.35f * Mathf.Sin(2f * Mathf.PI * 0.09f * i / sampleRate) : 1f;
+                float gust = kind == AmbienceKind.Wind ? 0.65f + 0.35f * Mathf.Sin(2f * Mathf.PI * 0.09f * i / sampleRate) : 1f;
                 data[i] = lp * gust;
             }
             int fade = Mathf.Min(sampleRate / 4, n / 4); // crossfade the tail into the head so the loop point doesn't click
