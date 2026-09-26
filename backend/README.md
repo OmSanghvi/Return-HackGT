@@ -81,15 +81,50 @@ as a contributor. Ownership of scene objects is **derived**
 (`owned_object_ids`) from contributions — not stored twice. Mock mode
 skips membership enforcement so local demos keep working.
 
+## The room API (step 21)
+
+`GET /v1/rooms/{project_id}/state` and `POST /v1/rooms/{project_id}/edits`
+are the only backend surface a shipped Unity player may call for
+collaborative edits (AGENT.md Hard Rule 4) — headsets authenticate with the
+same `X-SketchScape-Dev-User` account header as everything else, no room
+token, no Clerk session.
+
+- `GET .../state`: a project member or a service (NemoClaw, the website) may
+  read. Returns the live revision, every object's transform/interactions/
+  `owner_contributor_id`/`editable_by_me`, and each asset's artifact URL.
+  404 if nothing is published. Supports `?since_revision=N` and an `ETag`
+  for cheap polling (304 when unchanged).
+- `POST .../edits`: a member only — `require_project_write` rejects a
+  service identity with 403, so NemoClaw can never call this; it drafts
+  through `POST /v1/projects/{id}/blueprints?base_revision=...` instead, and
+  a person approves the publish (see `top-tier-nemoclaw-tool-design`).
+  Idempotent on `client_edit_id`; enforces per-object ownership, the
+  translate/rotate/scale interaction allowlist, and position/rotation/scale
+  bounds; 409 with the current `live_revision` on a stale `base_revision`.
+  Rate-limited per user (an in-process limiter; a multi-instance deployment
+  will need a shared one).
+
+## NemoClaw's service identity (R14)
+
+A shared bearer token, `SKETCHSCAPE_NEMOCLAW_TOKEN` (≥32 characters — the
+backend refuses to start with a shorter one), gives `kind="service"` and
+`author="nemoclaw:<id>"`, the same shape a Clerk M2M token already produced.
+Checked before the `SKETCHSCAPE_AUTH_MODE` dispatch, so it works the same in
+`demo` (the deployed mode) as in `clerk`. NemoClaw never gets direct write
+access to a live room: it can read `/v1/rooms/*/state` and a project's
+assets (including fetching PLYs from `/v1/artifacts/{job_id}/{filename}`
+with the same token), and it can draft a blueprint revision, but publishing
+always needs a person's approval.
+
 ## Contract test
 
 ```bash
 cd backend
 .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py test_auth.py
+.venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py test_auth.py test_jobs.py
 ```
 
-151 tests (2 are skipped either way, depending on whether `boto3` is
+180 tests (2 are skipped either way, depending on whether `boto3` is
 installed). They exercise only `PIPELINE_MODE=mock`; they don't contact AWS
 or load a model. From the repo root, `bash scripts/verify_local.sh` runs
 these plus the syntax, JSON, and secret checks.

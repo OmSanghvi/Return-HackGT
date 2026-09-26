@@ -28,18 +28,35 @@ both the website and Quest headsets. Clerk itself is left fully intact and
 dormant: it is not part of the active plan, but ``SKETCHSCAPE_AUTH_MODE=clerk``
 still works and is still tested, in case a real multi-user product is built
 later.
+
+R14: NemoClaw's service identity (``kind="service"``) no longer needs Clerk.
+A fourth, mode-independent branch checks for a shared bearer token
+(``SKETCHSCAPE_NEMOCLAW_TOKEN``), matching the existing
+``SKETCHSCAPE_WORKER_TOKEN`` pattern in ``main.py``'s ``worker_is_authorized``
+-- one secret, compared with ``secrets.compare_digest``. It is checked before
+the ``SKETCHSCAPE_AUTH_MODE`` dispatch below, so it works the same whether the
+deployment runs ``demo`` or ``clerk`` (a request lacking that bearer token, or
+running when the token isn't configured, falls through unchanged to the
+normal mode-specific check).
 """
 
 from __future__ import annotations
 
 import os
+import secrets
 from dataclasses import dataclass
 from typing import Literal
 
 from fastapi import Depends, HTTPException, Request
 
 IdentityKind = Literal["user", "service", "dev"]
-IdentityVia = Literal["clerk", "meta", "mock", "demo"]
+IdentityVia = Literal["clerk", "meta", "mock", "demo", "nemoclaw"]
+
+# R14: SKETCHSCAPE_NEMOCLAW_TOKEN must be at least this many characters when
+# set (matching the "≥32 random bytes" guidance in collab-vr-accounts-and-gates'
+# config matrix, e.g. secrets.token_urlsafe(32)). Enforced at startup, not just
+# documented, so a short/guessable value never silently reaches production.
+MIN_NEMOCLAW_TOKEN_LENGTH = 32
 
 
 @dataclass(frozen=True)
@@ -138,15 +155,52 @@ def _clerk_identity(request: Request) -> Identity:
     raise HTTPException(401, detail="Unrecognized Clerk token payload.")
 
 
+def _nemoclaw_identity(request: Request) -> Identity | None:
+    """R14: bearer-token service identity for NemoClaw, independent of mode.
+
+    Mirrors ``main.worker_is_authorized``'s ``SKETCHSCAPE_WORKER_TOKEN``
+    pattern: one shared secret, compared with ``secrets.compare_digest``,
+    sent as ``Authorization: Bearer <token>``. Checked before the
+    ``SKETCHSCAPE_AUTH_MODE`` dispatch in ``require_identity`` so it works
+    the same in ``demo`` (the deployed track's real mode) without disturbing
+    ``clerk``'s own bearer-token handling.
+
+    Returns ``None`` (never raises) whenever the token isn't configured, no
+    bearer scheme is present, or the token doesn't match -- callers fall
+    through to that mode's normal identity check instead of being rejected
+    outright, so a mismatched/absent NemoClaw token never masks a legitimate
+    Clerk session token in ``clerk`` mode.
+    """
+    expected = os.environ.get("SKETCHSCAPE_NEMOCLAW_TOKEN")
+    if not expected:
+        return None
+    scheme, _, token = (request.headers.get("Authorization") or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+    if len(token) != len(expected) or not secrets.compare_digest(token, expected):
+        return None
+    # A single shared secret has no per-caller subject of its own; an optional
+    # header lets a NemoClaw runtime identify itself for the `author` field on
+    # revisions (matching the "nemoclaw:<subject>" shape the clerk m2m branch
+    # already produces), defaulting to a fixed id when omitted.
+    nemoclaw_id = (request.headers.get("X-SketchScape-NemoClaw-Id") or "default").strip() or "default"
+    return Identity(user_id=f"nemoclaw:{nemoclaw_id}", kind="service", via="nemoclaw")
+
+
 def require_identity(request: Request) -> Identity:
     """FastAPI dependency: who is calling, verified per ``SKETCHSCAPE_AUTH_MODE``.
 
+    - NemoClaw's shared bearer token (R14) is checked first, regardless of
+      mode -- see ``_nemoclaw_identity``.
     - ``mock`` (default): trusts an ``X-SketchScape-Dev-User`` header, for
       local development and the test suite. No network call, no secret.
     - ``demo``: the same header, restricted to exactly two hardcoded accounts,
       with real membership/ownership enforcement (see module docstring).
     - ``clerk``: verifies a real Clerk session or M2M bearer token.
     """
+    nemoclaw_identity = _nemoclaw_identity(request)
+    if nemoclaw_identity is not None:
+        return nemoclaw_identity
     mode = _auth_mode()
     if mode == "mock":
         return _mock_identity(request)
@@ -174,15 +228,16 @@ def require_service(identity: Identity = Depends(require_identity)) -> Identity:
 def author_from_identity(identity: Identity) -> str | None:
     """Resolve the ``author`` to record on a new blueprint revision/publication.
 
-    Only a real, verified identity (``clerk`` or ``demo``) is recorded:
-    mock-mode/manual authoring keeps ``author`` unset, matching today's
-    mock-mode behavior (Hard Rule 2) and the step-15 comment on
+    Only a real, verified identity (``clerk``, ``demo``, or ``nemoclaw``) is
+    recorded: mock-mode/manual authoring keeps ``author`` unset, matching
+    today's mock-mode behavior (Hard Rule 2) and the step-15 comment on
     ``ExperienceBlueprint.author``. ``identity.user_id`` already carries the
     right shape per kind (a Clerk ``sub`` for a user, ``nemoclaw:<subject>``
-    for a service caller, or a fixed demo account id), so no further
-    branching is needed here.
+    for a Clerk m2m service caller, ``nemoclaw:<id>`` for R14's shared-token
+    service caller, or a fixed demo account id), so no further branching is
+    needed here.
     """
-    return identity.user_id if identity.via in ("clerk", "demo") else None
+    return identity.user_id if identity.via in ("clerk", "demo", "nemoclaw") else None
 
 
 def require_mock_mode() -> None:
@@ -207,6 +262,13 @@ def run_startup_checks() -> None:
     serving traffic under a configuration that would silently do the wrong
     thing.
     """
+    nemoclaw_token = os.environ.get("SKETCHSCAPE_NEMOCLAW_TOKEN")
+    if nemoclaw_token and len(nemoclaw_token) < MIN_NEMOCLAW_TOKEN_LENGTH:
+        raise RuntimeError(
+            f"SKETCHSCAPE_NEMOCLAW_TOKEN must be at least {MIN_NEMOCLAW_TOKEN_LENGTH} "
+            "characters when set (e.g. secrets.token_urlsafe(32)); leave it unset in "
+            "mock/local mode, where NemoClaw's service identity isn't needed."
+        )
     mode = _auth_mode()
     if mode == "clerk":
         if not os.environ.get("CLERK_SECRET_KEY"):

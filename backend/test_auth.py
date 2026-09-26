@@ -452,5 +452,160 @@ class StartupChecksTests(unittest.TestCase):
                 asyncio.run(enter_and_exit_lifespan())
 
 
+class NemoClawTokenTests(unittest.TestCase):
+    """R14: SKETCHSCAPE_NEMOCLAW_TOKEN gives a kind="service" identity.
+
+    Checked before the SKETCHSCAPE_AUTH_MODE dispatch (see auth._nemoclaw_identity),
+    so it's exercised here against `demo` -- the track's real, deployed mode.
+    """
+
+    TOKEN = "nemoclaw-shared-secret-" + "a" * 16  # >= auth.MIN_NEMOCLAW_TOKEN_LENGTH
+
+    def test_matching_bearer_token_gives_service_identity(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_NEMOCLAW_TOKEN": self.TOKEN}
+        with patch.dict(os.environ, env):
+            identity = auth.require_identity(make_request({"Authorization": f"Bearer {self.TOKEN}"}))
+        self.assertEqual(identity.kind, "service")
+        self.assertEqual(identity.via, "nemoclaw")
+        self.assertEqual(identity.user_id, "nemoclaw:default")
+
+    def test_custom_nemoclaw_id_header_changes_the_author_id(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_NEMOCLAW_TOKEN": self.TOKEN}
+        with patch.dict(os.environ, env):
+            identity = auth.require_identity(
+                make_request(
+                    {"Authorization": f"Bearer {self.TOKEN}", "X-SketchScape-NemoClaw-Id": "prod-1"}
+                )
+            )
+        self.assertEqual(identity.user_id, "nemoclaw:prod-1")
+
+    def test_wrong_token_falls_through_to_demo_header_check(self) -> None:
+        env = {
+            "SKETCHSCAPE_AUTH_MODE": "demo",
+            "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com",
+            "SKETCHSCAPE_NEMOCLAW_TOKEN": self.TOKEN,
+        }
+        with patch.dict(os.environ, env):
+            with self.assertRaises(HTTPException) as ctx:
+                auth.require_identity(make_request({"Authorization": "Bearer not-the-token"}))
+        # Falls through to demo mode's header check, which sees no
+        # X-SketchScape-Dev-User at all -- an ordinary 401, not hijacked.
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_no_token_configured_never_produces_a_service_identity(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "mock"}):
+            os.environ.pop("SKETCHSCAPE_NEMOCLAW_TOKEN", None)
+            identity = auth.require_identity(make_request({"Authorization": "Bearer anything"}))
+        self.assertEqual(identity.kind, "dev")  # falls through to mock's own header check
+
+    def test_require_service_accepts_nemoclaw_identity(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_NEMOCLAW_TOKEN": self.TOKEN}
+        with patch.dict(os.environ, env):
+            identity = auth.require_service(
+                auth.require_identity(make_request({"Authorization": f"Bearer {self.TOKEN}"}))
+            )
+        self.assertEqual(identity.kind, "service")
+
+    def test_require_user_rejects_nemoclaw_identity(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_NEMOCLAW_TOKEN": self.TOKEN}
+        with patch.dict(os.environ, env):
+            with self.assertRaises(HTTPException) as ctx:
+                auth.require_user(auth.require_identity(make_request({"Authorization": f"Bearer {self.TOKEN}"})))
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_author_from_identity_records_nemoclaw_service(self) -> None:
+        identity = auth.Identity(user_id="nemoclaw:default", kind="service", via="nemoclaw")
+        self.assertEqual(auth.author_from_identity(identity), "nemoclaw:default")
+
+    def test_short_token_refuses_to_start(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "mock", "PIPELINE_MODE": "mock", "SKETCHSCAPE_NEMOCLAW_TOKEN": "too-short"}
+        with patch.dict(os.environ, env):
+            with self.assertRaises(RuntimeError):
+                auth.run_startup_checks()
+
+    def test_long_token_starts_cleanly(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "mock", "PIPELINE_MODE": "mock", "SKETCHSCAPE_NEMOCLAW_TOKEN": self.TOKEN}
+        with patch.dict(os.environ, env):
+            auth.run_startup_checks()  # must not raise
+
+    def test_unset_token_starts_cleanly(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "mock", "PIPELINE_MODE": "mock"}):
+            os.environ.pop("SKETCHSCAPE_NEMOCLAW_TOKEN", None)
+            auth.run_startup_checks()  # must not raise
+
+
+class CorsPreflightTests(unittest.TestCase):
+    """Build Plan step 21: the production web app's origin passes CORS preflight.
+
+    main.py's CORSMiddleware is constructed exactly once, at import time, from
+    whatever env this process had when it first imported main -- so patching
+    os.environ and replaying a request through the already-imported `app`
+    (unlike identity/membership checks, which do read the environment per
+    request) can never observe a different live CORS configuration. This
+    instead calls ``main.cors_settings(...)``, the exact pure function
+    main.py's own middleware setup uses, and drives a real preflight
+    (OPTIONS + Access-Control-Request-*) against a fresh Starlette app built
+    from its result.
+    """
+
+    def test_production_vercel_origin_passes_preflight_in_demo_mode(self) -> None:
+        from fastapi.middleware.cors import CORSMiddleware
+        from starlette.applications import Starlette
+
+        env = {"SKETCHSCAPE_WEB_ORIGINS": "http://localhost:5173,https://returnweb-hazel.vercel.app"}
+        with patch.dict(os.environ, env):
+            origins, headers = main.cors_settings("demo")
+
+        probe = Starlette()
+        probe.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=False,
+            allow_methods=["GET", "POST"],
+            allow_headers=headers,
+        )
+        with TestClient(probe) as client:
+            response = client.options(
+                "/v1/rooms/any-project/state",
+                headers={
+                    "Origin": "https://returnweb-hazel.vercel.app",
+                    "Access-Control-Request-Method": "GET",
+                    "Access-Control-Request-Headers": "X-SketchScape-Dev-User",
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers.get("access-control-allow-origin"), "https://returnweb-hazel.vercel.app"
+        )
+
+    def test_unlisted_origin_is_rejected_in_demo_mode(self) -> None:
+        from fastapi.middleware.cors import CORSMiddleware
+        from starlette.applications import Starlette
+
+        env = {"SKETCHSCAPE_WEB_ORIGINS": "https://returnweb-hazel.vercel.app"}
+        with patch.dict(os.environ, env):
+            origins, headers = main.cors_settings("demo")
+
+        probe = Starlette()
+        probe.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=False,
+            allow_methods=["GET", "POST"],
+            allow_headers=headers,
+        )
+        with TestClient(probe) as client:
+            response = client.options(
+                "/v1/rooms/any-project/state",
+                headers={"Origin": "https://evil.example.com", "Access-Control-Request-Method": "GET"},
+            )
+        self.assertNotEqual(response.headers.get("access-control-allow-origin"), "https://evil.example.com")
+
+    def test_mock_mode_default_allows_any_origin(self) -> None:
+        origins, headers = main.cors_settings("mock")
+        self.assertEqual(origins, ["*"])
+        self.assertEqual(headers, ["*"])
+
+
 if __name__ == "__main__":
     unittest.main()
