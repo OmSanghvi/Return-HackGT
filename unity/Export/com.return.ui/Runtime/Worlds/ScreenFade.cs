@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Return.Design;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -20,7 +21,7 @@ namespace Return.UI
             go.AddComponent<MeshFilter>().sharedMesh = SkyBackdrop.Quad();
             var r = go.AddComponent<MeshRenderer>(); r.shadowCastingMode = ShadowCastingMode.Off; r.receiveShadows = false;
             var f = go.AddComponent<ScreenFade>();
-            f._m = new Material(Shader.Find("Return/Flat")) { hideFlags = HideFlags.HideAndDontSave };
+            f._m = ReturnShaders.Create(ReturnShaders.Flat);
             f._m.SetFloat("_ZTest", (float)CompareFunction.Always);
             r.sharedMaterial = f._m; r.enabled = false;
             return f;

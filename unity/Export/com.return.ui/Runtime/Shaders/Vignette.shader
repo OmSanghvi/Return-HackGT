@@ -1,4 +1,5 @@
 // Comfort vignette for locomotion: darkens the edge of view, camera-attached. Unlit URP, one uniform.
+// The ring is measured in screen space, not quad UVs: the quad is 5m wide at 0.29m, so only its middle ~14% is ever in view.
 Shader "Return/Vignette"
 {
     Properties
@@ -24,12 +25,13 @@ Shader "Return/Vignette"
             CBUFFER_START(UnityPerMaterial)
                 float _Amount;
             CBUFFER_END
-            struct A { float4 pos : POSITION; float2 uv : TEXCOORD0; };
-            struct V { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
-            V vert(A i) { V o; o.pos = TransformObjectToHClip(i.pos.xyz); o.uv = i.uv; return o; }
+            struct A { float4 pos : POSITION; UNITY_VERTEX_INPUT_INSTANCE_ID };
+            struct V { float4 pos : SV_POSITION; UNITY_VERTEX_OUTPUT_STEREO };
+            V vert(A i) { V o = (V)0; UNITY_SETUP_INSTANCE_ID(i); UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o); o.pos = TransformObjectToHClip(i.pos.xyz); return o; }
             half4 frag(V i) : SV_Target
             {
-                float d = length(i.uv - 0.5) * 2.0;
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
+                float d = length(GetNormalizedScreenSpaceUV(i.pos) - 0.5) * 2.0;
                 float ring = smoothstep(0.45, 1.05, d);
                 return half4(0, 0, 0, ring * _Amount);
             }

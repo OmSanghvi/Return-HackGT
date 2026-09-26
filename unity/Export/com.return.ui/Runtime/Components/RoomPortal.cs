@@ -34,7 +34,7 @@ namespace Return.UI
             var p = go.AddComponent<RoomPortal>(); p.roomId = room.id;
             go.AddComponent<MeshFilter>().sharedMesh = SkyBackdrop.Quad();
             var r = go.AddComponent<MeshRenderer>();
-            p._m = new Material(Shader.Find("Return/SkyParallax")) { hideFlags = HideFlags.HideAndDontSave };
+            p._m = ReturnShaders.Create(ReturnShaders.SkyParallax);
             var sky = UIAssets.Sky(room.scene);
             p._m.SetTexture(Main, sky); p._m.SetTexture(Depth, UIAssets.Depth(room.scene)); p._m.SetFloat(Asp, (float)sky.width / sky.height);
             p._m.SetVector(Size, new Vector4(ReturnSpatial.PortalWidth, ReturnSpatial.PortalHeight, 0, 0)); p._m.SetFloat(Arch, 1);

@@ -18,9 +18,9 @@
       "hash": "9818db6327e09d399bf4fb84da4ed19f03b565b4"
     },
     "com.return.ui": {
-      "version": "file:../Export/com.return.ui-0.2.0.tgz",
+      "version": "file:../Export/com.return.ui",
       "depth": 0,
-      "source": "local-tarball",
+      "source": "local",
       "dependencies": {
         "com.unity.ugui": "2.0.0",
         "com.unity.inputsystem": "1.7.0",

@@ -25,7 +25,7 @@ namespace Return.Design
         /// don't change it (only the material inspector does), so the quad would draw opaque.</summary>
         public static Material ParticleMaterial(bool additive)
         {
-            var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit") ?? Shader.Find("Return/Flat");
+            var shader = ReturnShaders.Get(ReturnShaders.ParticlesUnlit) ?? ReturnShaders.Get(ReturnShaders.Flat);
             var mat = new Material(shader) { hideFlags = HideFlags.HideAndDontSave, renderQueue = 3000 };
             if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", Radial.texture);
             mat.SetFloat("_Surface", 1f);

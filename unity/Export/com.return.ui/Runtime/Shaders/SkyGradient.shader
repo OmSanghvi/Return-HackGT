@@ -23,9 +23,9 @@ Shader "Return/SkyGradient"
             CBUFFER_START(UnityPerMaterial)
                 float4 _Top, _Bottom; float _Stars;
             CBUFFER_END
-            struct A { float4 pos : POSITION; };
-            struct V { float4 pos : SV_POSITION; float3 dir : TEXCOORD0; };
-            V vert(A i) { V o; o.pos = TransformObjectToHClip(i.pos.xyz); o.dir = normalize(i.pos.xyz); return o; }
+            struct A { float4 pos : POSITION; UNITY_VERTEX_INPUT_INSTANCE_ID };
+            struct V { float4 pos : SV_POSITION; float3 dir : TEXCOORD0; UNITY_VERTEX_OUTPUT_STEREO };
+            V vert(A i) { V o = (V)0; UNITY_SETUP_INSTANCE_ID(i); UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o); o.pos = TransformObjectToHClip(i.pos.xyz); o.dir = normalize(i.pos.xyz); return o; }
             float hash3(float3 p) { p = frac(p * 0.3183099 + 0.1); p *= 17.0; return frac(p.x * p.y * p.z * (p.x + p.y + p.z)); }
             half4 frag(V i) : SV_Target
             {

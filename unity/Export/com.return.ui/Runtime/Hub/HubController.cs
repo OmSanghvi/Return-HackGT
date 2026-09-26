@@ -176,8 +176,12 @@ namespace Return.UI
             Enter(room, portal);
         }
 
-        void Enter(Room room, RoomPortal portal) { if (Session.State == SessionState.Hub && room.phase == Phase.Ready) _ = Session.EnterAsync(room, portal); }
-        public void ExitWorld() { _ = Session.ExitAsync(); }
+        void Enter(Room room, RoomPortal portal) { if (Session.State == SessionState.Hub && room.phase == Phase.Ready) LogFaults(Session.EnterAsync(room, portal)); }
+        public void ExitWorld() { LogFaults(Session.ExitAsync()); }
+
+        /// <summary>Fire-and-forget, but a fault still reaches the log (logcat on Quest) instead of vanishing with the task.</summary>
+        static void LogFaults(System.Threading.Tasks.Task t) =>
+            t.ContinueWith(x => Debug.LogException(x.Exception), System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
 
         void HubVisible(bool visible)
         {

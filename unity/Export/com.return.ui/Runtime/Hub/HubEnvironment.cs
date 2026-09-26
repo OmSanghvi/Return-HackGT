@@ -29,7 +29,7 @@ namespace Return.UI
             // star dome
             var dome = GameObject.CreatePrimitive(PrimitiveType.Sphere); dome.name = "Dome"; Object.Destroy(dome.GetComponent<Collider>());
             dome.transform.SetParent(go.transform, false); dome.transform.localScale = Vector3.one * 60f;
-            env._dome = new Material(Shader.Find("Return/SkyGradient")) { hideFlags = HideFlags.HideAndDontSave };
+            env._dome = ReturnShaders.Create(ReturnShaders.SkyGradient);
             env._dome.SetColor(Top, dusk ? Color.Lerp((Color)ReturnColorsDusk.Canvas, (Color)ReturnColorsDusk.SkyTop, 0.35f) : (Color)pal.SkyTop);
             env._dome.SetColor(Bottom, dusk ? Color.Lerp((Color)ReturnColorsDusk.SkyBottom, (Color)ReturnColorsDusk.Canvas, 0.45f) : (Color)pal.SkyBottom);
             env._dome.SetFloat("_Stars", dusk ? 1f : 0f);
@@ -41,7 +41,7 @@ namespace Return.UI
             pano.AddComponent<MeshFilter>().sharedMesh = CurvedMesh.Build(radius, arcDegrees, y0, y0 + height, 48);
             var pr = pano.AddComponent<MeshRenderer>(); pr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             var tex = UIAssets.Sky(scene);
-            env._pano = new Material(Shader.Find("Return/SkyParallax")) { hideFlags = HideFlags.HideAndDontSave, renderQueue = 2000 };
+            env._pano = ReturnShaders.Create(ReturnShaders.SkyParallax); env._pano.renderQueue = 2000;
             env._pano.SetTexture(Main, tex); env._pano.SetTexture(Depth, UIAssets.Depth(scene));
             float arc = 2f * Mathf.PI * radius * arcDegrees / 360f;
             env._pano.SetFloat("_Edge", 0.14f); env._pano.SetFloat(AspA, (float)tex.width / tex.height); env._pano.SetVector(Size, new Vector4(arc, height, 0, 0));
@@ -62,7 +62,7 @@ namespace Return.UI
                 var floor = new GameObject("Floor"); floor.transform.SetParent(go.transform, false);
                 floor.AddComponent<MeshFilter>().sharedMesh = SkyBackdrop.Quad();
                 floor.transform.localRotation = Quaternion.Euler(90, 0, 0); floor.transform.localPosition = new Vector3(0, -0.02f, 0); floor.transform.localScale = new Vector3(26, 26, 1);
-                env._floor = new Material(Shader.Find("Return/Flat")) { hideFlags = HideFlags.HideAndDontSave };
+                env._floor = ReturnShaders.Create(ReturnShaders.Flat);
                 var fc = dusk ? (Color)ReturnColorsDusk.SkyBottom : (Color)pal.SkyBottom; fc.a = 0.35f;
                 env._floor.SetColor(Color_, fc); env._floor.SetFloat("_Radial", 1);
                 floor.AddComponent<MeshRenderer>().sharedMaterial = env._floor;

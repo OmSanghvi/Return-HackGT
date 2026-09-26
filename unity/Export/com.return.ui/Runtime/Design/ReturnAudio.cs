@@ -42,9 +42,23 @@ namespace Return.Design
             return c;
         }
 
-        static void EnsureRoot()
+        static bool _quitting;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetStatics()
         {
-            if (_runner != null) return;
+            _quitting = false;
+            Application.quitting -= OnQuitting;
+            Application.quitting += OnQuitting;
+        }
+
+        static void OnQuitting() => _quitting = true;
+
+        /// <summary>False while the app/play mode is shutting down, so teardown callbacks (OnDisable) never spawn a new root.</summary>
+        static bool EnsureRoot()
+        {
+            if (_runner != null) return true;
+            if (_quitting) return false;
             var go = new GameObject("ReturnAudio");
             Object.DontDestroyOnLoad(go);
             _runner = go.AddComponent<Runner>();
@@ -66,21 +80,20 @@ namespace Return.Design
                 src.playOnAwake = false;
                 _spatialPool[i] = src;
             }
+            return true;
         }
 
         public static void Play(string key, float volume = 1f)
         {
             var clip = Load(key);
-            if (clip == null) return;
-            EnsureRoot();
+            if (clip == null || !EnsureRoot()) return;
             _oneShot.PlayOneShot(clip, volume * MasterVolume);
         }
 
         public static void PlayAt(string key, Vector3 pos, float volume = 1f)
         {
             var clip = Load(key);
-            if (clip == null) return;
-            EnsureRoot();
+            if (clip == null || !EnsureRoot()) return;
             var src = _spatialPool[_spatialCursor];
             _spatialCursor = (_spatialCursor + 1) % _spatialPool.Length;
             src.transform.position = pos;
@@ -90,8 +103,7 @@ namespace Return.Design
         public static AudioSource Loop(string key, Transform parent, float volume, bool spatial)
         {
             var clip = Load(key);
-            if (clip == null) return null;
-            EnsureRoot();
+            if (clip == null || !EnsureRoot()) return null;
             var go = new GameObject("Loop_" + key);
             go.transform.SetParent(parent, false);
             var src = go.AddComponent<AudioSource>();
@@ -108,7 +120,8 @@ namespace Return.Design
 
         public static void Ambience(bool on, float fadeSeconds = 2f)
         {
-            EnsureRoot();
+            // Fading out never needs a new root: if it's gone (scene teardown, quitting) there is nothing playing.
+            if (on ? !EnsureRoot() : _runner == null) return;
             FadeBed(ref _ambience, AmbienceHub, 0.2f, on, fadeSeconds);
             FadeBed(ref _piano, PianoBed, 0.12f, on, fadeSeconds);
         }
