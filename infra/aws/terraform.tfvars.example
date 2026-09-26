@@ -1,0 +1,17 @@
+# Use a region where your account has a GPU quota and a g4dn.xlarge offering.
+aws_region    = "us-east-1"
+project_name  = "sketchscape"
+instance_type = "g4dn.xlarge"
+
+# Run `curl https://checkip.amazonaws.com` from the network Unity will use,
+# then replace the address below. Add a second ingress rule temporarily if the
+# hackathon network has a different public IP.
+allowed_cidr      = "203.0.113.10/32"
+root_volume_gib   = 120
+auto_stop_minutes = 30
+
+# Durable authoring storage — both off by default to avoid accidental spend.
+# Set either to true, run `terraform plan`, review the resources, then apply.
+# See infra/aws/README.md for the configuration steps after apply.
+enable_dynamodb         = false
+enable_artifacts_bucket = false

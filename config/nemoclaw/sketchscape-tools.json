@@ -1,0 +1,138 @@
+{
+  "description": "Credential-free desired tool inventory for SketchScape planning and development automation.",
+  "format_status": "Documentation only. This is not claimed to be a native NemoClaw, OpenShell, MCP, or agent import format.",
+  "credentials": "Resolve authentication through the approved runtime credential provider; never store credentials in this file.",
+  "http_operations": [
+    {
+      "id": "project.create",
+      "method": "POST",
+      "path": "/v1/projects",
+      "purpose": "Create a SketchScape project container.",
+      "approval_required": false,
+      "implementation_status": "implemented-in-memory"
+    },
+    {
+      "id": "gpu.start",
+      "method": "POST",
+      "path": "/v1/admin/gpu/start",
+      "purpose": "Start approved GPU inference capacity before bounded reconstruction work.",
+      "approval_required": true,
+      "implementation_status": "target"
+    },
+    {
+      "id": "asset.reconstruct",
+      "method": "POST",
+      "path": "/v1/projects/{project_id}/assets",
+      "purpose": "Submit one or more views and prompts to SAM 3.1 followed by Fast-SAM3D to create a catalog asset. subject_hint is optional: when empty and no mask is uploaded, NemoClaw identify_subject labels the object (Build Plan step 4a; SKETCHSCAPE_SUBJECT_LABELER=mock until the runtime exists).",
+      "approval_required": true,
+      "approval_reason": "May start or consume metered GPU capacity outside mock mode.",
+      "implementation_status": "implemented-single-view"
+    },
+    {
+      "id": "asset.list",
+      "method": "GET",
+      "path": "/v1/projects/{project_id}/assets",
+      "purpose": "List reconstructed and curated assets available to blueprints.",
+      "approval_required": false,
+      "implementation_status": "implemented-in-memory"
+    },
+    {
+      "id": "blueprint.draft",
+      "method": "POST",
+      "path": "/v1/projects/{project_id}/blueprints",
+      "purpose": "Create a revisioned draft conforming to shared/experience-blueprint.schema.json.",
+      "approval_required": false,
+      "implementation_status": "implemented-in-memory"
+    },
+    {
+      "id": "blueprint.validate",
+      "method": "POST",
+      "path": "/v1/projects/{project_id}/blueprints/validate",
+      "purpose": "Validate schema, project asset references, readiness, and allowlisted interactions.",
+      "approval_required": false,
+      "implementation_status": "implemented"
+    },
+    {
+      "id": "blueprint.publish",
+      "method": "POST",
+      "path": "/v1/projects/{project_id}/blueprints/{revision}/publish",
+      "purpose": "Promote a validated blueprint revision as the project's published source of truth.",
+      "approval_required": true,
+      "implementation_status": "implemented-in-memory"
+    },
+    {
+      "id": "scene.authoring.export",
+      "method": "LOCAL_SCRIPT",
+      "path": "scripts/export_unity_experience.py",
+      "purpose": "Export a published compiled scene and same-origin PLY artifacts into the Unity authoring folder.",
+      "approval_required": false,
+      "implementation_status": "implemented"
+    },
+    {
+      "id": "scene.compiled.fetch",
+      "method": "GET",
+      "path": "/v1/projects/{project_id}/compiled-scene",
+      "purpose": "Fetch the runtime scene compiled from the project's published blueprint.",
+      "approval_required": false,
+      "implementation_status": "implemented-base-scene"
+    }
+  ],
+  "unity_mcp_menu_tasks": [
+    {
+      "id": "unity.configure-current-scene",
+      "menu_path": "Tools/SketchScape/Configure Current Scene",
+      "purpose": "Configure the current editor scene after checkpointing it.",
+      "approval_required": false,
+      "implementation_status": "implemented"
+    },
+    {
+      "id": "unity.compile-blueprint",
+      "menu_path": "Tools/SketchScape/MCP/Compile Published Experience",
+      "purpose": "Fetch and apply the published blueprint's compiled base scene in Play mode.",
+      "approval_required": false,
+      "implementation_status": "implemented-base-scene"
+    },
+    {
+      "id": "unity.build-offline-experience",
+      "menu_path": "Tools/SketchScape/MCP/Build Offline Experience Scene",
+      "purpose": "Materialize an exported published scene into saved Unity assets and a generated build scene.",
+      "approval_required": false,
+      "implementation_status": "implemented-base-scene"
+    },
+    {
+      "id": "unity.validate-quest",
+      "menu_path": "Tools/SketchScape/MCP/Validate Quest Build Readiness",
+      "purpose": "Validate generated scene, official XR packages, and Android build support without requiring a headset.",
+      "approval_required": false,
+      "implementation_status": "implemented; currently blocked by missing Android editor module"
+    },
+    {
+      "id": "unity.build-quest-apk",
+      "menu_path": "Tools/SketchScape/Quest/Build APK Without Device",
+      "purpose": "Build a standalone Meta Quest APK without deployment after validation passes.",
+      "approval_required": true,
+      "implementation_status": "implemented; currently blocked by missing Android editor module"
+    },
+    {
+      "id": "unity.capture-review",
+      "menu_path": "Tools/SketchScape/MCP/Capture Review Screenshots",
+      "purpose": "Capture deterministic screenshots for the authoring revision loop.",
+      "approval_required": false,
+      "implementation_status": "target"
+    },
+    {
+      "id": "unity.run-blueprint-tests",
+      "menu_path": "Tools/SketchScape/MCP/Run Blueprint Tests",
+      "purpose": "Run compile, EditMode, and adapter acceptance checks for the selected revision.",
+      "approval_required": false,
+      "implementation_status": "target"
+    },
+    {
+      "id": "unity.publish-revision",
+      "menu_path": "Tools/SketchScape/MCP/Publish Approved Revision",
+      "purpose": "Request publication only after screenshot review and tests pass.",
+      "approval_required": true,
+      "implementation_status": "target"
+    }
+  ]
+}

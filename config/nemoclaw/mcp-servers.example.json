@@ -1,0 +1,35 @@
+{
+  "description": "Desired MCP inventory for a NemoClaw development sandbox. This is documentation, not a credential-bearing NemoClaw state file.",
+  "servers": [
+    {
+      "name": "unity-editor",
+      "purpose": "Inspect and configure the local HackGTUnity editor and scenes.",
+      "transport": "streamable-http",
+      "endpoint": "http://host.open-shell.internal:<UNITY_MCP_PORT>/mcp",
+      "trust": "trusted-private",
+      "required": false,
+      "allowed_tool_groups": [
+        "assets-read",
+        "console-read",
+        "scenes-read",
+        "scenes-write",
+        "tests"
+      ],
+      "denied_capabilities": [
+        "shell",
+        "package-publish",
+        "player-deploy"
+      ],
+      "notes": "Replace the endpoint only after the chosen Unity MCP implementation advertises its actual transport and port. Pin the resolved private endpoint through NemoClaw rather than opening it publicly."
+    },
+    {
+      "name": "nemoclaw-docs",
+      "purpose": "Canonical NVIDIA NemoClaw documentation lookup.",
+      "transport": "streamable-http",
+      "endpoint": "https://docs.nvidia.com/nemoclaw/_mcp/server",
+      "trust": "public-allowlisted",
+      "required": false,
+      "allowed_tool_groups": ["documentation-read"]
+    }
+  ]
+}

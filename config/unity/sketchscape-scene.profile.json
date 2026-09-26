@@ -1,0 +1,53 @@
+{
+  "$schema": "./sketchscape-scene.profile.schema.json",
+  "profile_version": 1,
+  "scene": {
+    "selection": "active",
+    "save_before_changes": true,
+    "checkpoint_label": "before-sketchscape-configuration"
+  },
+  "required_components": [
+    {
+      "type": "SketchSceneLoader",
+      "singleton": true
+    },
+    {
+      "type": "SketchScapeReconstructionClient",
+      "singleton": true,
+      "properties": {
+        "apiBaseUrl": "http://127.0.0.1:8000",
+        "pollIntervalSeconds": 1.5,
+        "liveJobTimeoutSeconds": 90,
+        "subjectHint": "blue backpack"
+      }
+    },
+    {
+      "type": "SketchScapeExperienceCompiler",
+      "singleton": true,
+      "properties": {
+        "apiBaseUrl": "http://127.0.0.1:8000",
+        "compileOnStart": false
+      }
+    },
+    {
+      "type": "GaussianSplatBridge",
+      "singleton": true,
+      "optional": true,
+      "notes": "Attach only after selecting and testing a runtime Gaussian-splat PLY renderer."
+    }
+  ],
+  "required_references": [
+    "SketchScapeReconstructionClient.loader -> SketchSceneLoader",
+    "SketchSceneLoader.tree -> existing tree showcase object",
+    "SketchSceneLoader.house -> existing house showcase object",
+    "SketchSceneLoader.portal -> existing portal object"
+  ],
+  "acceptance_checks": [
+    "Project compiles with zero C# errors",
+    "Mock reconstruction polls without blocking the render loop",
+    "Portal reveal uses placeholder objects when no PLY renderer is configured",
+    "UI shows mask_review and a visible fallback action",
+    "Live jobs time out after 90 seconds without cancelling the offline showcase",
+    "No credential or worker token is serialized into the scene"
+  ]
+}
