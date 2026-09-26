@@ -504,6 +504,102 @@ class ContributorContributionApiTests(unittest.TestCase):
             self.assertEqual(client.get(f"/v1/projects/{pid}/contributions").json(), [])
 
 
+class ConnectionComposeApiTests(unittest.TestCase):
+    """Verify the mock connection/compose endpoint (Build Plan step 5)."""
+
+    def _make_project(self, client, name: str = "Compose room") -> str:
+        return client.post(
+            "/v1/projects", json={"name": name, "description": ""}
+        ).json()["project_id"]
+
+    def _contribute(self, client, project_id: str, name: str, hint: str, memory: str) -> dict:
+        contributor = client.post(
+            f"/v1/projects/{project_id}/contributors", json={"display_name": name}
+        ).json()
+        r = client.post(
+            f"/v1/projects/{project_id}/assets",
+            data={"subject_hint": hint},
+            files={"image": (f"{hint}.png", io.BytesIO(b"PNG-DATA"), "image/png")},
+        )
+        self.assertEqual(r.status_code, 202)
+        asset = client.get(f"/v1/projects/{project_id}/assets/{r.json()['asset_id']}").json()
+        self.assertEqual(asset["status"], "ready")
+        r = client.post(
+            f"/v1/projects/{project_id}/contributions",
+            json={
+                "contributor_id": contributor["contributor_id"],
+                "asset_id": asset["asset_id"],
+                "source_type": "photo",
+                "memory_text": memory,
+            },
+        )
+        self.assertEqual(r.status_code, 201)
+        return r.json()
+
+    def _assert_composes(self, client, project_id: str, contributions: list[dict]) -> dict:
+        r = client.post(f"/v1/projects/{project_id}/connection/compose")
+        self.assertEqual(r.status_code, 201, r.text)
+        body = r.json()
+        insight, blueprint = body["insight"], body["blueprint"]
+        self.assertEqual(insight["backend"], "mock")
+        self.assertEqual(blueprint["experience"]["theme"], insight["theme"])
+        self.assertEqual(len(blueprint["objects"]), len(contributions))
+        self.assertEqual(len(insight["placement_rationale"]), len(contributions))
+        self.assertEqual(
+            {item["asset_id"] for item in insight["placement_rationale"]},
+            {item["asset_id"] for item in contributions},
+        )
+        # The proposal must pass the same READY-asset check blueprint creation uses.
+        validated = client.post(f"/v1/projects/{project_id}/blueprints/validate", json=blueprint)
+        self.assertEqual(validated.status_code, 200, validated.text)
+        return body
+
+    def test_two_contributions_compose_deterministically(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            contributions = [
+                self._contribute(client, pid, "Alice", "mug", "My grandma's tea every morning"),
+                self._contribute(client, pid, "Bo", "cookbook", "We baked from this every Sunday"),
+            ]
+            first = self._assert_composes(client, pid, contributions)
+            second = self._assert_composes(client, pid, contributions)
+            self.assertEqual(first["insight"]["theme"], second["insight"]["theme"])
+            self.assertEqual(first["insight"]["explanation"], second["insight"]["explanation"])
+            self.assertEqual(first["blueprint"], second["blueprint"])
+            self.assertEqual(first["insight"]["theme"], "Around the kitchen table")
+            # Each pass appends a new insight revision.
+            self.assertEqual(first["insight"]["revision"], 1)
+            self.assertEqual(second["insight"]["revision"], 2)
+
+            created = client.post(f"/v1/projects/{pid}/blueprints", json=first["blueprint"])
+            self.assertEqual(created.status_code, 201, created.text)
+
+    def test_four_contributions_compose(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            contributions = [
+                self._contribute(client, pid, "Alice", "shell", "Found on the beach the summer we met"),
+                self._contribute(client, pid, "Bo", "paddle", "Our first boat on the lake"),
+                self._contribute(client, pid, "Cass", "lamp", ""),
+                self._contribute(client, pid, "Dev", "towel", "Swimming lessons with my brother"),
+            ]
+            body = self._assert_composes(client, pid, contributions)
+            self.assertEqual(body["insight"]["theme"], "By the water")
+            positions = {tuple(item["position"]) for item in body["blueprint"]["objects"]}
+            self.assertEqual(len(positions), 4)
+            for name in ["Alice", "Bo", "Cass", "Dev"]:
+                self.assertIn(name, body["insight"]["explanation"])
+
+    def test_compose_below_min_contributors_is_409(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            r = client.post(f"/v1/projects/{pid}/connection/compose")
+            self.assertEqual(r.status_code, 409)
+            self._contribute(client, pid, "Solo", "kite", "Windy afternoons")
+            r = client.post(f"/v1/projects/{pid}/connection/compose")
+            self.assertEqual(r.status_code, 409)
+
+
 class RevisionConcurrencyApiTests(unittest.TestCase):
     """Build Plan step 15: based_on_revision, 409 on stale writes, LIVE pointer."""
 
