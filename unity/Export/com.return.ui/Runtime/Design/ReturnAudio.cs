@@ -27,7 +27,7 @@ namespace Return.Design
 
         static readonly Dictionary<string, AudioClip> Cache = new Dictionary<string, AudioClip>();
         static readonly HashSet<string> Warned = new HashSet<string>();
-        static readonly Dictionary<AmbienceKind, AudioClip> ProceduralCache = new Dictionary<Ambience, AudioClip>();
+        static readonly Dictionary<AmbienceKind, AudioClip> ProceduralCache = new Dictionary<AmbienceKind, AudioClip>();
 
         static Runner _runner;
         static AudioSource _oneShot;
