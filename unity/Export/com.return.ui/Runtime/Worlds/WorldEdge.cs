@@ -7,7 +7,7 @@ namespace Return.UI
     /// <summary>
     /// Keeps a world from ever cutting to black void at its edge: exponential fog tinted to the room's horizon color,
     /// density set from the world's bounds, plus a large ground disc beyond those bounds that dissolves from a ground
-    /// color to fully transparent toward its rim, so the floor melts into the painted sky dome instead of stopping short.
+    /// color to fully transparent toward its rim, so the floor melts into the real skybox behind it instead of stopping short.
     /// Restores whatever RenderSettings.fog* was before this world loaded when it unloads.
     /// </summary>
     public class WorldEdge : MonoBehaviour
@@ -28,10 +28,9 @@ namespace Return.UI
         {
             _prevFog = RenderSettings.fog; _prevMode = RenderSettings.fogMode; _prevColor = RenderSettings.fogColor; _prevDensity = RenderSettings.fogDensity;
 
-            bool dusk = room != null && UIAssets.IsDusk(room.scene);
-            // ponytail: token horizon color, not a sample of the painted sky pixels; wire in an actual texture sample
-            // (average the pano near its bottom edge) if the token color ever reads as a visible mismatch.
-            Color horizon = (Color)ReturnColors.Get(dusk ? ReturnTheme.Dusk : ReturnTheme.Day).SkyBottom;
+            // Sampled from the room's own skybox (Skyboxes.Horizon), so the fog and ground disc always match the real
+            // sky behind them instead of a hand-picked token color.
+            Color horizon = room != null ? Skyboxes.Horizon(room.scene) : Color.gray;
 
             float worldRadius = Mathf.Max(bounds.extents.x, bounds.extents.z, 3f);
             RenderSettings.fog = true;

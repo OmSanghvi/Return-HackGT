@@ -12,6 +12,7 @@ namespace Return.Design
     {
         public const string Flat = "Return/Flat", SkyGradient = "Return/SkyGradient", SkyParallax = "Return/SkyParallax",
             Vignette = "Return/Vignette", WaterFloor = "Return/WaterFloor", ParticleGlow = "Return/ParticleGlow", LiquidGlass = "Return/LiquidGlass",
+            SkyboxEquirect = "Return/SkyboxEquirect",
             ParticlesUnlit = "Universal Render Pipeline/Particles/Unlit";
         const string Root = "ReturnUI/Shaders/";
 

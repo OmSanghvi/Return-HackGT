@@ -34,6 +34,18 @@ namespace Return.UI.Editor
                 t.mipmapEnabled = true; // sky paintings: seen at grazing angles and huge scale, mips + trilinear keep them from shimmering
                 t.filterMode = UnityEngine.FilterMode.Trilinear;
             }
+            else if (assetPath.Contains("/Skyboxes/"))
+            {
+                t.textureType = TextureImporterType.Default;
+                t.sRGBTexture = true;
+                t.isReadable = true; // Skyboxes.HorizonColorFrom samples one band of pixels once, at load
+                t.maxTextureSize = 4096;
+                t.mipmapEnabled = true;
+                t.filterMode = UnityEngine.FilterMode.Trilinear;
+                t.wrapModeU = UnityEngine.TextureWrapMode.Repeat; // equirect: must wrap horizontally or the seam behind the viewer shows
+                t.wrapModeV = UnityEngine.TextureWrapMode.Clamp;  // vertical never wraps (poles), Clamp avoids edge bleed there
+                t.textureCompression = TextureImporterCompression.Compressed;
+            }
             SetAndroidASTC(t);
         }
 

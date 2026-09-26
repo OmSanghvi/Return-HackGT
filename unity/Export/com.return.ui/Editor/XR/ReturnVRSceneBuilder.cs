@@ -57,7 +57,7 @@ namespace Return.UI.XR.Editor
             if (origin != null) origin.RequestedTrackingOriginMode = Unity.XR.CoreUtils.XROrigin.TrackingOriginMode.Floor;
             SetupSmoothTurn(rig);
             var cam = rig.GetComponentInChildren<Camera>(true);
-            cam.clearFlags = CameraClearFlags.SolidColor; cam.backgroundColor = new Color(0.04f, 0.05f, 0.12f); cam.nearClipPlane = 0.05f; cam.farClipPlane = 200f;
+            cam.clearFlags = CameraClearFlags.Skybox; cam.nearClipPlane = 0.05f; cam.farClipPlane = 200f; // HubEnvironment sets RenderSettings.skybox; URP's camera "Background Type" is this same field
             cam.gameObject.tag = "MainCamera";
 
             // wrist anchor: left controller, else left hand

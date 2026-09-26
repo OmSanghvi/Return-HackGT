@@ -11,6 +11,8 @@ namespace Return.Design
     public static class ReturnAudio
     {
         public const string AmbienceHub = "ambience_hub";
+        public const string AmbienceBirdsDay = "ambience_birds_day";
+        public const string BirdChirp = "bird_chirp";
         public const string PortalHum = "portal_hum";
         public const string UiHover = "ui_hover";
         public const string UiSelect = "ui_select";
@@ -95,13 +97,14 @@ namespace Return.Design
             _oneShot.PlayOneShot(clip, volume * MasterVolume);
         }
 
-        public static void PlayAt(string key, Vector3 pos, float volume = 1f)
+        public static void PlayAt(string key, Vector3 pos, float volume = 1f, float pitch = 1f)
         {
             var clip = Load(key);
             if (clip == null || !EnsureRoot()) return;
             var src = _spatialPool[_spatialCursor];
             _spatialCursor = (_spatialCursor + 1) % _spatialPool.Length;
             src.transform.position = pos;
+            src.pitch = pitch;
             src.PlayOneShot(clip, volume * MasterVolume);
         }
 
@@ -186,11 +189,14 @@ namespace Return.Design
             return src;
         }
 
-        public static void Ambience(bool on, float fadeSeconds = 2f)
+        /// <summary>dusk picks the ambience bed key: crickets (AmbienceHub) at dusk, daytime park birdsong in daylight.
+        /// Only matters the first time this creates the loop (see FadeBed); a hub that's already playing one bed
+        /// doesn't hot-swap clips mid-session, since the theme doesn't change without a scene rebuild.</summary>
+        public static void Ambience(bool on, float fadeSeconds = 2f, bool dusk = true)
         {
             // Fading out never needs a new root: if it's gone (scene teardown, quitting) there is nothing playing.
             if (on ? !EnsureRoot() : _runner == null) return;
-            FadeBed(ref _ambience, AmbienceHub, 0.2f, on, fadeSeconds);
+            FadeBed(ref _ambience, dusk ? AmbienceHub : AmbienceBirdsDay, 0.2f, on, fadeSeconds);
             FadeBed(ref _piano, PianoBed, 0.12f, on, fadeSeconds);
         }
 
