@@ -71,7 +71,7 @@ class SceneObject(BaseModel):
     rotation: list[float] = Field(default_factory=lambda: [0, 0, 0], min_length=3, max_length=3)
     scale: list[float] = Field(min_length=3, max_length=3)
     asset_url: str | None = None
-    source: Literal["placeholder", "sam3d"] = "placeholder"
+    source: Literal["placeholder", "sam3d", "sketch_card"] = "placeholder"
     actions: list[Literal["scale_by", "translate_by", "rotate_by"]] = Field(
         default_factory=lambda: ["scale_by", "translate_by", "rotate_by"]
     )
@@ -152,14 +152,22 @@ class AssetView(BaseModel):
     recorded_at: datetime
 
 
+AssetKind = Literal["reconstruction", "sketch_card"]
+
+
 class ProjectAsset(BaseModel):
     asset_id: str
     project_id: str
     label: str
     status: AssetStatus
+    # `sketch_card` is a Notability page shown as a flat textured card (Build
+    # Plan step 7, Path 1): no reconstruction job, ready on upload, and
+    # `artifact_url` is the image itself.
+    kind: AssetKind = "reconstruction"
     # Legacy single-job convenience field — mirrors views[0].reconstruction_job_id
     # when the asset was created via the single-view path. Multi-view assets set
     # this to the first view's job ID. Always use `views` for provenance.
+    # Empty for sketch cards.
     reconstruction_job_id: str
     artifact_url: str | None = None
     mask_url: str | None = None
@@ -750,7 +758,11 @@ def compile_blueprint(blueprint: ExperienceBlueprint) -> SceneDocument:
                 rotation=item.rotation.copy(),
                 scale=item.scale.copy(),
                 asset_url=asset.artifact_url,
-                source="sam3d" if asset.artifact_url else "placeholder",
+                source=(
+                    "sketch_card"
+                    if asset.kind == "sketch_card"
+                    else "sam3d" if asset.artifact_url else "placeholder"
+                ),
                 actions=[
                     action
                     for action in ("scale_by", "translate_by", "rotate_by")
@@ -1664,6 +1676,110 @@ async def add_asset_view(
     return new_view
 
 
+# -- Notability sketches (Build Plan step 7) -----------------------------------
+#
+# Path 1 ("card", default): the page is stored as-is and shown as a flat
+# textured card. No SAM 3.1, no Fast-SAM3D, no GPU, no paid API.
+# Path 2 ("plaque", opt-in): the page goes through the existing reconstruction
+# pipeline unchanged. Unverified: check that page text survives Fast-SAM3D
+# legibly before relying on it, and fall back to a card if it doesn't.
+
+SKETCH_CARD_LONG_SIDE_METERS = 0.8
+SKETCH_CARD_BASE_HEIGHT = 0.9
+_SKETCH_CARD_TYPES = {"image/png": "sketch.png", "image/jpeg": "sketch.jpg"}
+
+
+def image_dimensions(path: Path) -> tuple[int, int]:
+    """Width and height of a PNG or baseline/progressive JPEG, without Pillow."""
+    data = path.read_bytes()
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) >= 24:
+        return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    if data[:2] == b"\xff\xd8":
+        index = 2
+        while index + 9 < len(data):
+            if data[index] != 0xFF:
+                index += 1
+                continue
+            marker = data[index + 1]
+            if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7 or marker == 0xFF:
+                index += 1 if marker == 0xFF else 2
+                continue
+            length = int.from_bytes(data[index + 2 : index + 4], "big")
+            if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                height = int.from_bytes(data[index + 5 : index + 7], "big")
+                width = int.from_bytes(data[index + 7 : index + 9], "big")
+                return width, height
+            index += 2 + length
+    raise HTTPException(422, "Could not read the sketch image's dimensions.")
+
+
+def sketch_card_url(project_id: str, asset_id: str, filename: str) -> str:
+    return f"/v1/projects/{project_id}/assets/{asset_id}/sketch/{filename}"
+
+
+@app.post("/v1/projects/{project_id}/sketch-assets", response_model=ProjectAsset, status_code=201)
+async def create_sketch_asset(
+    project_id: str,
+    background_tasks: BackgroundTasks,
+    http_response: Response,
+    image: Annotated[UploadFile, File(description="Notability page export (PNG or JPEG)")],
+    label: Annotated[str | None, Form(max_length=100)] = None,
+    display: Annotated[Literal["card", "plaque"], Form()] = "card",
+) -> ProjectAsset:
+    """Register a Notability sketch as a flat card, or reconstruct it as a plaque."""
+    if display == "plaque":
+        response = await create_project_asset(
+            project_id=project_id,
+            background_tasks=background_tasks,
+            image=image,
+            mask=None,
+            subject_hint=(label or "").strip() or "paper page",
+        )
+        http_response.status_code = 202  # queued like any photo reconstruction
+        return response
+
+    project = get_project(project_id)
+    filename = _SKETCH_CARD_TYPES.get(image.content_type or "")
+    if filename is None:
+        raise HTTPException(415, "Sketch cards must be PNG or JPEG (render PDF pages to PNG first).")
+    asset_id = uuid.uuid4().hex
+    image_path = UPLOAD_ROOT / f"{asset_id}-{filename}"
+    await save_upload(image, image_path)
+    width, height = image_dimensions(image_path)
+    if width <= 0 or height <= 0:
+        raise HTTPException(422, "The sketch image has no pixels.")
+    scale = SKETCH_CARD_LONG_SIDE_METERS / max(width, height)
+    card_width, card_height = round(width * scale, 4), round(height * scale, 4)
+    await artifact_store.copy_local(asset_id, filename, image_path)
+
+    now = utc_now()
+    asset = ProjectAsset(
+        asset_id=asset_id,
+        project_id=project.project_id,
+        label=((label or "").strip() or Path(image.filename or "sketch").stem or "sketch")[:80],
+        status=AssetStatus.READY,
+        kind="sketch_card",
+        reconstruction_job_id="",
+        artifact_url=sketch_card_url(project.project_id, asset_id, filename),
+        preview_url=sketch_card_url(project.project_id, asset_id, filename),
+        bounds=[card_width, card_height, 0.02],
+        suggested_scale=[card_width, card_height, 1.0],
+    )
+    store.save_asset(asset)
+    project.asset_ids.append(asset_id)
+    project.updated_at = now
+    store.save_project(project)
+    return asset
+
+
+@app.get("/v1/projects/{project_id}/assets/{asset_id}/sketch/{filename}")
+async def get_sketch_card_image(project_id: str, asset_id: str, filename: str) -> Response:
+    asset = await get_project_asset(project_id, asset_id)
+    if asset.kind != "sketch_card" or filename not in _SKETCH_CARD_TYPES.values():
+        raise HTTPException(404, "Unknown sketch image.")
+    return await artifact_store.serve(asset_id, filename)
+
+
 # -- connection/compose (Build Plan step 5) ------------------------------------
 #
 # The mock composer is deterministic over the contributions' labels and memory
@@ -1782,11 +1898,13 @@ def compose_connection_mock(
         facing = round((math.degrees(angle) + 180.0) % 360.0, 3)
         asset = assets[contribution.asset_id]
         object_id = f"contribution-{contribution.contribution_id[:24]}"
+        # A sketch card stands upright with its lower edge at table height.
+        y = round(SKETCH_CARD_BASE_HEIGHT + asset.suggested_scale[1] / 2, 3) if asset.kind == "sketch_card" else 0.0
         objects.append(
             BlueprintObject(
                 id=object_id,
                 asset_id=asset.asset_id,
-                position=[x, 0.0, z],
+                position=[x, y, z],
                 rotation=[0.0, facing, 0.0],
                 scale=list(asset.suggested_scale),
                 interactions=list(_MOCK_OBJECT_INTERACTIONS),

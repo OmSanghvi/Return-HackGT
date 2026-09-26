@@ -513,6 +513,122 @@ class ContributorContributionApiTests(unittest.TestCase):
             self.assertEqual(client.get(f"/v1/projects/{pid}/contributions").json(), [])
 
 
+def _png_bytes(width: int, height: int) -> bytes:
+    """A real (tiny-payload) PNG of the given size."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload))
+
+    rows = b"".join(b"\x00" + b"\xff" * width for _ in range(height))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
+    )
+
+
+class SketchAssetApiTests(unittest.TestCase):
+    """Verify Notability sketch cards and plaques (Build Plan step 7)."""
+
+    def _make_project(self, client) -> str:
+        return client.post("/v1/projects", json={"name": "Sketch room", "description": ""}).json()["project_id"]
+
+    def test_card_is_ready_immediately_and_sized_from_the_page(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            page = _png_bytes(300, 600)
+            r = client.post(
+                f"/v1/projects/{pid}/sketch-assets",
+                data={"label": "our treehouse"},
+                files={"image": ("page.png", io.BytesIO(page), "image/png")},
+            )
+            self.assertEqual(r.status_code, 201, r.text)
+            asset = r.json()
+            self.assertEqual(asset["kind"], "sketch_card")
+            self.assertEqual(asset["status"], "ready")
+            self.assertEqual(asset["label"], "our treehouse")
+            self.assertEqual(asset["suggested_scale"], [0.4, 0.8, 1.0])
+            image = client.get(asset["artifact_url"])
+            self.assertEqual(image.status_code, 200)
+            self.assertEqual(image.content, page)
+
+    def test_card_rejects_formats_unity_cannot_decode(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            r = client.post(
+                f"/v1/projects/{pid}/sketch-assets",
+                files={"image": ("page.webp", io.BytesIO(b"RIFF0000WEBP"), "image/webp")},
+            )
+            self.assertEqual(r.status_code, 415)
+
+    def test_jpeg_dimensions_are_read_from_the_frame_header(self) -> None:
+        # SOI, an APP0 segment, then a baseline SOF0 for 640x480.
+        jpeg = (
+            b"\xff\xd8"
+            + b"\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+            + b"\xff\xc0\x00\x11\x08\x01\xe0\x02\x80\x03\x01\x22\x00\x02\x11\x01\x03\x11\x01"
+        )
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as handle:
+            handle.write(jpeg)
+        try:
+            self.assertEqual(main.image_dimensions(main.Path(handle.name)), (640, 480))
+        finally:
+            os.unlink(handle.name)
+
+    def test_plaque_goes_through_the_existing_reconstruction(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            r = client.post(
+                f"/v1/projects/{pid}/sketch-assets",
+                data={"display": "plaque"},
+                files={"image": ("page.png", io.BytesIO(_png_bytes(20, 30)), "image/png")},
+            )
+            self.assertEqual(r.status_code, 202, r.text)
+            asset = r.json()
+            self.assertEqual(asset["kind"], "reconstruction")
+            self.assertTrue(asset["reconstruction_job_id"])
+            settled = client.get(f"/v1/projects/{pid}/assets/{asset['asset_id']}").json()
+            self.assertEqual(settled["status"], "ready")
+
+    def test_card_composes_and_compiles_as_a_sketch_card(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            photo = client.post(
+                f"/v1/projects/{pid}/assets",
+                data={"subject_hint": "mug"},
+                files={"image": ("mug.png", io.BytesIO(b"PNG-DATA"), "image/png")},
+            ).json()
+            self.assertEqual(client.get(f"/v1/projects/{pid}/assets/{photo['asset_id']}").json()["status"], "ready")
+            card = client.post(
+                f"/v1/projects/{pid}/sketch-assets",
+                files={"image": ("kitchen.png", io.BytesIO(_png_bytes(400, 300)), "image/png")},
+            ).json()
+            for name, asset, source_type in [("Alice", photo, "photo"), ("Bo", card, "sketch")]:
+                contributor = client.post(f"/v1/projects/{pid}/contributors", json={"display_name": name}).json()
+                r = client.post(
+                    f"/v1/projects/{pid}/contributions",
+                    json={
+                        "contributor_id": contributor["contributor_id"],
+                        "asset_id": asset["asset_id"],
+                        "source_type": source_type,
+                        "memory_text": "Sunday dinners",
+                    },
+                )
+                self.assertEqual(r.status_code, 201, r.text)
+
+            blueprint = client.post(f"/v1/projects/{pid}/connection/compose").json()["blueprint"]
+            card_object = next(item for item in blueprint["objects"] if item["asset_id"] == card["asset_id"])
+            self.assertGreater(card_object["position"][1], 0.9)
+            revision = client.post(f"/v1/projects/{pid}/blueprints", json=blueprint).json()["revision"]
+            scene = client.post(f"/v1/projects/{pid}/blueprints/{revision}/publish").json()["scene"]
+            compiled = next(item for item in scene["objects"] if item["id"] == card_object["id"])
+            self.assertEqual(compiled["source"], "sketch_card")
+            self.assertEqual(compiled["asset_url"], card["artifact_url"])
+
+
 class ConnectionComposeApiTests(unittest.TestCase):
     """Verify the mock connection/compose endpoint (Build Plan step 5)."""
 

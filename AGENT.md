@@ -562,7 +562,7 @@ its current contents before relying on any of them.
 | Membership, invites, ownership, `room_prompt` | ✅ done — Build Plan step 17 |
 | `identify_subject` mock labeler (`SKETCHSCAPE_SUBJECT_LABELER=mock`) | ✅ done — live NemoClaw path waits on Build Plan step 3 |
 | GPU pipeline (SAM 3.1 → Fast-SAM3D, `worker_server.py`) | ✅ verified end-to-end on an L40S (g6e.xlarge): 70 s, 53 MB PLY; instance stopped |
-| Notability sketch direct display / SAM3D memory plaque | ⬜ not started — see Build Plan step 7 |
+| Notability sketch direct display / SAM3D memory plaque | 🟡 flat card built (`POST /v1/projects/{id}/sketch-assets`); plaque path wired to existing reconstruction but legibility unverified on GPU — Build Plan step 7 |
 | Project + asset catalog with multi-view provenance | ✅ done |
 | Versioned blueprint system with append-only publication log | ✅ done |
 | Local JSON store (atomic writes, restart-safe) | ✅ done |
@@ -603,7 +603,11 @@ its current contents before relying on any of them.
 Replaces the old sketch → image-generation → reconstruction pipeline, which
 was removed entirely (`POST /v1/sketches`, `backend/image_gen.py`). See
 `docs/BUILD_PLAN.md` step 7 for the two-path plan (flat-quad direct display,
-SAM3D-reconstructed memory plaque with embedded text). Not started.
+SAM3D-reconstructed memory plaque with embedded text). Path 1 (flat card)
+is built: `POST /v1/projects/{id}/sketch-assets` with `display=card`.
+`display=plaque` sends the page through the existing reconstruction
+unchanged; whether its text survives Fast-SAM3D legibly is not yet verified
+on the GPU, so treat it as opt-in.
 
 ### 2 — GPU instance end-to-end verification
 ✅ Done: verified on an L40S (g6e.xlarge, us-east-2) — see
