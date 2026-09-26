@@ -58,6 +58,7 @@ namespace Return.UI
             var camGo = head != null ? (head.GetComponent<Camera>() != null ? head : head.GetComponentInChildren<Camera>()?.transform ?? head) : null;
             var fade = camGo != null ? ScreenFade.Attach(camGo) : ScreenFade.Attach(new GameObject("NoHead").transform);
             Session = new WorldSession(loader ?? new StubWorldLoader(), fade, head, HubVisible, new PortalTransition(head)) { fadeSeconds = fadeSeconds };
+            Session.StateChanged += s => { if (s == SessionState.Hub) RoomPortal.SetHumDucked(false); }; // restore portal hums once back in the hub
 
             Work = SpatialPanel.Create("WorkPanel", 900, 520, _hubRoot);
             Work.gameObject.SetActive(false);
@@ -172,6 +173,7 @@ namespace Return.UI
         /// <summary>The one way in: fires EnteringRoom, then loads the world if it's ready.</summary>
         public void EnterRoom(Room room, RoomPortal portal)
         {
+            RoomPortal.SetHumDucked(true); // duck all portal hums while a room is entered; restored by the StateChanged hook above
             EnteringRoom?.Invoke(room, portal);
             Enter(room, portal);
         }
