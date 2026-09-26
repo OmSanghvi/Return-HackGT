@@ -6,6 +6,9 @@ namespace Return.Design
 {
     public enum ReturnTheme { Day, Dusk }
 
+    /// <summary>Every field here mirrors the like-named variable in web-app/src/design-system/tokens.css exactly
+    /// (CamelCase here, kebab-case there: Glass -> --glass, SkyTop -> --sky-top, and so on); keep the numbers identical
+    /// so the VR hub and the web app read as one product. See ReturnColorsDusk below for the dusk theme's :root[data-theme="dusk"] block.</summary>
     public static class ReturnColorsDay
     {
         /// <summary>Page ground around framed imagery (the warm cloud-white margin in day, deep night blue in dusk).</summary>

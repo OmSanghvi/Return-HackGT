@@ -2,6 +2,7 @@
 
 ## Fonts (`Runtime/Resources/ReturnUI/Fonts`)
 - **Role Model** and **Rusilla Serif**: demo, personal-use fonts. Buy commercial licenses (or swap them out) before shipping a commercial product. Licenses are next to the fonts.
+- **Bemirs** (`Bemirs-Regular.otf`, `LICENSE-Bemirs.txt`): demo, personal-use font by Nirmana Visual, copied verbatim from the web-app's `design-system/fonts` (same source as Role Model). Caps-only, no digits, so `FontFace.Display` falls back to Role Model for numerals, then Cormorant for punctuation (see `UIAssets.EnsureFonts`). Buy a commercial license from nirmanavisual.com or swap the face before any commercial launch. Run **Return > Build Font Assets** once to generate `Bemirs-Regular SDF.asset`.
 - **Cormorant** and **Hanken Grotesk**: SIL Open Font License. Converted from woff2 to TTF and cut to static weights.
 
 ## Art

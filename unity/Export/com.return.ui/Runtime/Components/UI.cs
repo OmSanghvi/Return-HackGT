@@ -103,6 +103,9 @@ namespace Return.UI
             var img = rt.gameObject.AddComponent<Image>();
             img.sprite = sprite; img.type = type; img.raycastTarget = raycast; img.preserveAspect = false;
             var tg = rt.gameObject.AddComponent<ThemedGraphic>(); tg.role = role; tg.Refresh();
+            // Glass/GlassStrong surfaces get the liquid-glass material instead of the default UI shader. The sprite's
+            // baked border (Shapes.Rounded/Pill) already carries the corner radius, so no caller needs to pass it twice.
+            if ((role == ColorRole.Glass || role == ColorRole.GlassStrong) && sprite != null) GlassSurface.Attach(img, sprite.border.x - 1f);
             return img;
         }
 
@@ -189,6 +192,39 @@ namespace Return.UI
     {
         /// <summary>Get or add. Never use `GetComponent ?? AddComponent`: Unity's fake-null defeats ??.</summary>
         public static T GetOrAdd<T>(this Component c) where T : Component => c.TryGetComponent(out T t) ? t : c.gameObject.AddComponent<T>();
+    }
+
+    /// <summary>Swaps a Glass/GlassStrong Image onto the Return/LiquidGlass material and keeps its _Size uniform synced
+    /// to the RectTransform, so the shader's rounded-rect SDF matches the actual rect instead of the size it was
+    /// created at. Falls back to the plain sprite (no glass look) if the shader isn't in the build; see UIAssets.LiquidGlass.</summary>
+    [ExecuteAlways]
+    public class GlassSurface : MonoBehaviour
+    {
+        static readonly int SizeId = Shader.PropertyToID("_Size"), RadiusId = Shader.PropertyToID("_Radius");
+        float _radius;
+        RectTransform _rt;
+        Material _mat;
+
+        public static void Attach(Image img, float radius)
+        {
+            var mat = UIAssets.LiquidGlass();
+            if (mat == null) return; // shader missing from this build; the default UI shader still renders the plain glass tint
+            img.material = mat;
+            var g = img.gameObject.AddComponent<GlassSurface>();
+            g._radius = Mathf.Max(radius, 0f);
+        }
+
+        void OnEnable() { _rt = (RectTransform)transform; var img = GetComponent<Image>(); _mat = img != null ? img.material : null; Apply(); }
+        void OnRectTransformDimensionsChange() => Apply();
+        void OnDestroy() { if (_mat != null) Destroy(_mat); }
+
+        void Apply()
+        {
+            if (_mat == null || _rt == null) return;
+            var s = _rt.rect.size;
+            _mat.SetVector(SizeId, new Vector4(Mathf.Max(s.x, 1f), Mathf.Max(s.y, 1f), 0, 0));
+            _mat.SetFloat(RadiusId, _radius);
+        }
     }
 
     /// <summary>Crops a RawImage to fill its rect (object-fit: cover) via uvRect.</summary>

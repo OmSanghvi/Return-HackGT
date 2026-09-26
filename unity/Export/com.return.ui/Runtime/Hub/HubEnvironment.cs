@@ -12,11 +12,17 @@ namespace Return.UI
     public class HubEnvironment : MonoBehaviour
     {
         static readonly int Main = Shader.PropertyToID("_MainTex"), Depth = Shader.PropertyToID("_DepthTex"), AspA = Shader.PropertyToID("_AspA"), Size = Shader.PropertyToID("_Size"),
-            Pointer = Shader.PropertyToID("_Pointer"), Fog = Shader.PropertyToID("_Fog"), Top = Shader.PropertyToID("_Top"), Bottom = Shader.PropertyToID("_Bottom"), Color_ = Shader.PropertyToID("_Color");
+            Pointer = Shader.PropertyToID("_Pointer"), Fog = Shader.PropertyToID("_Fog"), Top = Shader.PropertyToID("_Top"), Bottom = Shader.PropertyToID("_Bottom"), Color_ = Shader.PropertyToID("_Color"),
+            GlassBlurTex = Shader.PropertyToID("_ReturnGlassBlur");
 
         Transform _head; Vector3 _headHome;
         Material _pano, _dome, _floor;
         bool _extras;
+
+        /// <summary>Which painted sky the hub opens on by default for a theme: the spring meadow and lake in day, the
+        /// painted dusk hub sky after dark. Callers that pick the theme (HubController) should use this instead of
+        /// hardcoding a SceneKey, so the sky always matches the theme.</summary>
+        public static SceneKey DefaultScene(bool dusk) => dusk ? SceneKey.Hub : SceneKey.Meadow;
 
         /// <summary>Build under parent. arcDegrees is how wide the painting spans (behind the portal ring); the dome covers the rest.
         /// extras adds the still-water floor, fireflies, motes and lanterns, and toggles the hub ambience loop with this object's enabled state; leave false for stub worlds.</summary>
@@ -41,6 +47,7 @@ namespace Return.UI
             pano.AddComponent<MeshFilter>().sharedMesh = CurvedMesh.Build(radius, arcDegrees, y0, y0 + height, 48);
             var pr = pano.AddComponent<MeshRenderer>(); pr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             var tex = UIAssets.Sky(scene);
+            Shader.SetGlobalTexture(GlassBlurTex, tex); // liquid-glass panels fake a backdrop blur by sampling this sky at a heavy mip
             env._pano = ReturnShaders.Create(ReturnShaders.SkyParallax); env._pano.renderQueue = 2000;
             env._pano.SetTexture(Main, tex); env._pano.SetTexture(Depth, UIAssets.Depth(scene));
             float arc = 2f * Mathf.PI * radius * arcDegrees / 360f;
@@ -52,9 +59,10 @@ namespace Return.UI
             {
                 // still water instead of the fogged disc: reflects the sky, ripples where controllers point or dip in
                 WaterFloor.Create(go.transform);
-                Fireflies.Create(go.transform);
                 Motes.Create(go.transform);
-                Lanterns.Create(go.transform);
+                // fireflies and lanterns only make sense once it's dark; day gets drifting blossom petals instead
+                if (dusk) { Fireflies.Create(go.transform); Lanterns.Create(go.transform); }
+                else Petals.Create(go.transform);
             }
             else
             {
