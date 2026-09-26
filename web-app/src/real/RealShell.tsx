@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Icon } from '../ui';
+import { Button, Icon, initials } from '../ui';
 import { useAccount, accountLabel } from '../api/account';
 import { DEMO_ACCOUNTS } from '../config';
 import lockupWhite from '../design-system/logos/return-lockup-white.svg';
@@ -30,7 +30,7 @@ function AccountPicker() {
     <div className="app-account" ref={ref}>
       <button type="button" className="app-account-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <span className="rt-avatar app-me" aria-hidden>
-          {accountLabel(current).replace('Account ', 'A')}
+          {initials(accountLabel(current))}
         </span>
         <span className="app-account-name">{accountLabel(current)}</span>
       </button>
@@ -69,15 +69,15 @@ export function RealShell({ children }: { children: React.ReactNode }) {
           href="/"
           onClick={(e) => {
             e.preventDefault();
-            navigate('/');
+            navigate('/rooms');
           }}
-          aria-label="SketchScape, back to projects"
+          aria-label="return, back to rooms"
         >
           <img src={lockupWhite} alt="return" height={26} />
         </a>
         <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center' }}>
-          <Button variant="ghost" size="sm" icon="home" onClick={() => navigate('/')}>
-            Projects
+          <Button variant="ghost" size="sm" icon="home" onClick={() => navigate('/rooms')}>
+            Rooms
           </Button>
           <AccountPicker />
         </div>
