@@ -18,7 +18,7 @@ step.
   objects (or several photos, or several people upload at once), and all of
   it is accepted immediately and tracked in one progress view.
 - **On the GPU:**
-  - One SAM 3.1 pass per image finds every object.
+  - One SAM 3.1 pass per image masks every object the person selected.
   - Reconstructions run through the durable queue.
   - Within one job, SAM 3.1 and Fast-SAM3D still never share GPU memory at
     the same time (Hard Rule 5).

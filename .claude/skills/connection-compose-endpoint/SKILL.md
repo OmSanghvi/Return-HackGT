@@ -72,8 +72,8 @@ both are fine. A missing or empty prompt must not change behavior.
 
 ## Definition of done
 
-Two (and, in a separate test, four) contributions compose into a valid `ConnectionInsight` + blueprint
-proposal in mock mode with zero external calls, and the same is true (in a
-separate test) for four contributions. `bash scripts/verify_local.sh` passes.
+Two (and, in a separate test, four) contributions compose into a valid
+`ConnectionInsight` + blueprint proposal in mock mode with zero external
+calls. `bash scripts/verify_local.sh` passes.
 Hand off to `immersive-reveal-staging` (step 6), which builds on this
 endpoint's output.

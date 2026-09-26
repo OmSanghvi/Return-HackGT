@@ -201,7 +201,7 @@ For the Unity integration, use Meta's official **Unity MCP Extension for
 Horizon**
 (https://developers.meta.com/horizon/documentation/unity/unity-mcp-extension/)
 as the Unity MCP layer rather than a generic/third-party Unity MCP server.
-Same reasoning as the Llama requirement above: running Meta's own model *and*
+Same reasoning as the Muse Spark default above: running Meta's own model *and*
 Meta's own Unity tooling for a Meta challenge is a small, deliberate,
 judge-legible choice. Follow that page's current setup instructions directly
 rather than a remembered configuration, since the extension's install steps
@@ -222,10 +222,10 @@ holds a *list* of contributors and contributions (never fixed
 (`CONTRIBUTOR#<id>`, `CONTRIBUTION#<id>`, `INSIGHT#<revision>`) rather than
 adding a second table. This stays sequential co-creation — no real-time
 multiplayer is needed to support more than two people, since contributors
-still add their object at different times. If live shared presence is ever
-wanted, ARCHITECTURE.md names Meta's own colocation/Shared Spatial Anchors
-APIs as the track-appropriate option ahead of a generic Unity Cloud /
-Unity Gaming Services path.
+still add their object at different times. Live shared presence is planned
+separately as the gated Collaborative VR track (Unity Multiplayer Services
+with Distributed Authority, Clerk accounts, Meta sign-in on the Quest) —
+see ARCHITECTURE.md and `docs/BUILD_PLAN.md` steps 13–29.
 
 ### Exact MVP implementation slice
 
@@ -364,7 +364,11 @@ removed.
   structured commands; no raw code is ever accepted.
 - Private worker endpoint — the GPU posts its result back through a
   token-protected route; Unity never sees credentials.
-- **40 automated tests, all passing.**
+- **51 automated tests, all passing** (2 are skipped either way, depending
+  on whether `boto3` is installed).
+- Automatic subject labeling for uploads (`identify_subject`, mock path):
+  a photo with no typed subject still gets a label for SAM 3.1. The live
+  NemoClaw path waits on `docs/BUILD_PLAN.md` step 3.
 
 ### ✅ Storage — all live-verified against real AWS
 - **Local store** (default): project and asset data saved to disk, survives
@@ -382,6 +386,10 @@ removed.
 - IAM roles scoped to exactly what each piece needs.
 
 ### ✅ Unity (in the external HackGTUnity project)
+
+HackGTUnity is being cleaned up and much of it will be removed; re-check
+these items against the project before relying on them.
+
 - `UnitySplats` v1.2.0 — loads `.ply` Gaussian-splat files at runtime,
   works on Quest 3/3S, Android Vulkan, Unity 6. Package installed and
   compiles.
@@ -454,8 +462,9 @@ deterministic output from two labels/memory snippets — so the full social
 flow works offline before touching a live model. Wire NemoClaw in afterward
 as the live path for this endpoint: its own tools (`place_objects_in_scene`,
 `stage_immersive_reveal`) produce the insight and the layout together,
-running on Llama by default with Grok configured as a switchable fallback
-runtime — not a separate model-API backend bolted on next to NemoClaw.
+running on Muse Spark (Meta Model API) by default, with Grok or Nebius
+switchable via `NEMOCLAW_MODEL_PROVIDER` — not a separate model-API backend
+bolted on next to NemoClaw.
 
 ### 2 — Contributor / Contribution data model
 **Not started.**
@@ -509,8 +518,9 @@ and precomputed, attractive assets as the judging-safe recording path.
 
 ### 8 — Production hardening (post-hackathon, not needed for the demo)
 - HTTPS / TLS termination (currently plain HTTP on port 8000).
-- Rate limiting and client authentication.
-- Job queue (SQS) so the API doesn't lose jobs on restart.
+- Rate limiting. (Client authentication is planned as Build Plan step 16.)
+- Durable jobs so the API doesn't lose jobs on restart — planned in the
+  store itself as Build Plan step 26, not SQS.
 - The "revisit and add to the room later" arc mentioned in the pitch — not
   required for the MVP demo, but worth building afterward since it's the
   feature that turns Shared Room from a one-time build into an ongoing
@@ -574,7 +584,7 @@ PIPELINE_MODE=mock .venv/bin/uvicorn main:app --reload --port 8000
 
 # Run all tests
 .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m unittest test_api.py test_storage.py
+.venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py
 
 # Or run the full validation suite from the repo root
 bash scripts/verify_local.sh

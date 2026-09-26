@@ -100,7 +100,7 @@ runtime credential provider, never in this repo.
 
 ## Definition of done (step 24)
 
-`python3 scripts/check_collab_gates.py --done 21` and
+`python3 scripts/check_collab_gates.py --done 24` and
 `bash scripts/verify_local.sh` pass; both tools are registered with the
 correct `approval_required` and pass 2-object, 5-object, and mock
 end-to-end tests.

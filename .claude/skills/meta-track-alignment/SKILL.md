@@ -26,8 +26,13 @@ of them, not a replacement for the step-specific skill.
 `unity-diegetic-attribution` (8) → `meta-hardware-polish` (9) →
 `gpu-cloud-activation` (10, parallel) →
 `unity-offline-builder-and-rendering` (11, parallel) → `demo-video-prep`
-(12). Load the step-specific skill for the actual how-to; use this skill for
-the judgment calls that cut across all of them.
+(12). `nemoclaw-model-providers` covers NemoClaw's model config (step 3 and
+any later model change), and `top-tier-nemoclaw-tool-design` holds the
+design rules for every NemoClaw tool. The gated Collaborative VR + web
+accounts track (steps 13–29) starts with `collab-vr-accounts-and-gates`;
+its per-step skills are listed in AGENT.md. Load the step-specific skill
+for the actual how-to; use this skill for the judgment calls that cut
+across all of them.
 
 ## Before starting any task, ask
 
@@ -87,8 +92,8 @@ the judgment calls that cut across all of them.
    Horizon** (https://developers.meta.com/horizon/documentation/unity/unity-mcp-extension/)
    **— not a generic/third-party Unity MCP server?** This is a hard
    requirement for the Meta track, specified in both AGENT.md and
-   PROJECT_STATUS.md, for the same judge-legibility reason as the Llama
-   requirement. Check that page's current setup instructions before wiring
+   PROJECT_STATUS.md, for the same judge-legibility reason as the Muse
+   Spark default. Check that page's current setup instructions before wiring
    or changing the Unity MCP integration — its install steps and tool
    surface can change.
 6. **If this touches how the room is staged/revealed once objects and the

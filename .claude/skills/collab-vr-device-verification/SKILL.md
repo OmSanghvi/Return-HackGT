@@ -7,7 +7,7 @@ description: Use for Build Plan step 25 — end-to-end verification on real hard
 
 ## Gate
 
-`python3 scripts/check_collab_gates.py 25` (needs 20 and 23). BLOCKED means stop.
+`python3 scripts/check_collab_gates.py 25` (needs 20, 23, and 29). BLOCKED means stop.
 
 ## Checklist (dev environment, real Quest headsets, Meta test users)
 

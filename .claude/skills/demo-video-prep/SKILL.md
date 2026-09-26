@@ -44,7 +44,7 @@ depends on. Read all three before drafting or revising a script.
 
 - **Meta write-up** answers: who it's for, how it strengthens connection,
   why AI (specifically NemoClaw's tool-driven scene authoring, running on
-  Llama by default) is essential, and what's live vs. mocked. Use the exact
+  Meta's Muse Spark by default) is essential, and what's live vs. mocked. Use the exact
   structure already in `docs/PROJECT_STATUS.md`'s "Write-up" section — don't
   invent a new one.
 - **AR/VR write-up** leads with the reconstruction pipeline and real-time

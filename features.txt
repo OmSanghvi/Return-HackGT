@@ -61,7 +61,8 @@ integrated, originality, strength of the demo.
      dev-mode log view) makes the "AI is essential and well-integrated"
      criterion concrete instead of asserted:
        - place_objects_in_scene — reasons about realistic room layout for
-         every contributed object and publishes the blueprint.
+         every contributed object and drafts the blueprint; a person
+         approves the publish.
        - read_sketch_layout — optionally reads a Notability sketch's own
          spatial hints (e.g. "lamp is left of chair") to inform placement.
        - stage_immersive_reveal — the agent choreographing the *emotional*
@@ -69,19 +70,19 @@ integrated, originality, strength of the demo.
          narration timing, per-object haptic/sound signatures. This is the
          tool that makes NemoClaw a director of the moment, not just an
          interior-design function.
-       - trigger_unity_scene_update — pushes the finished, agent-authored
-         scene live via Unity MCP.
-   - NemoClaw's own reasoning runs on Llama by default (served via a
-     hosting provider since Meta retired its own Llama API preview in July
-     2026), with Grok kept as a switchable fallback runtime (a config
-     change, not a rebuild) for the alternate Resilience Commons framing.
-     Separately, the sketch → photo image-generation step uses the already-
-     built Azure OpenAI or free Hugging Face backend live, with Grok Imagine
-     as an option for the Resilience Commons framing — Meta Muse Image is
-     deliberately not used anywhere in this project (paid, no free tier).
-     The recorded demo runs on the free mock backend regardless; any paid
-     backend is only a small one-time verification pass, never the judged
-     path.
+       - trigger_unity_scene_update — applies the approved, published scene
+         to the Unity Editor via Meta's Unity MCP Extension.
+   - NemoClaw's own reasoning runs on Meta's Muse Spark through the Meta
+     Model API by default (Meta's own current model through Meta's own
+     API), with the Grok API and Nebius Token Factory (open models such as
+     Llama) switchable by one config value (NEMOCLAW_MODEL_PROVIDER), not a
+     rebuild.
+     There is no image-generation step anywhere in this project: the old
+     sketch → photo pipeline was removed, and Meta Muse Image stays
+     rejected. A Notability sketch is shown as a flat card or reconstructed
+     as a 3D memory plaque. The recorded demo runs on the free mock backend;
+     any live model call is only a small one-time verification pass, never
+     the judged path.
    - The pitch line this earns: NemoClaw doesn't just place objects in a
      room — it is the agent that notices the relationship between people's
      contributions (two in the demo, more if a group grows the room later)
@@ -131,15 +132,13 @@ integrated, originality, strength of the demo.
      "Built for two, architected for more."
 
 9. HONEST ABOUT MOCK VS. LIVE
-   - State clearly that PIPELINE_MODE=mock and SKETCHSCAPE_IMAGE_GEN_BACKEND=mock
-     power the judged recording, and that the real GPU reconstruction
-     pipeline (SAM 3.1 + Fast-SAM3D on an NVIDIA L40S) has been separately
-     verified end-to-end. If a live image-gen pass was also verified (Azure
-     OpenAI, the free Hugging Face backend, or Grok Imagine for the
-     alternate framing — never Meta Muse Image, deliberately not used on
-     cost), mention it as a small one-time pass too. Frame this as a
-     strength: the product works with zero excuses and zero required
-     per-run cost at judging time.
+   - State clearly that PIPELINE_MODE=mock powers the judged recording
+     (including a mock ConnectionInsight labelled "mock"), and that the real
+     GPU reconstruction pipeline (SAM 3.1 + Fast-SAM3D on an NVIDIA L40S)
+     has been separately verified end-to-end. If a live NemoClaw run on
+     Muse Spark was also verified, mention it as a small one-time pass too.
+     Frame this as a strength: the product works with zero excuses and zero
+     required per-run cost at judging time.
 
 10. A SMALL RESPONSIBLE-AI TOUCH (if built, low effort)
    - Contributor memory text is moderated with Llama Guard (Meta's
@@ -177,8 +176,8 @@ it use real 3D reconstruction, does it perform, is the interaction real.
 =================================================================
 
 1. REAL OBJECTS, REAL RECONSTRUCTION — NOT PRESET 3D MODELS
-   - Emphasize that each object is reconstructed from an actual photo (or a
-     hand-drawn Notability sketch) of a real physical thing, via SAM 3.1
+   - Emphasize that each object is reconstructed from an actual photo of a
+     real physical thing, via SAM 3.1
      segmentation + Fast-SAM3D Gaussian-splat reconstruction — not pulled
      from a stock asset library.
    - Verified end-to-end on an NVIDIA L40S: 70 seconds total (42s segment +
@@ -186,10 +185,12 @@ it use real 3D reconstruction, does it perform, is the interaction real.
      number — it's a strong, concrete technical beat.
 
 2. TWO INPUT PATHS INTO THE SAME PIPELINE
-   - Photo path and Notability-sketch path (sketch → AI image generation →
-     photoreal image → same reconstruction pipeline) both land in the same
-     VR room. Show both if time allows — it doubles the "how did you make
-     that" reaction.
+   - Photo path (SAM 3.1 → Fast-SAM3D) and Notability-sketch path (a flat
+     card, or the whole page reconstructed as a 3D memory plaque through
+     the same pipeline) both land in the same VR room. Show both if built
+     and time allows — it doubles the "how did you make that" reaction.
+     The sketch path is Build Plan step 7 and isn't built yet; don't claim
+     it unless it is.
 
 3. GAUSSIAN-SPLAT RENDERING ON-DEVICE, NOT A PRE-BAKED VIDEO
    - UnitySplats renders the real `.ply` splat live on Quest hardware

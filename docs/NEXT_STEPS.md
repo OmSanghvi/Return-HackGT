@@ -1,51 +1,44 @@
-# Build plan and next steps
+# Next steps
 
-## Completed foundation
+The short version. The full, ordered plan with a skill per step is
+`docs/BUILD_PLAN.md`; status is in `docs/PROJECT_STATUS.md`.
 
-- Job-based FastAPI contract: upload, polling, artifact serving, scene JSON,
-  and safe sample edit.
-- Mock mode for a fully free, repeatable portal demo.
-- Isolated worker scripts for prompt-driven SAM 3.1 masking and staged
-  Fast-SAM3D reconstruction.
-- Terraform and an EC2 bootstrap design with SSM access and a bounded
-  auto-stop timer.
-- Unity job client that uses the current API rather than the legacy `/sketch`
-  endpoint.
+## Already done
 
-## Build in this order
+- Job-based FastAPI API: upload, polling, artifact serving, scene JSON, safe
+  scene edits, projects and multi-view assets, versioned blueprints and
+  publication.
+- Mock mode that works fully offline with no GPU or credentials.
+- Local JSON, DynamoDB, and S3 backends (the cloud ones live-verified).
+- The GPU pipeline, verified end-to-end on an L40S: 70 s per object.
+- `identify_subject` mock labeler for uploads with no typed subject.
 
-1. **Prove the desktop experience locally.** Start the backend in `mock` mode,
-   set Unity's API base URL to `http://127.0.0.1:8000`, and record a short
-   portal-reveal video. This is the base demo.
-2. **Create two beautiful precomputed scenes.** Use the already-successful
-   Fast-SAM3D outputs or handcrafted Unity assets. Give the UI a demo picker
-   so connectivity/model failure cannot ruin judging.
-3. **Choose and test one Gaussian-splat renderer.** Add it to Unity in an
-   isolated branch, then implement its adapter behind `GaussianSplatBridge`.
-   Do not change the API contract for renderer-specific code.
-4. **Run one deliberate AWS smoke test.** Start the stopped instance, test SSM
-   and `nvidia-smi`, then stop it. Only after that bootstrap models using the
-   explicit AWS runbook. Never test with a live judge-facing flow first.
-5. **Run one real object end to end.** Supply a centred photo plus short noun
-   phrase (for example `red backpack`). Save the PLY, mask, preview, elapsed
-   time, and failure logs.
-6. **Harden the demo.** Put a 90-second UI timeout around live jobs, surface
-   `mask_review`, provide a visible fallback button, and stop EC2 immediately
-   after tests.
+## MVP next (Build Plan steps 1–12)
 
-## Deferred by design
+1. **Steps 1–2:** `Contributor` / `Contribution` / `ConnectionInsight`
+   models and endpoints, as lists of any length.
+2. **Step 5:** `connection/compose`, mock path first. This is the most
+   important missing piece.
+3. **Step 8:** attribution in Unity without UI text panels.
+4. **Step 11:** remove the offline builder's placeholder primitives and
+   render a real PLY.
+5. **Step 12:** record the demo in mock mode.
 
-- Multi-user queues, persistent DynamoDB/S3 job state, authentication, and
-  mobile AR. They are valuable post-hackathon but would reduce demo reliability.
-- Fully automatic multi-object segmentation. The current product contract is
-  one prominent object or a user-provided mask.
-- Live Notability automation. Export/share an image into Unity instead.
+Steps 3–4 and 6 (NemoClaw runtime, layout tools, immersive staging) make
+the story strong. Steps 7, 9, and 10 are optional polish. If time runs
+short, follow the "If time runs out" order at the end of the Build Plan.
 
-## Definition of done for judging
+## Collaborative VR + web accounts (steps 13–29)
 
-- A judge can select a photo, enter a noun phrase, and see a clear progress
-  state.
-- An offline instant-showcase scene and a mock reconstruction both reliably
-  open through the portal.
-- “Make the tree twice as tall” visibly changes the world.
-- The UI truthfully distinguishes real SAM3D output from fallback content.
+Post-MVP and gated; never take time from steps 1–12 for it. Step 15
+(revision safety) can start now, and step 13 needs account setup from you.
+The suggested order is at the end of `docs/KNOWN_ISSUES.md`.
+
+## Rules that stay in force
+
+- Never start EC2, run a GPU job, `terraform apply`, or install NemoClaw
+  without explicit approval.
+- Failed objects are left out of the room, never replaced with
+  placeholders.
+- Mock output is always labelled `mock` and never presented as a model
+  result.

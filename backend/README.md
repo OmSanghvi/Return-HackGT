@@ -1,8 +1,11 @@
 # SketchScape backend
 
-This is the stable boundary between Unity and reconstruction infrastructure. It
-works without a GPU in `mock` mode, so the portal reveal, polling, scene
-loading, and safe edit flow are demoable before SAM 3D is deployed.
+The only process clients (Unity, and later the web app) talk to, and the
+authority for project state, blueprints, and safe scene edits. It works
+without a GPU in `mock` mode, so upload, polling, scene loading, and safe
+edits are demoable without AWS. Planned additions (contributors,
+`connection/compose`, auth, the room API, durable jobs) are in
+`docs/BUILD_PLAN.md`.
 
 ## Run locally
 
@@ -21,11 +24,21 @@ Open `http://127.0.0.1:8000/docs`, submit a photo to
 ```bash
 cd backend
 .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m unittest test_api.py test_storage.py
+.venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py
 ```
 
-This exercises only `PIPELINE_MODE=mock`; it does not contact AWS or load a
-model.
+51 tests (2 are skipped either way, depending on whether `boto3` is
+installed). They exercise only `PIPELINE_MODE=mock`; they don't contact AWS
+or load a model. From the repo root, `bash scripts/verify_local.sh` runs
+these plus the syntax, JSON, and secret checks.
+
+## Subject labeling
+
+When an upload has no `subject_hint` and no mask, `subject_labeler.py`
+(`identify_subject`) supplies the SAM 3.1 prompt, and the job records
+`subject_hint_source: "nemoclaw"`. A typed hint always wins. Selected by
+`SKETCHSCAPE_SUBJECT_LABELER`: `mock` (default, deterministic, offline) or
+`nemoclaw` (live path, Build Plan step 4a, not built yet).
 
 ## Notability sketches
 
@@ -41,7 +54,9 @@ the plan; neither is built yet.
 
 ## Unity contract
 
-1. Upload one centred-object photo as `image`; `mask` and `subject_hint` are optional.
+1. Upload a photo as `image`; `mask` and `subject_hint` are optional (the
+   labeler fills in a missing hint). One object per job today; several
+   objects per photo are Build Plan steps 26–27.
 2. Poll `GET /v1/reconstructions/{job_id}` every 1–2 seconds.
 3. On completion, load each `asset_url`. A real SAM 3D result is a
    Gaussian-splat `.ply`, so Unity needs a splat renderer rather than a GLB loader.
@@ -76,16 +91,14 @@ A failed additional view never demotes an asset that already has a READY view.
 The legacy `reconstruction_job_id` field mirrors `views[0].reconstruction_job_id`
 for backward compatibility.
 
-Projects, assets, blueprint revisions, and publication records are now durably
-persisted, so this authoring state survives an API restart. The store is a
-single-process, JSON-file-backed implementation (`backend/storage.py`) that
-writes `authoring-state.json` under `SKETCHSCAPE_DATA_DIR` with atomic
-replace-on-write. It intentionally implements the same surface a future
-S3/DynamoDB backend would expose; concurrency-safe multi-writer durability
-remains the roadmap's S3+DynamoDB slice.
+Projects, assets, blueprint revisions, and publication records are durably
+persisted through `backend/storage.py` (local JSON by default, DynamoDB in
+cloud mode; see below), so this authoring state survives an API restart.
 
-Reconstruction *jobs* remain process-local by design: a live inference cannot
-survive a restart, so persisting job state would be misleading. Publication
+Reconstruction *jobs* are still process-local: a restart loses them, and a
+second API instance can't answer a poll for them. Durable, lease-based jobs
+in the store are planned in Build Plan step 26, so run one API process
+until then. Publication
 history is append-only — republishing an earlier revision appends a new record
 rather than rewriting the log. The schema is
 `shared/experience-blueprint.schema.json`.
@@ -98,7 +111,10 @@ selected by `SKETCHSCAPE_STORAGE_BACKEND`:
 - `local` (default): `LocalJsonStore` writes `authoring-state.json` under
   `SKETCHSCAPE_DATA_DIR` with atomic replace-on-write. No external service or
   extra dependency is required. This powers the demo and the tests.
-- `dynamodb`: `DynamoDbStore` gives concurrency-safe cloud durability. It reads
+- `dynamodb`: `DynamoDbStore` gives cloud durability, live-verified against
+  the real table. Its appends aren't conditional yet, so two API instances
+  can still overwrite each other's revisions; Build Plan step 15 fixes
+  that. It reads
   `SKETCHSCAPE_DYNAMODB_TABLE` (and optional `AWS_REGION`) and uses the standard
   AWS credential chain. `boto3` is imported lazily and is *not* in the base
   install — add it with `pip install -r requirements-cloud.txt`. Selecting this
@@ -118,9 +134,13 @@ Zero-padded sort keys keep `Query` results in creation order. Blueprint
 revisions and publication records are never overwritten, preserving the
 append-only publication history.
 
-Both backends persist metadata only; uploaded images and reconstruction
-artifacts stay on the local data directory. Migrating local state to DynamoDB
-(and artifacts to S3) is the roadmap's concurrency-safe durability slice.
+Both store backends persist metadata only. Reconstruction artifacts (PLY,
+mask, preview) go through `backend/artifact_store.py`, selected by
+`SKETCHSCAPE_ARTIFACTS_BACKEND`: `local` (default, the data directory) or
+`s3` (`S3ArtifactStore`, presigned-redirect serving, live-verified).
+Uploaded source images stay on the API host's disk in both modes until
+Build Plan step 26. The full planned data layout is in
+`docs/DATA_ARCHITECTURE.md`.
 
 ## Named interactive actions
 
@@ -145,16 +165,16 @@ this structured policy.
 
 ## GPU-worker boundary
 
-No HF/Camber credential or CUDA dependency is put in this API. A single GPU
-worker must auto-segment a centred object (or request a one-tap selection for
-ambiguous images), run SAM 3D Objects, save its PLY/mask/preview, and emit the
-manifest in `worker_contract.json`. Non-mock mode intentionally fails until a
-real worker adapter is connected; this avoids falsely claiming a cloud result.
+No HF credential or CUDA dependency is put in this API. The GPU worker
+segments the object with SAM 3.1, runs Fast-SAM3D, saves its
+PLY/mask/preview, and emits the manifest in `worker_contract.json`. Only
+`mock` and `aws-local` pipeline modes exist; any other value fails the job
+instead of falsely claiming a cloud result.
 
 The worker reports privately to `POST /v1/internal/reconstructions/{job_id}/result`
 with a `result` JSON form field, `ply`, `mask`, and optionally `preview`. Set
-the same `SKETCHSCAPE_WORKER_TOKEN` in the backend and the Camber job; do not
-put it in Unity. The endpoint will publish safe relative asset URLs only after
+the same `SKETCHSCAPE_WORKER_TOKEN` in the backend and the worker; never put
+it in Unity or the web app. The endpoint will publish safe relative asset URLs only after
 it receives both the PLY and the aligned mask.
 
 The same private token gives a worker temporary pull access to
@@ -164,8 +184,9 @@ without opening the upload directory to the public internet.
 
 ## Single-GPU AWS mode
 
-`PIPELINE_MODE=aws-local` is the cost-controlled EC2 mode. It runs one worker
-at a time on the same host as this API. The worker obtains the private image
+`PIPELINE_MODE=aws-local` is the cost-controlled EC2 mode, verified
+end-to-end on an L40S (g6e.xlarge). It sends one job at a time to
+`worker/worker_server.py` on the same host as this API. The worker obtains the private image
 and `subject_hint`, runs local SAM 3.1 concept segmentation to create the
 mask, releases it, then runs staged Fast-SAM3D. Set a short noun phrase such
 as `red backpack` as `subject_hint`; a missing hint with no uploaded mask ends

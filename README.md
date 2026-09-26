@@ -1,47 +1,59 @@
-# SketchScape
+# SketchScape — Shared Room
 
-SketchScape turns a photographed or drawn object into a small interactive 3D
-scene. The hackathon demo is deliberately split into reliable layers:
+Two or more people who care about each other each contribute a meaningful
+object: a photo, a Notability sketch, or a handwritten letter. AI (NemoClaw)
+works out why those objects belong together, and Unity turns that connection
+into one room they can walk through on Meta Quest. It's being built for
+Meta's "Bringing People Closer Together with AI" challenge.
 
 ```text
-Unity desktop experience
-        |
-FastAPI job API (local mock mode or one GPU worker)
-        |
-SAM 3.1 concept mask -> Fast-SAM3D -> Gaussian-splat PLY
+Photo  -> SAM 3.1 mask -> Fast-SAM3D -> Gaussian-splat PLY -> project catalog
+Contributions (2+) -> connection/compose (NemoClaw) -> versioned blueprint
+Published blueprint -> compiled scene -> Unity room on Quest
 ```
 
-The portal and scene-edit interaction work today without a GPU in `mock` mode.
-Real reconstruction is an opt-in AWS deployment; it is never started by local
-commands in this repository.
+The 3D reconstruction pipeline is the plumbing; the product is the
+connection the AI surfaces between everyone's contributions.
+
+## Start here
+
+| Read | For |
+| --- | --- |
+| [`AGENT.md`](AGENT.md) | Rules every agent and contributor follows, what's built, and the skill for each step |
+| [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) | Plain-language status, the pitch, and the demo plan |
+| [`docs/BUILD_PLAN.md`](docs/BUILD_PLAN.md) | The ordered, step-by-step plan (MVP steps 1–12; gated Collaborative VR track 13–29) |
+| [`features.txt`](features.txt) | Features to hit in the demo video |
 
 ## Repository map
 
 | Path | Purpose |
 | --- | --- |
-| `backend/` | Token-free Unity-facing API, jobs, artifacts, scene state. |
-| `worker/` | GPU-only SAM 3.1 + staged Fast-SAM3D worker scripts. |
-| `shared/` | JSON scene contract owned by the backend. |
-| `infra/aws/` | Terraform and bootstrap scripts. These do nothing until a person runs Terraform. |
-| `docs/` | Architecture, build plan, infrastructure roadmap, and demo runbook. |
-| `../HackGTUnity/` | The existing Unity 6 project. Its integration scripts are installed there. |
-| `*_kaggle_notebook.ipynb` | Prior experiment notebooks; not the live demo path. |
+| `backend/` | FastAPI API: projects, assets, jobs, blueprints, publication, safe scene edits. |
+| `worker/` | GPU-only SAM 3.1 + staged Fast-SAM3D worker. |
+| `shared/` | Blueprint (authoring) and scene (runtime) JSON schemas. |
+| `config/` | NemoClaw tool/model/MCP inventories, Unity scene profile, Collaborative VR gates. No credentials. |
+| `infra/aws/` | Terraform and bootstrap scripts. They do nothing until a person runs Terraform. |
+| `scripts/` | Local verification, gate checks, AWS preflight, Unity export. |
+| `docs/` | Status, build plan, architecture, data architecture, known issues. |
+| `.claude/skills/` | One Claude Code skill per Build Plan step. |
+| `../HackGTUnity/` | The Unity 6 project (outside this repo). It's being cleaned up, so check its current contents rather than trusting older docs. |
+| `*_kaggle_notebook.ipynb`, `sam3d_hf_*` | Earlier experiments; not the live path. |
 
-## Safest development loop
+## Run it locally (no GPU, no AWS)
 
 ```bash
 ./scripts/start_mock_demo.sh
 ```
 
-Then open the Unity project at `../HackGTUnity`, press Play, and use the
-**Reconstruct sketch** panel. It uploads an image, polls the job, and reveals
-the portal using placeholder scene objects. This costs nothing and proves the
-full client/API flow.
+This starts the backend with `PIPELINE_MODE=mock` at
+`http://127.0.0.1:8000` (API docs at `/docs`). Mock mode returns
+deterministic results labelled `mock` and never claims a model ran. Point
+the Unity project's API base URL there to test the client flow.
 
-Read [the integration guide](docs/INTEGRATION_GUIDE.md) and
-[infrastructure roadmap](docs/INFRASTRUCTURE_ROADMAP.md) before using AWS,
-NemoClaw, or Unity MCP. Provisioning and external installations must be invoked
-deliberately and manually.
+Real reconstruction runs on an AWS GPU instance and is never started by
+local commands. Starting EC2, running a GPU job, `terraform apply`, or
+installing NemoClaw always needs explicit approval (AGENT.md Hard Rule 3).
+See [`infra/aws/README.md`](infra/aws/README.md).
 
 ## Local verification
 
@@ -49,5 +61,6 @@ deliberately and manually.
 ./scripts/verify_local.sh
 ```
 
-This performs source checks and mock API tests only. It has no AWS, Docker, or
-GPU commands.
+Syntax checks, JSON checks, the Collaborative VR gate status and secret
+scan, and (with `backend/.venv` set up) the backend tests. No AWS, Docker,
+or GPU commands.

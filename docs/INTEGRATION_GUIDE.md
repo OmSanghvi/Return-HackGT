@@ -2,7 +2,7 @@
 
 ## Current integration versus target authoring flow
 
-Sections 1–7 cover both the desktop demo and the first orchestration slice. Project/catalog APIs, typed blueprint validation/versioning/publication, an append-only publication log, base-scene compilation, and the Unity published-experience loader are implemented, with authoring state durably persisted to a local single-process store (`backend/storage.py`) that survives an API restart. NemoClaw planning automation, concurrency-safe cloud storage (S3/DynamoDB), review screenshots, OpenXR, and AR Foundation adapters are not yet implemented.
+Sections 1–7 cover both the desktop demo and the first orchestration slice. Project/catalog APIs, typed blueprint validation/versioning/publication, an append-only publication log, base-scene compilation, and the Unity published-experience loader are implemented, with authoring state durably persisted through `backend/storage.py` (local JSON by default; DynamoDB and S3 backends are implemented and live-verified, but not yet switched on for the EC2 API). NemoClaw planning automation, review screenshots, and AR Foundation adapters are not yet implemented. For the ordered plan, see `docs/BUILD_PLAN.md`.
 
 The target data flow is:
 
@@ -133,11 +133,13 @@ backup, not a replacement for manually stopping the GPU.
 ## 5. Gaussian splats in Unity
 
 The backend returns a `.ply` for real reconstruction. `glTFast` only loads
-GLTF/GLB; it cannot render Gaussian-splat PLY files. Install one renderer,
-then attach its component to the same GameObject as `GaussianSplatBridge` and
-configure its public `LoadPly(string url)` method. The bridge calls it only for
-`.ply` artifacts. Until then, Unity keeps a clearly marked semantic fallback
-instead of falsely showing a mesh.
+GLTF/GLB; it cannot render Gaussian-splat PLY files. The chosen renderer is
+UnitySplats (section 6), used by the offline builder. For the Play-mode
+loader, attach an adapter component with a public `LoadPly(string url)`
+method to the same GameObject as `GaussianSplatBridge`; the bridge calls it
+only for `.ply` artifacts. No adapter is attached yet, so Play mode keeps
+its demo fallback. That fallback is for the desktop demo only; the VR room
+never shows placeholder primitives (AGENT.md Hard Rule 7).
 
 ## 6. Offline authoring and Meta Quest
 
@@ -177,7 +179,9 @@ unverified without Quest hardware.
 The project pins MIT-licensed `UnitySplats` v1.2.0, which imports packaged PLY
 files and supports Unity 6, XR, Android Vulkan, and a CPU sorting fallback. The
 offline builder creates `GsplatRenderer` objects for successfully imported local
-PLYs and semantic primitives only when an expected local artifact is missing.
+PLYs and, today, semantic primitives when an expected local artifact is
+missing. That fallback breaks AGENT.md Hard Rule 7 and is removed in Build
+Plan step 11 (missing objects are skipped).
 Quest readiness fails while any remote reconstruction placeholder remains.
 Quest rendering is still hardware-unverified and splat counts must be profiled
 on the target device.

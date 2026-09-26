@@ -5,7 +5,7 @@ description: Plan, configure, validate, or operate SketchScape AWS GPU inference
 
 # SketchScape infrastructure
 
-Treat the repository documentation and contracts as authoritative. Read `docs/ARCHITECTURE.md`, `docs/INTEGRATION_GUIDE.md`, and `docs/INFRASTRUCTURE_ROADMAP.md` before changing infrastructure. Published experience blueprints and their referenced project assets are the authoring source of truth; generated Unity scene state is reproducible output.
+Treat the repository documentation and contracts as authoritative. Read `AGENT.md` (hard rules), `docs/BUILD_PLAN.md` (which step this is), `docs/ARCHITECTURE.md`, `docs/DATA_ARCHITECTURE.md`, `docs/INTEGRATION_GUIDE.md`, and `docs/INFRASTRUCTURE_ROADMAP.md` before changing infrastructure. Build Plan steps 13–29 are gated: run `python3 scripts/check_collab_gates.py <step>` first. Published experience blueprints and their referenced project assets are the authoring source of truth; generated Unity scene state is reproducible output.
 
 ## Safety boundaries
 
@@ -13,7 +13,8 @@ Treat the repository documentation and contracts as authoritative. Read `docs/AR
 - Never put AWS, Hugging Face, worker, Unity Cloud, or MCP credentials in source control, scene assets, command arguments, or chat output.
 - Preserve `PIPELINE_MODE=mock` as the default and as an offline fallback.
 - Keep NemoClaw and Unity MCP in the development control plane. The Unity client must call only the public backend API and must never invoke agent/MCP tools at runtime.
-- Keep SAM 3.1 and Fast-SAM3D in separate environments. On a 16 GiB T4, run them sequentially and release segmentation memory before reconstruction.
+- Keep SAM 3.1 and Fast-SAM3D in separate environments. Within a job, run them sequentially and release segmentation memory before reconstruction. Keep `SKETCHSCAPE_GPU_CONCURRENCY=1` until an approved VRAM benchmark on that instance type (a 16 GiB T4 always stays at 1). The pipeline is verified on an L40S (g6e.xlarge).
+- Never apply the DynamoDB GSI/TTL Terraform change (needed by steps 18 and 26) without explicit approval.
 
 ## AWS workflow
 
@@ -26,7 +27,8 @@ Treat the repository documentation and contracts as authoritative. Read `docs/AR
 
 ## Unity and MCP workflow
 
-- The Unity project is separate from this repository. Confirm its project root before changing it.
+- The Unity project (`../HackGTUnity`) is separate from this repository and is being cleaned up. Confirm its project root and current contents before changing it.
+- For Unity MCP, use Meta's Unity MCP Extension for Horizon (pinned commit), never a generic third-party Unity MCP server. It edits the Editor only; live rooms change through the backend.
 - Use `config/unity/sketchscape-scene.profile.json` as desired state; discover actual GameObject names and component IDs through read-only MCP inspection before writes.
 - Route authored experiences through project assets, validated blueprint revisions, publication, and the editor-time `SketchScapeOfflineExperienceBuilder`; do not make opaque MCP scene edits the source of truth.
 - Treat `SketchScapeExperienceCompiler` as preview-only. Final builds must use saved generated scenes and packaged assets, with no NemoClaw/MCP/authoring-backend runtime dependency.

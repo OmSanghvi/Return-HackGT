@@ -21,6 +21,13 @@ per `AGENT.md`'s hard rules and `.agents/skills/sketchscape-infrastructure/SKILL
 - Stop the EC2 instance immediately after any bounded smoke test, even a
   successful one.
 
+## Current status
+
+The GPU half is already done: SAM 3.1 → Fast-SAM3D was verified end-to-end
+on an NVIDIA L40S (g6e.xlarge, us-east-2) — 70 s total, a 53 MB PLY (see
+`docs/PROJECT_STATUS.md`). Unless something changed on the instance, start
+at concrete step 2. Re-run step 1 only with explicit approval.
+
 ## Concrete steps
 
 1. **GPU end-to-end verification** (`AGENT.md` item 2): start the stopped EC2

@@ -88,4 +88,5 @@ If BLOCKED, stop (see `collab-vr-accounts-and-gates`). Done when
 
 `python3 scripts/check_collab_gates.py --done 15` and
 `bash scripts/verify_local.sh` pass. Update the test count in AGENT.md
-Hard Rule 8.
+(Hard Rule 8, the "fully built" table, and "How to validate") and in
+`docs/PROJECT_STATUS.md`.

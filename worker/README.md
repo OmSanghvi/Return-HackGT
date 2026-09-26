@@ -1,75 +1,66 @@
 # GPU worker
 
-`run_job.py` is the job entrypoint for a pre-baked Fast-SAM3D GPU image. It:
+Runs SAM 3.1 segmentation and staged Fast-SAM3D reconstruction on the EC2 GPU
+host, never in the API process. Verified end-to-end on an NVIDIA L40S
+(g6e.xlarge): 70 s per object (42 s SAM 3.1 + 28 s Fast-SAM3D), producing a
+53 MB PLY. Starting the instance or running any GPU job needs explicit
+approval (AGENT.md Hard Rule 3).
 
-1. Pulls a job's private input from the backend.
-2. Uses a supplied aligned mask, or calls a separate automatic-mask command.
-3. Runs the staged Fast-SAM3D runner that has already been validated on the
-   16 GB Kaggle T4.
-4. Streams the resulting PLY and mask back to the private callback endpoint.
+## How it runs on EC2 (`PIPELINE_MODE=aws-local`)
 
-## Required environment
+`infra/aws/bootstrap_instance.sh` installs three systemd services on the GPU
+host, all on loopback except the API:
 
-```text
-SKETCHSCAPE_API_URL=https://api.example.com
-SKETCHSCAPE_JOB_ID=<backend job id>
-SKETCHSCAPE_WORKER_TOKEN=<shared secret>
-FASTSAM3D_STAGED_RUNNER=/opt/Fast-SAM3D/run_fastsam3d_staged.py
-FASTSAM3D_REPO_DIR=/opt/Fast-SAM3D
-FASTSAM3D_CHECKPOINT_DIR=/models/sam3d-checkpoints
-```
+| Service | Process | Port |
+| --- | --- | --- |
+| `sketchscape-sam31` | `segment_sam31_local.py --serve` (warm SAM 3.1, its own venv) | 8002 |
+| `sketchscape-worker` | `worker_server.py` (warm Fast-SAM3D, its own venv) | 8001 |
+| `sketchscape` | the FastAPI backend | 8000 |
 
-The staged runner also expects the source patches and CUDA/Python dependency
-set from `fastsam3d_kaggle_notebook.ipynb`; bake and smoke-test those in the
-image/volume before accepting live jobs. This worker deliberately does not run
-`pip install`, clone a repo, or download model weights during inference.
+For each job the API posts `{job_id, subject_hint}` to
+`worker_server.py`, which:
 
-For automatic segmentation, set `SKETCHSCAPE_AUTO_MASK_COMMAND` to an absolute
-command template. It receives `{image}`, `{mask}`, and `{prompt}`, and must create a
-white-object/black-background PNG of identical dimensions:
+1. Pulls the job's private image (and mask, if one was uploaded) from the
+   API's `/v1/internal/...` routes with the worker token.
+2. If there's no mask, asks the warm SAM 3.1 server for one using
+   `subject_hint` as a concept prompt (falling back to running
+   `segment_sam31_local.py` as a subprocess). SAM 3.1 picks one centre-most
+   instance and returns `mask_review` rather than guess when that's unsafe
+   or the hint is empty.
+3. Runs staged Fast-SAM3D with the models already loaded, so there's no
+   per-job cold start.
+4. Streams the PLY, mask, and preview back to
+   `POST /v1/internal/reconstructions/{job_id}/result`.
 
-```text
-SKETCHSCAPE_AUTO_MASK_COMMAND='python /opt/mask/segment.py --image {image} --output {mask} --prompt {prompt}'
-```
+Within a job, SAM 3.1 and Fast-SAM3D never hold GPU memory at the same time
+(Hard Rule 5). `worker_server.py` takes one job at a time; a second gets
+429. Several objects per photo, a durable job queue, a GPU-host dispatcher,
+and benchmarked concurrency are Build Plan steps 26–27
+(`gpu-multi-object-worker` skill).
 
-If the command is absent or declines an ambiguous photo, the worker reports
-`mask_review`; Unity should then show a one-tap object picker rather than make
-a wrong reconstruction.
+## One-time bootstrap
 
-The included command is the conservative default for one centred object:
+Follow `infra/aws/README.md` and `infra/aws/SMOKE_TEST_GUIDE.md`.
+`bootstrap_instance.sh` runs `bootstrap_fastsam3d.sh` and
+`bootstrap_sam31_local.sh`, which build two separate virtual environments
+with pinned packages, apply the Fast-SAM3D source corrections, cache the
+gated model weights using a one-time `HF_TOKEN` (unset it right after), and
+require an import preflight before writing their success markers. Nothing is
+installed or downloaded during inference.
 
-```bash
-export SKETCHSCAPE_AUTO_MASK_COMMAND="$FASTSAM3D_ENV_DIR/bin/python /path/to/worker/segment_centered.py --image {image} --output {mask}"
-```
+## Other files
 
-`segment_centered.py` downloads no model during the demo—the bootstrap caches
-its SAM ViT-B weights. It intentionally exits with `mask_review` for an image
-where it cannot identify a plausible centred foreground object.
+- `run_job.py`: the original one-shot job entrypoint (pull input, mask,
+  staged Fast-SAM3D, post back). Still works; the persistent
+  `worker_server.py` replaced it for the EC2 path.
+- `run_fastsam3d_staged.py`, `prepare_fastsam3d_source.py`: the staged
+  runner and its source patches.
+- `segment_centered.py`: an older conservative mask for one centred
+  foreground object, from the Kaggle experiments.
+- `SKETCHSCAPE_AUTO_MASK_COMMAND`: a command template (`{image}`, `{mask}`,
+  `{prompt}`) that `run_job.py` uses to make a white-on-black mask; the
+  bootstrap points it at `segment_sam31_local.py`.
 
-For the AWS local-SAM 3.1 mode, use `segment_sam31_local.py` from the separate
-SAM 3.1 virtual environment. It uses the short `subject_hint` supplied to the
-public job as a concept prompt, chooses one centre-most instance, and exits
-with `mask_review` when that selection would be unsafe. It has no third-party
-per-image API call.
-
-## One-time GPU bootstrap
-
-The staged runner is [run_fastsam3d_staged.py](run_fastsam3d_staged.py).
-Before any demo, copy this `worker/` folder to persistent storage and run
-`bootstrap_fastsam3d.sh` once on a Camber GPU node:
-
-```bash
-export FASTSAM3D_PERSIST_ROOT=/persistent/sketchscape-sam3d
-export HF_TOKEN='approved-token-in-job-secret-store'
-bash worker/bootstrap_fastsam3d.sh
-```
-
-It installs the exact pinned CUDA/Python packages from the Kaggle success,
-applies three source corrections, caches SAM 3D and MoGe weights, and requires
-an import preflight before it writes its success marker. It does **not** install
-or download anything during `run_job.py` inference.
-
-Run that bootstrap as a dedicated Camber GPU job, then run one supplied photo
-and mask through `run_job.py` before connecting Unity. Camber documents a
-single-GPU `XSMALL` GPU node as one L4/24 GB VRAM; this project uses staged
-loading because Meta's default SAM 3D setup says 32 GB VRAM minimum.
+`fastsam3d_kaggle_notebook.ipynb` and `sam3d_kaggle_notebook.ipynb` in the
+repo root are where the pinned dependency set was first proven on a 16 GB
+Kaggle T4. They're history, not the live path.

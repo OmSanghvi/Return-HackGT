@@ -1,6 +1,6 @@
 # Team task split — 4 parallel tracks
 
-This maps `docs/BUILD_PLAN.md`'s 13 steps onto 4 people so each can work
+This maps `docs/BUILD_PLAN.md`'s MVP steps (1–12, plus 4a and 6a) onto 4 people so each can work
 without stepping on the others' files, then merge in a short, predictable
 integration pass at the end. `BUILD_PLAN.md` is still the source of truth
 for *how* to do each step (skill name, files, concrete steps, definition of
@@ -52,8 +52,8 @@ Extension setup, `config/nemoclaw/sketchscape-tools.json`,
 `backend/subject_labeler.py` (mock path already built — this track adds the
 live path only).
 
-**Skills:** `nemoclaw-agent-setup`, `nemoclaw-scene-tools`,
-`nemoclaw-subject-labeling`.
+**Skills:** `nemoclaw-agent-setup`, `nemoclaw-model-providers`,
+`nemoclaw-scene-tools`, `nemoclaw-subject-labeling`.
 
 **Independent of Track 1's files** — this is agent runtime + tool
 registration, not backend model code. It only needs the *signature* of
@@ -62,8 +62,10 @@ registration, not backend model code. It only needs the *signature* of
 
 **Definition of done:** NemoClaw is a live agent that can call
 `place_objects_in_scene`/`read_sketch_layout` against Meta's Unity MCP
-Extension; `identify_subject`'s live path runs on NemoClaw's Llama vision
-runtime with the mock path still the default (`SKETCHSCAPE_SUBJECT_LABELER=mock`).
+Extension; `identify_subject`'s live path runs inside NemoClaw on the
+configured vision model (`NEMOCLAW_VISION_MODEL`; Muse Spark on the default
+`meta` provider, see `nemoclaw-model-providers`) with the mock path still
+the default (`SKETCHSCAPE_SUBJECT_LABELER=mock`).
 
 ---
 
@@ -115,7 +117,8 @@ the person actually holding the AWS account, not just "the team."
 
 **Definition of done:** a Notability sketch shows up in the room as a flat
 card or SAM3D plaque; the GPU worker is verified end-to-end and cloud
-backends (DynamoDB/S3) are activated; Unity renders a real Fast-SAM3D `.ply`
+backends (DynamoDB/S3) are activated on the EC2 API (the GPU pipeline itself
+is already verified on an L40S); Unity renders a real Fast-SAM3D `.ply`
 splat with no placeholder-primitive fallback.
 
 ---

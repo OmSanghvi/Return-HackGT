@@ -35,7 +35,7 @@ this plan does not re-litigate them, only sequences the work.
 | 7 | Notability sketch: direct display (flat quad) + SAM3D memory-plaque path | — | Not started | `sketch-image-gen-backends` |
 | 8 | Unity: diegetic attribution + bounded per-contributor edit | 5, 6 | Not started | `unity-diegetic-attribution` |
 | 9 | Meta hardware polish (passthrough, hand tracking, MRC, Quest identity, Llama Guard) | 8 | Not started | `meta-hardware-polish` |
-| 10 | GPU end-to-end verification + cloud backend activation | — | Partially built | `gpu-cloud-activation` |
+| 10 | GPU end-to-end verification + cloud backend activation | — | GPU verified (L40S); cloud env vars on the EC2 API not set yet | `gpu-cloud-activation` |
 | 11 | Unity offline builder fix + real-PLY splat rendering | — | Partially built | `unity-offline-builder-and-rendering` |
 | 12 | Demo video + write-up | 1–11 (as available) | Not started | `demo-video-prep` |
 
@@ -439,6 +439,8 @@ GPU or paid API. No `image_gen.py`, no `azure`/`hf`/`grok` image backends, no
 ## Step 10 — GPU end-to-end verification + cloud backend activation
 
 **Goal:** the already-documented infra work in `AGENT.md` items 2–3 — included here only for sequencing completeness; the concrete steps live in `infra/aws/SMOKE_TEST_GUIDE.md`.
+
+**Status:** the GPU half is done — verified end-to-end on an NVIDIA L40S (g6e.xlarge, us-east-2): 70 s total, a 53 MB / 814,432-vertex PLY (see `docs/PROJECT_STATUS.md`). What's left is setting the cloud backend env vars on the EC2 API process. Re-run the GPU part only if something changed, and only with approval.
 
 **Concrete steps:** follow `infra/aws/SMOKE_TEST_GUIDE.md` exactly — start EC2 → SSM + `nvidia-smi` → publish bundle → bootstrap with HF token (one-time, unset immediately) → SAM 3.1 smoke test → Fast-SAM3D smoke test → full API callback → stop instance. Then set `SKETCHSCAPE_STORAGE_BACKEND=dynamodb`, `SKETCHSCAPE_DYNAMODB_TABLE`, `SKETCHSCAPE_ARTIFACTS_BACKEND=s3`, `SKETCHSCAPE_ARTIFACTS_BUCKET` on the running API process (Step 5 of the same guide). **Never run any of this without explicit user approval** — it costs money.
 

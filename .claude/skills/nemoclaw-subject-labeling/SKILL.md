@@ -13,10 +13,12 @@ object is the subject and hands SAM 3.1 a short noun phrase.
 - **User-typed `subject_hint` always wins.** Only label when it is empty.
 - **Several subjects per upload** (updated 2026-09-25). Return a list of
   noun-phrase labels, most prominent first, capped by
-  `SKETCHSCAPE_MAX_OBJECTS_PER_UPLOAD` (default 8). They become SAM 3.1
-  multi-concept prompts, and the person picks which found objects to
-  reconstruct (Build Plan steps 26–27). The single-object legacy path uses
-  the first label.
+  `SKETCHSCAPE_MAX_OBJECTS_PER_UPLOAD` (default 8). They're used only for
+  naming and the optional "Suggest objects" helper, where they become
+  *suggested* text selections the person keeps or deletes. The person
+  chooses which objects to mask and generate by clicking, boxing, or
+  naming them on the website (Build Plan steps 20, 26–27). The
+  single-object legacy path uses the first label.
 - **Labels are SAM 3.1 concept prompts:** a noun plus one or two
   distinguishing attributes ("wicker armchair", "blue ceramic mug"). Never a
   relational sentence ("the chair left of the table") — SAM 3.1 does not

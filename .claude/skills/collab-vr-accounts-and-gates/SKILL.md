@@ -59,7 +59,7 @@ description: Use before ANY work on the Collaborative VR + web accounts track (B
 | 24 | NemoClaw room tools | 3, 15, 16, 21 |
 | 25 | Two or more headsets + web, end to end | 20, 23, 29 |
 | 26 | Durable jobs, shared uploads, multi-object upload API, batch polling | 15 |
-| 27 | GPU worker: multi-object segmentation, dispatcher, benchmarked concurrency | 26 |
+| 27 | GPU worker: SAM 3.1 masks from person-chosen selections, dispatcher, benchmarked concurrency | 26 |
 | 28 | Letters: backend, recipient-only open, web form | 17, 19, 21, 26 |
 | 29 | Letters in VR: envelope + 3D paper page | 22, 28 |
 

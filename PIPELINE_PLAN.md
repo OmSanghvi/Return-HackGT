@@ -1,67 +1,63 @@
-# SketchScape: demo-safe reconstruction pipeline
+# SketchScape: reconstruction pipeline
 
-## Product flow
+How one photo becomes a Gaussian-splat PLY. This is the plumbing under
+Shared Room; for the product and the ordered plan, see `AGENT.md` and
+`docs/BUILD_PLAN.md`.
+
+## Flow today (one object per job)
 
 ```text
-Unity photo upload
-  -> SketchScape API creates a job
-  -> GPU worker auto-selects one centred object
-  -> SAM 3D Objects produces a Gaussian-splat PLY
-  -> worker privately uploads PLY + mask + preview
-  -> Unity polls job, downloads PLY, triggers portal reveal
+Client upload (POST /v1/reconstructions or /v1/projects/{id}/assets)
+  -> API validates the image and creates a job (202 + poll_url)
+  -> subject_hint: typed by the person, or labelled by identify_subject
+     (mock today; NemoClaw later, Build Plan step 4a)
+  -> PIPELINE_MODE=mock: deterministic scene labelled `mock`, no GPU
+  -> PIPELINE_MODE=aws-local: worker_server.py on the EC2 GPU host
+       SAM 3.1 concept mask from subject_hint  (memory released)
+       -> staged Fast-SAM3D -> PLY + mask + preview
+       -> private worker callback to the API
+  -> client polls GET /v1/reconstructions/{job_id} and loads asset_url
 ```
 
 The API owns validation, job state, scene JSON, and artifact URLs. The GPU
-worker owns model dependencies and secrets. Unity owns the user experience and
-must never contain an HF or cloud token.
+worker owns model dependencies and the worker token. Unity and the web app
+never hold an HF, AWS, or worker credential.
 
-## Explicit constraints
+**Verified:** end-to-end on an NVIDIA L40S (g6e.xlarge, us-east-2): 70 s
+total (42 s SAM 3.1 + 28 s Fast-SAM3D), a 53 MB, 814,432-vertex PLY.
+`worker/worker_server.py` loads the models once, so there's no per-job
+cold start.
 
-- SAM 3D Objects requires an image and an aligned object mask. Automatic mask
-  selection is reliable only for one prominent, centred object; multi-object
-  images need a one-tap/box choice rather than a silent guess.
-- The native SAM 3D output is a Gaussian-splat PLY, not a GLB. Unity therefore
-  needs a splat renderer that can load a runtime PLY, or a separate conversion
-  stage.
-- A Camber L4 has 24 GB VRAM. Use the already-tested staged/Fast-SAM3D runtime
-  first; do not promise the full official model will fit or compile until it is
-  benchmarked in the Camber image.
+## Constraints
 
-## What exists now
+- **Within a job, SAM 3.1 and Fast-SAM3D never hold GPU memory at the same
+  time** (AGENT.md Hard Rule 5). `SKETCHSCAPE_GPU_CONCURRENCY` stays at 1
+  until an approved VRAM benchmark on that instance type; a T4 always stays
+  at 1.
+- A missing or ambiguous subject never gets a guessed mask. The job goes to
+  `mask_review` instead of spending GPU time on the wrong object.
+- The output is a Gaussian-splat PLY, not a GLB. Unity renders it with
+  UnitySplats.
+- Failed objects are left out of the room, never replaced with placeholder
+  primitives (Hard Rule 7).
+- Jobs still live in the API process's memory, and uploads on its disk. Run
+  one API process until durable jobs land (Build Plan step 26).
 
-- `backend/main.py`: working upload, job polling, artifact-serving, safe scene
-  edit, and authenticated worker callback API.
-- `backend/worker_contract.json`: the exact result a GPU worker must emit.
-- `worker/run_job.py`: a token-protected Camber-compatible job entrypoint that
-  pulls the image, executes the pre-baked staged runner, and streams back PLY
-  artifacts without loading them all into memory.
-- `worker/bootstrap_fastsam3d.sh`: one-time persistent GPU bootstrap with pinned
-  dependencies, cached weights, and an import preflight. It is never invoked by
-  a live reconstruction request.
-- `shared/scene.schema.json`: the Unity/backend scene contract.
-- `PIPELINE_MODE=mock`: a deliberate fast fallback for the portal reveal. It
-  labels its scene `pipeline: mock`; it does not pretend a PLY was generated.
+## What's planned next
 
-## Delivery order
-
-1. **Unity contract (next)** — point Unity at `/v1/reconstructions`, show a
-   bounded progress state, poll, load `asset_url`, then reveal the portal.
-   Keep the placeholder scene as a one-click fallback.
-2. **Camber worker smoke test** — bake the *known working* Fast-SAM3D
-   environment into one image/volume, cache model weights, reconstruct one
-   supplied object, and post a real PLY through the worker callback.
-3. **Automatic segmentation** — add a dedicated segmentation model/runtime
-   isolated from Fast-SAM3D dependencies. Save `mask-preview.png`; if the
-   candidate is ambiguous, return `mask_review` instead of spending GPU on the
-   wrong object.
-4. **Artifact persistence** — move in-memory jobs and local files to a shared
-   store before relying on cloud jobs longer than a single API process.
-5. **Demo hardening** — precompute two attractive examples, put a 90-second
-   timeout on live inference, and automatically fall back to placeholders.
+- **Several objects per photo, chosen by the person** (Build Plan steps
+  20, 26–27): the person clicks, boxes, or names each object on the
+  website. One SAM 3.1 pass masks exactly those; then one Fast-SAM3D job
+  runs per object through durable, leased jobs and a GPU-host dispatcher.
+- **Notability sketches** (step 7): shown as a flat card, or reconstructed
+  as a 3D memory plaque through this same pipeline. There is no
+  image-generation step.
+- **Cloud backends on the EC2 API** (step 10): DynamoDB and S3 are
+  provisioned and verified; only the env vars on the host remain.
 
 ## Worker callback
 
-After it creates an output, the GPU worker posts multipart data to:
+The GPU worker posts multipart data to:
 
 ```text
 POST /v1/internal/reconstructions/{job_id}/result
@@ -72,18 +68,18 @@ mask=@mask.png
 preview=@mask-preview.png
 ```
 
-The backend only changes a job to `complete` after both PLY and mask arrive.
-For an uncertain automatic mask, it instead posts:
-
-```json
-{"status":"mask_review","object_label":"unknown"}
-```
+The backend only marks a job `complete` after both the PLY and the mask
+arrive. For an unclear mask it posts `{"status":"mask_review", ...}`, and
+for a failure `{"status":"failed","error":"..."}`. The worker reads its
+inputs from `GET /v1/internal/reconstructions/{job_id}/input/{image|mask}`
+and `/task` with the `X-SketchScape-Worker-Token` header. The exact result
+shape is in `backend/worker_contract.json`.
 
 ## Acceptance checks
 
-- Uploading PNG/JPEG produces a `202` and a pollable job ID.
+- Uploading PNG/JPEG/WebP returns `202` and a pollable job ID.
 - A completed worker callback exposes a downloadable PLY and records
-  `source: sam3d` in `GET /v1/scene`.
-- Unity never blocks its render loop; it polls every 1–2 seconds.
-- No token appears in a Unity build, source control, a scene JSON response, or
-  an asset URL.
+  `source: sam3d` in the scene.
+- Clients never block while polling.
+- No token appears in a Unity build, the web app, source control, a scene
+  JSON response, or an asset URL.

@@ -153,7 +153,7 @@ MVP, must never break or delay steps 1–12, and is gated by Hard Rule 9.
 Only use this framing if a task explicitly asks for the SpaceXAI/Grok
 competition instead of Meta. It reframes the same Shared Room interaction
 pattern around a different fictional scenario (neighbourhood disaster
-preparedness) and a different model provider (Grok, not Llama). Do not mix
+preparedness) and a different model provider (Grok, not Muse Spark). Do not mix
 this framing into Meta-track work — a judge reading a mixed pitch reads it as
 unfocused. Full detail below is kept for reference but is not the current
 priority.
@@ -281,10 +281,11 @@ mock output as a model result.
 
 ### Social-product definition of done
 
-The feature is ready for the hackathon demo when two named contributors can
-complete the flow in local mock mode, the UI/Unity scene visibly attributes
-their objects, the AI theme and explanation are shown, the published blueprint
-loads successfully, and one safe edit is demonstrated. The 2 to 3 minute video
+The feature is ready for the hackathon demo when two or more named
+contributors can complete the flow in local mock mode, the Unity scene
+visibly attributes their objects, the AI theme and explanation are
+perceivable through the staged scene (not a UI text panel), the published
+blueprint loads successfully, and one safe edit is demonstrated. The 2 to 3 minute video
 must show the complete flow and explain who the product is for, how it
 strengthens connection, and why AI is essential.
 
@@ -460,7 +461,8 @@ All .ply files in catalog
    same time.** Release SAM 3.1 memory before starting Fast-SAM3D.
    - Several objects per upload and several uploads at once go through
      the durable job queue (Build Plan steps 26–27): one SAM 3.1 pass
-     finds every object, then one Fast-SAM3D job runs per object.
+     masks every object the person selected, then one Fast-SAM3D job runs
+     per object.
    - Parallel jobs on one GPU (`SKETCHSCAPE_GPU_CONCURRENCY` > 1) only after
      an approved VRAM benchmark on that instance type, recorded in the
      Build Plan. A T4 (16 GB) always stays at 1. The verified L40S (45 GB)
@@ -476,8 +478,8 @@ All .ply files in catalog
    place of failed objects.
 
 8. **Run `bash scripts/verify_local.sh` after every backend change** and
-   confirm all tests pass before reporting done. Currently 40 tests, all
-   passing.
+   confirm all tests pass before reporting done. Currently 51 tests (2 are
+   skipped either way, depending on whether `boto3` is installed).
 
 9. **Collaborative VR + web accounts steps (13–29) are gated.** Before writing any code or
    config for one, run `python3 scripts/check_collab_gates.py <step>`. If
@@ -498,11 +500,14 @@ backend/           FastAPI backend — the only process Unity talks to
   main.py          All API routes, models, job logic
   storage.py        AuthoringStore — LocalJsonStore + DynamoDbStore
   artifact_store.py ArtifactStore — LocalArtifactStore + S3ArtifactStore
+  subject_labeler.py identify_subject labeler (mock built; NemoClaw path is step 4a)
   test_api.py       API contract tests (run these)
   test_storage.py   Storage + artifact store tests (run these)
+  test_subject_labeler.py  Subject labeler tests (run these)
 
 worker/            GPU worker — runs on EC2, never in the API process
   run_job.py       Pulls image, runs SAM 3.1 + Fast-SAM3D, posts .ply back
+  worker_server.py Persistent worker; loads models once, serves jobs over loopback
   bootstrap_fastsam3d.sh  One-time GPU environment setup
 
 shared/
@@ -515,20 +520,34 @@ infra/aws/         Terraform — GPU EC2, DynamoDB, S3, IAM
 
 scripts/
   verify_local.sh           Run this after every change
+  check_collab_gates.py     Gate check for steps 13–29 + secret scan (Hard Rule 9)
+  start_mock_demo.sh        Start the backend in mock mode for the Unity demo
   smoke_test_aws_storage.py Live DynamoDB + S3 verification
   export_unity_experience.py Package .ply files into Unity project
   aws_preflight.sh          Read-only AWS checks before Terraform
 
 config/nemoclaw/
   sketchscape-tools.json    NemoClaw tool inventory (intent, not runtime state)
+  model-providers.example.json  meta / xai / nebius provider config (no keys)
+  mcp-servers.example.json  MCP server inventory (no credentials)
+config/collab-vr/
+  gates.json                Manual gates for steps 13–29 (only the user sets them)
 
 docs/
   PROJECT_STATUS.md  ← Start here for plain-language project status
+  BUILD_PLAN.md              The ordered step-by-step plan (steps 1–29)
+  ARCHITECTURE.md            Boundaries, N contributors, Collaborative VR design
+  DATA_ARCHITECTURE.md       DynamoDB items, S3 layout, jobs, polling
+  KNOWN_ISSUES.md            Every known issue and its fix
+  TEAM_TASK_SPLIT.md         Who builds MVP steps 1–12 in parallel
   INFRASTRUCTURE_ROADMAP.md  Detailed slice-by-slice status
   INTEGRATION_GUIDE.md       How all the pieces connect
 ```
 
-The Unity project lives at `../HackGTUnity` — outside this repository.
+The Unity project lives at `../HackGTUnity` — outside this repository. It's
+being cleaned up and a lot will be removed, so the Unity rows below (and
+Unity details in the docs and skills) describe what was there before. Check
+its current contents before relying on any of them.
 
 ---
 
@@ -536,7 +555,9 @@ The Unity project lives at `../HackGTUnity` — outside this repository.
 
 | Area | Status |
 |---|---|
-| Backend API (upload, poll, mock pipeline, safe edits) | ✅ done, 57 tests passing |
+| Backend API (upload, poll, mock pipeline, safe edits) | ✅ done, 51 tests passing (2 skipped) |
+| `identify_subject` mock labeler (`SKETCHSCAPE_SUBJECT_LABELER=mock`) | ✅ done — live NemoClaw path waits on Build Plan step 3 |
+| GPU pipeline (SAM 3.1 → Fast-SAM3D, `worker_server.py`) | ✅ verified end-to-end on an L40S (g6e.xlarge): 70 s, 53 MB PLY; instance stopped |
 | Notability sketch direct display / SAM3D memory plaque | ⬜ not started — see Build Plan step 7 |
 | Project + asset catalog with multi-view provenance | ✅ done |
 | Versioned blueprint system with append-only publication log | ✅ done |
@@ -555,7 +576,7 @@ The Unity project lives at `../HackGTUnity` — outside this repository.
 
 | Area | What exists | What's missing |
 |---|---|---|
-| GPU worker | `worker/run_job.py` fully written | GPU not bootstrapped; no real `.ply` produced yet |
+| GPU worker | Verified for one object per job | Several objects per photo, durable jobs, dispatcher (Build Plan steps 26–27) |
 | Cloud backends on EC2 host | DynamoDB + S3 provisioned | Env vars not set on the running API process |
 | Gaussian-splat rendering | UnitySplats installed | Never loaded a real Fast-SAM3D `.ply`; Quest perf unverified |
 | Unity offline builder | Exists | Still falls back to placeholder primitives — needs that code removed |
@@ -581,7 +602,9 @@ was removed entirely (`POST /v1/sketches`, `backend/image_gen.py`). See
 SAM3D-reconstructed memory plaque with embedded text). Not started.
 
 ### 2 — GPU instance end-to-end verification
-Start EC2 → SSM + `nvidia-smi` → publish bundle → bootstrap with HF token
+✅ Done: verified on an L40S (g6e.xlarge, us-east-2) — see
+`docs/PROJECT_STATUS.md`. To re-run it (only with explicit approval): start
+EC2 → SSM + `nvidia-smi` → publish bundle → bootstrap with HF token
 (one-time, unset immediately) → SAM 3.1 smoke test → Fast-SAM3D smoke test
 → full API callback → stop instance. See `infra/aws/SMOKE_TEST_GUIDE.md`.
 
@@ -591,7 +614,12 @@ Set `SKETCHSCAPE_STORAGE_BACKEND=dynamodb`, `SKETCHSCAPE_DYNAMODB_TABLE`,
 running API process. Step 5 of `infra/aws/SMOKE_TEST_GUIDE.md`.
 
 ### 4 — NemoClaw integration
-Four tools need to be built and registered with NemoClaw:
+The four core scene tools are below. NemoClaw also has `identify_subject`
+(Build Plan step 4a, `nemoclaw-subject-labeling`), `find_object_image`
+(step 6a, `nemoclaw-environment-sourcing`), and the room tools
+`get_room_state` / `propose_room_edit` (step 24,
+`top-tier-nemoclaw-tool-design`, which also holds the design rules for
+every NemoClaw tool).
 
 **`place_objects_in_scene`**
 Input: list of `{asset_id, label}` objects and optionally the Notability sketch.
@@ -622,8 +650,9 @@ not just read. This means reasoning about: the reveal order across however
 many objects exist, when ambient lighting shifts to mood-match the theme,
 when/where an atmospheric particle effect (dust, light motes) should bloom
 near the shared center of the contributed objects, when spatial audio should
-swell, and when/where the on-screen theme + explanation text should fade in
-relative to all of the above. This must degrade gracefully: if a scene-craft
+swell, and when the spoken narration of the theme and explanation plays
+relative to all of the above (never an on-screen text panel — see "The
+connection must be felt, not read"). This must degrade gracefully: if a scene-craft
 package isn't available at runtime, the room still needs to load and read
 correctly with plain lighting and no effects — never block the core
 connection story on the immersive layer.
@@ -812,8 +841,8 @@ NemoClaw assembly panel → VR launch. See the "Frontend app" section above
 for the full screen-by-screen breakdown.
 
 ### 10 — Production hardening (post-hackathon)
-TLS termination, rate limiting, SQS job queue, auto-scaling. Not needed for
-the demo.
+TLS termination, rate limiting, auto-scaling. Not needed for the demo.
+Durable jobs are planned in the store itself (Build Plan step 26), not SQS.
 
 ---
 
@@ -851,7 +880,7 @@ section before building this).
 
 **`Contribution`** — one person's contributed object plus why it matters
 (not yet implemented).
-- `contributor_id`, `asset_id`, source type (`photo` | `sketch`), memory text
+- `contributor_id`, `asset_id`, source type (`photo` | `sketch` | `letter`), memory text
 - A project holds a **list** of contributions, `len >= Project.min_contributors`
   (default `2`) before `connection/compose` may run
 
@@ -888,6 +917,9 @@ NEMOCLAW_VISION_MODEL=                 # optional override for image input (iden
 META_MODEL_API_KEY=                    # secret, runtime only
 XAI_API_KEY=                           # secret, runtime only
 NEBIUS_API_KEY=                        # secret, runtime only
+
+# Subject labeling for uploads (Build Plan step 4a; mock is built)
+SKETCHSCAPE_SUBJECT_LABELER=mock       # mock | nemoclaw
 
 # Uploads and GPU jobs (Build Plan steps 26-27)
 SKETCHSCAPE_MAX_OBJECTS_PER_UPLOAD=8   # safety cap per photo, not a per-user quota
@@ -929,7 +961,7 @@ step 7 for what replaces this.
 
 ```bash
 # After any backend Python change:
-bash scripts/verify_local.sh          # must pass, currently 57 tests
+bash scripts/verify_local.sh          # must pass, currently 51 tests (2 skipped)
 
 # After any Terraform change:
 cd infra/aws
@@ -979,8 +1011,10 @@ building, not a skill for the whole project at once.
 | `contributor-api-endpoints` | 2 |
 | `nemoclaw-agent-setup` | 3 |
 | `nemoclaw-scene-tools` | 4 |
+| `nemoclaw-subject-labeling` | 4a |
 | `connection-compose-endpoint` | 5 |
 | `immersive-reveal-staging` | 6 |
+| `nemoclaw-environment-sourcing` | 6a |
 | `sketch-image-gen-backends` | 7 (parallel) |
 | `unity-diegetic-attribution` | 8 |
 | `meta-hardware-polish` | 9 |

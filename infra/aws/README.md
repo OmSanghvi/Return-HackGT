@@ -20,7 +20,10 @@ it is running.
    `g5.xlarge` and `g6.xlarge` provide about 23 GiB usable GPU memory but still
    have only 16 GiB host RAM. For the persistent warm-worker path, use
    `g6e.xlarge`: one L40S with about 46 GiB usable GPU memory and 32 GiB host
-   RAM while remaining within a four-vCPU G/VT quota.
+   RAM while remaining within a four-vCPU G/VT quota. The end-to-end pipeline
+   was verified on `g6e.xlarge` (70 s per object); the Terraform default is
+   still `g4dn.xlarge`. Keep `SKETCHSCAPE_GPU_CONCURRENCY=1` on any instance
+   until an approved VRAM benchmark (AGENT.md Hard Rule 5).
 4. Copy `terraform.tfvars.example` to `terraform.tfvars`, replace
    `allowed_cidr` with the current public IP of the network Unity will use,
    and never commit that file.
@@ -109,24 +112,14 @@ enable_dynamodb         = true
 enable_artifacts_bucket = true
 ```
 
-After `terraform apply`, configure the backend process on the EC2 host:
-
-```bash
-# /opt/sketchscape/backend/.env  (on the EC2 host only, never commit this)
-SKETCHSCAPE_STORAGE_BACKEND=dynamodb
-SKETCHSCAPE_DYNAMODB_TABLE=<terraform output -raw dynamodb_table_name>
-AWS_REGION=<terraform output -raw aws_region>
-# Future slice: once artifact storage is migrated to S3
-# SKETCHSCAPE_ARTIFACTS_BUCKET=<terraform output -raw artifacts_bucket>
-```
-
 The EC2 instance role receives the necessary IAM grants automatically when the
-flags are enabled; no additional credentials are needed on the host.
+flags are enabled; no additional credentials are needed on the host. Both
+resources are provisioned and live-verified (see `SMOKE_TEST_GUIDE.md`).
 
 ### Storage and artifact backends on the EC2 host
 
-After apply, set all three backends in the host `.env`. The instance role gains
-access to both AWS services automatically from the Terraform IAM grants:
+After apply, set the backends in the host `.env` (never commit this file).
+This is the remaining part of Build Plan step 10:
 
 ```bash
 # /opt/sketchscape/backend/.env  (on EC2 host only)
@@ -165,14 +158,22 @@ it cannot list the bucket or touch other objects. Object versioning is enabled
 with a 30-day noncurrent-version expiry so accidental overwrites are
 recoverable without indefinite storage growth.
 
-The backend currently writes artifacts to the EC2 local filesystem. Migrating
-them to S3 is a future roadmap slice; provisioning the bucket now means that
-slice won't require another Terraform apply.
+With `SKETCHSCAPE_ARTIFACTS_BACKEND=s3`, `S3ArtifactStore` writes PLYs, masks,
+and previews here and serves them through short-lived presigned redirects.
+With the default `local`, they stay on the host's disk. Uploaded source
+images still go to the host's disk in both modes; moving them to an
+`uploads/` prefix is planned in Build Plan step 26 (see
+`docs/DATA_ARCHITECTURE.md`).
+
+The table has no GSIs or TTL yet. Steps 18 and 26 need them; that
+Terraform change must be approved before it is applied.
 
 ## Limits
 
 This is a hackathon deployment, not a resilient production platform. Never
 expose port 8000 to `0.0.0.0/0`; update `allowed_cidr` for the demo network
-and run `terraform apply` before the event. A production version would separate
-API/worker, add TLS termination and client authentication, and use the
-DynamoDB/S3 backends described above for every replica.
+and run `terraform apply` before the event. Reconstruction jobs still live in
+the API process's memory, so run one API process only until durable jobs land
+(Build Plan step 26). A production version would also add TLS termination,
+client authentication (Build Plan step 16), and the DynamoDB/S3 backends
+described above for every replica.

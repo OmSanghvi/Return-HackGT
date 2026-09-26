@@ -54,10 +54,11 @@ This document explains the design; the build plan executes it.
 ## Real-artifact constraint
 
 SAM 3D produces a Gaussian-splat `.ply`, not a conventional `.glb`. The
-repository supports the job and artifact lifecycle, but a Unity Gaussian-splat
-renderer package must be selected before claiming real PLY rendering. The
-portal demo must therefore include semantic-prefab fallback and pre-rendered
-assets.
+renderer is chosen: UnitySplats v1.2.0 (installed in `../HackGTUnity`). Real
+PLY rendering on Quest is still unverified (Build Plan step 11). Failed
+objects are left out of the room, never replaced with placeholder
+primitives (AGENT.md Hard Rule 7); the judging-safe fallback is the mock
+pipeline with precomputed assets.
 
 ---
 
@@ -80,8 +81,9 @@ model this as `contributors: list[Contributor]` and
 `contributions: list[Contribution]` scoped by `project_id`. Add:
 
 - `Project.min_contributors` (default `2`) and `Project.max_contributors`
-  (default unset/unbounded, or a small cap like `6` for the hackathon build
-  to keep NemoClaw's layout reasoning and the room's readability bounded).
+  (default `6`, from `SKETCHSCAPE_MAX_CONTRIBUTORS`, to keep NemoClaw's
+  layout reasoning and the room's readability bounded; it also sizes the
+  live session's `MaxPlayers` in the Collaborative VR track).
 - A room only becomes eligible for `connection/compose` once
   `len(contributions) >= min_contributors`; composing again after a new
   contribution arrives (the "revisit and add to the room later" arc) should
@@ -199,8 +201,9 @@ steps 26–29):
   - Jobs are durable and lease-based.
   - Uploads live in shared storage.
 - **Several objects per photo, several uploads at once:**
-  - One SAM 3.1 multi-concept pass produces candidate masks, then the
-    person selects objects, then one Fast-SAM3D job runs per object.
+  - The person selects objects on the website (click, box, or typed
+    name), one SAM 3.1 pass masks exactly those, then one Fast-SAM3D job
+    runs per object. Auto-detect only suggests selections.
   - GPU concurrency defaults to 1 and is raised only after an approved
     benchmark.
 - **Letters:**
@@ -217,8 +220,8 @@ The original evaluation of the two paths, kept for reference:
 - **Meta's own Platform SDK — Shared Spatial Anchors / colocation**
   (Quest-native shared-anchor APIs for co-located or remote presence in the
   same virtual space). Prefer this for the Meta track specifically, for the
-  same judge-legibility reason `AGENT.md` already gives for the Llama model
-  and the Unity MCP Extension: using Meta's own platform capability instead
+  same judge-legibility reason `AGENT.md` already gives for the Muse Spark
+  model default and the Unity MCP Extension: using Meta's own platform capability instead
   of a generic third-party service is a deliberate, on-brand choice for this
   challenge. Check Meta's current Horizon OS developer documentation for the
   exact API surface before implementing — do not guess method names.

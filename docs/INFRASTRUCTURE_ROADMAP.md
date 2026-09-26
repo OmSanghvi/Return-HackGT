@@ -34,7 +34,7 @@ The repository now implements the first vertical slice: projects, multiple singl
 - `config/nemoclaw/mcp-servers.example.json`: credential-free desired MCP server inventory; it is intentionally not assumed to be a NemoClaw CLI import format.
 - `config/nemoclaw/sketchscape-tools.json`: credential-free desired HTTP/menu-task inventory, with per-operation implementation and approval status; it is documentation, not a claimed native import format.
 - `shared/experience-blueprint.schema.json`: JSON Schema for versioned, platform-neutral experience plans; the backend mirrors and validates this contract with typed models.
-- `backend/storage.py`: one `AuthoringStore` surface with two backends for projects, catalog assets, blueprint revisions, and an append-only publication log. `LocalJsonStore` (default) uses atomic replace-on-write and quarantines a corrupt snapshot instead of crashing startup. `DynamoDbStore` (selected by `SKETCHSCAPE_STORAGE_BACKEND=dynamodb`) provides concurrency-safe cloud durability via a single-table `pk`/`sk` layout with ordered sort keys; `boto3` is imported lazily and stays an optional dependency. Both backends are **live-verified** against real AWS (`scripts/smoke_test_aws_storage.py`). Reconstruction jobs stay in memory by design.
+- `backend/storage.py`: one `AuthoringStore` surface with two backends for projects, catalog assets, blueprint revisions, and an append-only publication log. `LocalJsonStore` (default) uses atomic replace-on-write and quarantines a corrupt snapshot instead of crashing startup. `DynamoDbStore` (selected by `SKETCHSCAPE_STORAGE_BACKEND=dynamodb`) provides concurrency-safe cloud durability via a single-table `pk`/`sk` layout with ordered sort keys; `boto3` is imported lazily and stays an optional dependency. Both backends are **live-verified** against real AWS (`scripts/smoke_test_aws_storage.py`). Reconstruction jobs are still in memory; durable, lease-based jobs in the store are planned as Build Plan step 26.
 - `backend/artifact_store.py`: one `ArtifactStore` surface with `LocalArtifactStore` (default) and `S3ArtifactStore` (lazy boto3, presigned-URL redirect serving). Both backends **live-verified**. Selected by `SKETCHSCAPE_ARTIFACTS_BACKEND`.
 - `config/unity/sketchscape-scene.profile.json`: current scene desired state and acceptance checks for manual or MCP-driven setup.
 - Unity `NamedSceneInteractive`, `SceneInteractionController`, and `SketchScapeMcpBridge`: an ID registry and bounded action bridge shared with the backend contract.
@@ -64,13 +64,13 @@ The inventories in `config/nemoclaw/mcp-servers.example.json` and `config/nemocl
 
 The Unity project currently lives outside this repository, so scene mutation must be performed from that project with Unity open.
 
-1. Choose either Unity's official MCP server (requires its current Unity AI prerequisites) or a reviewed third-party package such as CoplayDev MCP for Unity. Pin a release; do not track a moving `main` branch for the demo.
+1. Use Meta's **Unity MCP Extension for Horizon** (it plugs into Unity's own MCP package; decided for the Meta track — see AGENT.md and the `nemoclaw-agent-setup` skill). Never a generic third-party Unity MCP server. Pin a commit or tag; do not track a moving `main` branch for the demo.
 2. Keep the bridge bound locally. Do not expose it on the public EC2 security group.
 3. Ask MCP for a read-only hierarchy, active scene path, compile status, and component inventory.
 4. Save/checkpoint the active scene.
 5. Reconcile it against `config/unity/sketchscape-scene.profile.json`; do not invent object references when multiple candidates exist.
 6. Save, compile, inspect console errors, run EditMode tests, and then exercise the mock API.
-7. Add `GaussianSplatBridge` only after a renderer can load runtime Gaussian-splat PLY files. `glTFast` is not sufficient.
+7. The offline builder renders PLYs with UnitySplats (`GsplatRenderer`). The Play-mode `GaussianSplatBridge` still has no renderer adapter; wire one only if the live Play-mode path needs real splats. `glTFast` is not sufficient.
 
 ## AWS GPU rollout
 
@@ -82,7 +82,7 @@ The Unity project currently lives outside this repository, so scene mutation mus
 6. Smoke-test SAM 3.1 alone, release it, then smoke-test Fast-SAM3D using one known image/mask.
 7. Run one end-to-end callback, retain timings and non-secret logs, and stop the instance.
 
-A T4 has 16 GiB VRAM. The supported path is staged and sequential. The official full SAM 3D setup may require more memory; do not replace staged loading until it is benchmarked. If capacity or memory is insufficient, use `g5.xlarge` rather than silently reducing correctness.
+The pipeline was verified on an L40S (g6e.xlarge, 45 GB); Terraform still defaults to a T4. A T4 has 16 GiB VRAM. The supported path is staged and sequential, and `SKETCHSCAPE_GPU_CONCURRENCY` stays at 1 until an approved benchmark (AGENT.md Hard Rule 5). The official full SAM 3D setup may require more memory; do not replace staged loading until it is benchmarked. If capacity or memory is insufficient, use `g5.xlarge` rather than silently reducing correctness.
 
 ## Next implementation slices
 
@@ -94,8 +94,8 @@ A T4 has 16 GiB VRAM. The supported path is staged and sequential. The official 
 6. **Unity project access:** install/pin the selected MCP package, reconcile the real active scene, and commit its package lock/scene changes in the Unity repository.
 7. **Renderer verification:** benchmark the pinned UnitySplats adapter with real Fast-SAM3D PLYs, cap/LOD splat counts for Quest, and add importer/scene EditMode tests. Hardware performance remains unverified.
 8. **GPU smoke evidence:** ✅ **Fully verified end-to-end on NVIDIA L40S (g6e.xlarge, us-east-2, 45 GB VRAM).** The persistent worker server (`worker/worker_server.py`) loads all Fast-SAM3D checkpoints once at startup (~2 min cold start), then accepts jobs over loopback with zero per-job cold-start penalty. Verified result: a real **53 MB Gaussian-splat PLY (814,432 vertices)** produced in **70 seconds total** — SAM 3.1 segmentation 42s + MoGe depth 2.8s + sparse structure 1.5s + SLaT + decode. Pipeline confirmed as `sam3d`, source `sam3d`. Instance is stopped. Three bugs found and fixed during live verification: `ModuleDict` key access (`[]` not `.get()`), pytorch3d `look_at_view_transform` float32 conflict (autocast scoped to MoGe only), `ss_return["scale"]` tensor aliasing (`.clone()` before in-place multiply).
-9. **Durability (post-demo):** replace in-memory jobs/local artifacts with S3 plus DynamoDB/SQS before introducing more than one API process.
-10. **Public deployment hardening:** terminate TLS, add client authentication/rate limits, and stop exposing Uvicorn directly before any non-demo use.
+9. **Durability:** replace in-memory jobs and host-disk uploads with durable, lease-based jobs in the store and S3 uploads before introducing more than one API process (Build Plan step 26; the GPU dispatcher is step 27).
+10. **Public deployment hardening:** terminate TLS, add rate limits, and stop exposing Uvicorn directly before any non-demo use. Client authentication is Build Plan step 16.
 
 ## Non-goals for the first deployment
 
