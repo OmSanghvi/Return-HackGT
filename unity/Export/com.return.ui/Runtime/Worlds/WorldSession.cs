@@ -27,9 +27,7 @@ namespace Return.UI
         /// was built around. The XR assembly subscribes to run its grab/collider pass without this assembly depending on XRI.</summary>
         public static event Action<Room, Transform> WorldEntered;
 
-        // ponytail: HubController (outside this package's touchable files) owns IRoomStore and never hands this session the
-        // signed-in account id, so the arrival card falls back to RoomLogic.MeId. Set this from store.CurrentAccountId when
-        // HubController is next touched, so the card excludes the actual viewer, not always "me".
+        /// <summary>Signed-in account; HubController sets it before each enter so the arrival card leaves the viewer out.</summary>
         public string ViewerAccountId = RoomLogic.MeId;
 
         RoomPortal _homePortal; GameObject _arrivalCard;

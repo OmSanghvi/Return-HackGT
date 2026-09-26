@@ -80,7 +80,7 @@ namespace Return.UI.XR
                     colorKeys = new[] { new GradientColorKey(warm, 0f), new GradientColorKey(warm, 1f) },
                     alphaKeys = new[] { new GradientAlphaKey(0.85f, 0f), new GradientAlphaKey(0f, 1f) },
                 };
-                lr.material = Shapes.ParticleMaterial(false);
+                lr.material = Shapes.ParticleMaterial(false); lr.material.SetFloat("_Line", 1f); // soft edges across the width, tip fade comes from the color gradient
                 lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; lr.receiveShadows = false;
 
                 var glow = new GameObject("Tip"); glow.transform.SetParent(go.transform, false);

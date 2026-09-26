@@ -173,6 +173,7 @@ namespace Return.UI
         /// <summary>The one way in: fires EnteringRoom, then loads the world if it's ready.</summary>
         public void EnterRoom(Room room, RoomPortal portal)
         {
+            Session.ViewerAccountId = store.CurrentAccountId; // arrival card names everyone but whoever is signed in
             RoomPortal.SetHumDucked(true); // duck all portal hums while a room is entered; restored by the StateChanged hook above
             EnteringRoom?.Invoke(room, portal);
             Enter(room, portal);

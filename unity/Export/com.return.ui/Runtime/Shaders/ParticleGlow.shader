@@ -9,6 +9,7 @@ Shader "Return/ParticleGlow"
     Properties
     {
         _Color ("Color", Color) = (1, 1, 1, 1)
+        _Line ("Line mode (1 = falloff across width only, for LineRenderers)", Float) = 0
         [Enum(UnityEngine.Rendering.BlendMode)] _DstBlend ("Dst Blend (One additive, OneMinusSrcAlpha alpha)", Float) = 1
     }
     SubShader
@@ -27,7 +28,7 @@ Shader "Return/ParticleGlow"
             #pragma fragment frag
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             CBUFFER_START(UnityPerMaterial)
-                float4 _Color;
+                float4 _Color; float _Line;
             CBUFFER_END
             struct A { float4 pos : POSITION; float2 uv : TEXCOORD0; float4 color : COLOR; UNITY_VERTEX_INPUT_INSTANCE_ID };
             struct V { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; float4 color : COLOR; UNITY_VERTEX_OUTPUT_STEREO };
@@ -44,7 +45,8 @@ Shader "Return/ParticleGlow"
             half4 frag(V i) : SV_Target
             {
                 // radial soft falloff from UV, no texture: 0 at the quad edge, 1 at the center
-                float d = length(i.uv * 2.0 - 1.0);
+                // line mode: LineRenderer uv.x runs along the beam, so only the width (uv.y) should fall off
+                float d = _Line > 0.5 ? abs(i.uv.y * 2.0 - 1.0) : length(i.uv * 2.0 - 1.0);
                 float falloff = smoothstep(1.0, 0.0, d);
                 half4 col = i.color * _Color;
                 col.a *= falloff;
