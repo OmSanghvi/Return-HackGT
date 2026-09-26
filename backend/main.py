@@ -54,6 +54,7 @@ from auth import (
 from storage import RevisionConflict, create_store
 from artifact_store import create_artifact_store
 from subject_labeler import SubjectLabelError, create_subject_labeler
+from letters import LetterSceneRef, RoomLetterView, room_letter_views
 
 
 DATA_ROOT = Path(os.environ.get("SKETCHSCAPE_DATA_DIR", "./data")).resolve()
@@ -89,13 +90,17 @@ class SceneObject(BaseModel):
     rotation: list[float] = Field(default_factory=lambda: [0, 0, 0], min_length=3, max_length=3)
     scale: list[float] = Field(min_length=3, max_length=3)
     asset_url: str | None = None
-    source: Literal["placeholder", "sam3d", "sketch_card"] = "placeholder"
+    source: Literal["placeholder", "sam3d", "sketch_card", "letter"] = "placeholder"
     actions: list[Literal["scale_by", "translate_by", "rotate_by"]] = Field(
         default_factory=lambda: ["scale_by", "translate_by", "rotate_by"]
     )
     # Anyone in the room may pick this up to look at it; it returns to its
     # place when released (local only; nothing is saved).
     grabbable: bool = False
+    # Step 28: runtime fields for a letter object. The texture URL is never
+    # here -- it depends on who's asking (sealed vs. opened), so Unity reads
+    # it from room state instead.
+    letter: LetterSceneRef | None = None
 
 
 class SceneDocument(BaseModel):
@@ -933,6 +938,7 @@ def compile_blueprint(blueprint: ExperienceBlueprint) -> SceneDocument:
         asset = store.get_asset(item.asset_id)
         if asset is None:
             raise HTTPException(422, f"Blueprint references unknown asset: {item.asset_id}")
+        letter = store.get_letter(blueprint.project_id, asset.asset_id) if asset.kind == "letter" else None
         scene_objects.append(
             SceneObject(
                 id=item.id,
@@ -940,9 +946,14 @@ def compile_blueprint(blueprint: ExperienceBlueprint) -> SceneDocument:
                 position=item.position.copy(),
                 rotation=item.rotation.copy(),
                 scale=item.scale.copy(),
-                asset_url=asset.artifact_url,
+                # A letter's texture is access-gated per-caller, so it never
+                # goes in the (cached, shared) compiled scene -- Unity reads
+                # it from room state instead.
+                asset_url=None if asset.kind == "letter" else asset.artifact_url,
                 source=(
-                    "sketch_card"
+                    "letter"
+                    if asset.kind == "letter"
+                    else "sketch_card"
                     if asset.kind == "sketch_card"
                     else "sam3d" if asset.artifact_url else "placeholder"
                 ),
@@ -952,6 +963,16 @@ def compile_blueprint(blueprint: ExperienceBlueprint) -> SceneDocument:
                     if action.removesuffix("_by") in item.interactions
                 ],
                 grabbable="grab" in item.interactions,
+                letter=(
+                    LetterSceneRef(
+                        letter_id=letter.letter_id,
+                        recipient_contributor_ids=letter.recipient_contributor_ids,
+                        aspect_ratio=letter.aspect_ratio,
+                        envelope_style=letter.envelope_style,
+                    )
+                    if letter is not None
+                    else None
+                ),
             )
         )
     return SceneDocument(
@@ -2012,6 +2033,9 @@ class RoomStateResponse(BaseModel):
     experience: ExperienceSettings
     environment: EnvironmentSettings
     navigation: NavigationSettings
+    # Step 28: sealed/opened state + a texture URL only when the caller may
+    # see it (the author, a recipient, or -- once opened -- anyone).
+    letters: list[RoomLetterView] = Field(default_factory=list)
 
 
 class RoomEdit(BaseModel):
@@ -2109,7 +2133,8 @@ async def get_room_state(
     live revision, and ?since_revision=<N> as an equivalent alternative for a
     client that can't easily read response headers -- either one short-
     circuits to 304 when the room hasn't changed. Step 28 folds a
-    letter-state version into the ETag too; there are no letters yet.
+    letter-state version (a monotonic count of every open recorded for this
+    project) into the ETag too, so a new open shows up in the next poll.
     """
     check_room_state_rate_limit(identity.user_id)
     project = get_project(project_id)
@@ -2118,13 +2143,15 @@ async def get_room_state(
         live_revision = project.published_revision
     if live_revision is None:
         raise HTTPException(404, "This project has no published blueprint.")
+    letters_version = store.letters_version(project_id)
 
-    # The body is per-caller (editable_by_me), so the ETag must be too: one
-    # headset switching Account 1 -> Account 2 resends its old If-None-Match,
-    # and a revision-only tag would 304 it into keeping the other account's
-    # edit rights. ?since_revision has no identity in it, so a client must
-    # drop it after an account switch (documented in room-api-and-ownership).
-    etag = f'"{project_id}:{live_revision}:{identity.user_id}"'
+    # The body is per-caller (editable_by_me, letter texture visibility), so
+    # the ETag must be too: one headset switching Account 1 -> Account 2
+    # resends its old If-None-Match, and a revision-only tag would 304 it
+    # into keeping the other account's edit rights / letter visibility.
+    # ?since_revision has no identity in it, so a client must drop it after
+    # an account switch (documented in room-api-and-ownership).
+    etag = f'"{project_id}:{live_revision}:{identity.user_id}:{letters_version}"'
     if request.headers.get("if-none-match") == etag or since_revision == live_revision:
         return Response(status_code=304, headers={"ETag": etag})
 
@@ -2136,6 +2163,17 @@ async def get_room_state(
         for obj in blueprint.objects
         if store.get_asset(obj.asset_id) and store.get_asset(obj.asset_id).artifact_url
     }
+    letters = store.list_letters(project_id)
+    viewer_contributor = (
+        find_contributor_by_clerk_user(project_id, identity.user_id) if identity.kind != "service" else None
+    )
+    letter_views = room_letter_views(
+        letters,
+        {letter.letter_id: _opened_by(project_id, letter.letter_id) for letter in letters},
+        {obj.asset_id: obj.id for obj in blueprint.objects},
+        viewer_contributor_id=viewer_contributor.contributor_id if viewer_contributor else None,
+        texture_url_for=lambda letter_id: f"/v1/projects/{project_id}/letters/{letter_id}/texture",
+    )
     body = RoomStateResponse(
         project_id=project_id,
         live_revision=live_revision,
@@ -2144,8 +2182,14 @@ async def get_room_state(
         experience=blueprint.experience,
         environment=blueprint.environment,
         navigation=blueprint.navigation,
+        letters=letter_views,
     )
     return JSONResponse(content=body.model_dump(mode="json"), headers={"ETag": etag})
+
+
+def _opened_by(project_id: str, letter_id: str) -> list[str]:
+    """Contributor ids who have opened this letter (step 28)."""
+    return [record.contributor_id for record in store.list_letter_opens(project_id, letter_id)]
 
 
 def _validate_finite_vector(values: list[float], label: str) -> None:
@@ -3312,3 +3356,19 @@ async def legacy_sketch(sketch: UploadFile = File(...)) -> SceneResponse:
     global current_scene
     current_scene = placeholder_scene(sketch.filename or "sketch.png")
     return SceneResponse(scene=current_scene)
+
+
+# Build Plan step 28: letters routes (backend/letter_routes.py). Imported
+# here, at the very end, so its own `from main import ...` (store,
+# artifact_store, helper functions) sees a fully-defined module.
+from letter_routes import router as letter_router  # noqa: E402
+
+app.include_router(letter_router)
+
+# Guided tour routes (Build Plan steps 30-31): draft -> activate. Kept in its
+# own module (backend/tour_routes.py) so that module owns its own file, per
+# the Build Plan's parallel-track file-ownership rules; imported last so
+# every name it needs from this module already exists (see its docstring).
+from tour_routes import router as tour_router  # noqa: E402
+
+app.include_router(tour_router)

@@ -50,6 +50,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a circular import.
         ReconstructionJob,
         UploadRecord,
     )
+    from letters import Letter, LetterOpenRecord
+
+    from guided_tour import GuidedTour
 
 
 STATE_VERSION = 3
@@ -101,6 +104,17 @@ def _job_upload_types() -> tuple[type, type]:
     return ReconstructionJob, UploadRecord
 
 
+def _tour_model_type() -> type:
+    """Return ``GuidedTour``, imported lazily like the other model helpers above.
+
+    ``guided_tour`` never imports ``storage`` or ``main``, so this is a
+    one-directional import, not a cycle.
+    """
+    from guided_tour import GuidedTour
+
+    return GuidedTour
+
+
 def _job_status_type():
     from main import JobStatus
 
@@ -109,6 +123,12 @@ def _job_status_type():
 
 def _job_max_attempts() -> int:
     return max(1, int(os.environ.get("SKETCHSCAPE_JOB_MAX_ATTEMPTS", "2")))
+
+
+def _letter_model_types() -> tuple[type, type]:
+    from letters import Letter, LetterOpenRecord
+
+    return Letter, LetterOpenRecord
 
 
 _ACTIVE_JOB_STATUSES = ("queued", "running", "mask_review")
@@ -226,8 +246,62 @@ class AuthoringStore(ABC):
     @abstractmethod
     def list_upload_records(self, project_id: str) -> list[UploadRecord]: ...
 
+    # -- letters (Build Plan step 28) ----------------------------------------
+
+    @abstractmethod
+    def save_letter(self, letter: Letter) -> None: ...
+
+    @abstractmethod
+    def get_letter(self, project_id: str, letter_id: str) -> Letter | None: ...
+
+    @abstractmethod
+    def list_letters(self, project_id: str) -> list[Letter]: ...
+
+    @abstractmethod
+    def record_letter_open(
+        self, project_id: str, letter_id: str, contributor_id: str, opened_at: datetime
+    ) -> bool:
+        """Conditional put of one recipient's open. Returns True if this call
+        created the record, False if it already existed (idempotent -- a
+        repeat open never writes a duplicate item)."""
+
+    @abstractmethod
+    def list_letter_opens(self, project_id: str, letter_id: str) -> list[LetterOpenRecord]: ...
+
+    @abstractmethod
+    def letters_version(self, project_id: str) -> int:
+        """A cheap, monotonically non-decreasing count of every open
+        recorded for this project, used to fold letter state into the
+        room-state ETag (room-api-and-ownership polling contract)."""
+
     def persist_all(self) -> None:  # pragma: no cover - default no-op
         """Force a full flush. Backends that write eagerly need not override."""
+
+    # -- guided tours (Build Plan step 30) -----------------------------------
+
+    @abstractmethod
+    def append_tour(self, tour: "GuidedTour") -> None:
+        """Conditional put on TOUR#<version padded>; raises RevisionConflict on collision."""
+
+    @abstractmethod
+    def get_tour(self, project_id: str, tour_version: int) -> "GuidedTour | None": ...
+
+    @abstractmethod
+    def list_tours(self, project_id: str) -> list["GuidedTour"]: ...
+
+    @abstractmethod
+    def get_active_tour_version(self, project_id: str) -> int | None:
+        """The TOURLIVE pointer: which tour_version the in-room guide performs, if any."""
+
+    @abstractmethod
+    def activate_tour(self, project_id: str, expected: int | None, new_version: int) -> "GuidedTour | None":
+        """Compare-and-set TOURLIVE to ``new_version``, same pattern as ``set_live_revision``.
+
+        On success, flips the previously active tour's ``status`` to
+        ``retired`` and the new one's to ``active``, and returns the updated
+        (now-active) ``GuidedTour``. Returns ``None`` (never raises) on a
+        losing race against ``expected``, so callers can turn it into a 409.
+        """
 
 
 class LocalJsonStore(AuthoringStore):
@@ -252,6 +326,13 @@ class LocalJsonStore(AuthoringStore):
         self.jobs: dict[str, ReconstructionJob] = {}
         self.uploads: dict[str, dict[str, UploadRecord]] = {}
         self.asset_links: dict[str, list[str]] = {}
+        # Step 28: project_id -> letter_id -> Letter; project_id -> letter_id
+        # -> contributor_id -> LetterOpenRecord.
+        self.letters: dict[str, dict[str, Letter]] = {}
+        self.letter_opens: dict[str, dict[str, dict[str, LetterOpenRecord]]] = {}
+
+        self.tours: dict[str, list["GuidedTour"]] = {}
+        self.tour_live: dict[str, int] = {}
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -272,6 +353,11 @@ class LocalJsonStore(AuthoringStore):
             self.jobs = {}
             self.uploads = {}
             self.asset_links = {}
+            self.letters = {}
+            self.letter_opens = {}
+
+            self.tours = {}
+            self.tour_live = {}
             if not self._state_path.is_file():
                 return
             try:
@@ -321,6 +407,24 @@ class LocalJsonStore(AuthoringStore):
                 }
             for project_id, asset_ids in raw.get("asset_links", {}).items():
                 self.asset_links[project_id] = list(asset_ids)
+            Letter, LetterOpenRecord = _letter_model_types()
+            for project_id, records in raw.get("letters", {}).items():
+                self.letters[project_id] = {
+                    item["letter_id"]: Letter.model_validate(item) for item in records
+                }
+            for project_id, by_letter in raw.get("letter_opens", {}).items():
+                self.letter_opens[project_id] = {
+                    letter_id: {
+                        item["contributor_id"]: LetterOpenRecord.model_validate(item) for item in records
+                    }
+                    for letter_id, records in by_letter.items()
+                }
+
+            GuidedTour = _tour_model_type()
+            for project_id, versions in raw.get("tours", {}).items():
+                self.tours[project_id] = [GuidedTour.model_validate(item) for item in versions]
+            for project_id, version in raw.get("tour_live", {}).items():
+                self.tour_live[project_id] = int(version)
 
     def _quarantine_corrupt_state(self) -> None:
         backup = self._state_path.with_suffix(
@@ -366,6 +470,23 @@ class LocalJsonStore(AuthoringStore):
                 for project_id, records in self.uploads.items()
             },
             "asset_links": {project_id: list(ids) for project_id, ids in self.asset_links.items()},
+            "letters": {
+                project_id: [letter.model_dump(mode="json") for letter in letters.values()]
+                for project_id, letters in self.letters.items()
+            },
+            "letter_opens": {
+                project_id: {
+                    letter_id: [record.model_dump(mode="json") for record in records.values()]
+                    for letter_id, records in by_letter.items()
+                }
+                for project_id, by_letter in self.letter_opens.items()
+            },
+
+            "tours": {
+                project_id: [item.model_dump(mode="json") for item in versions]
+                for project_id, versions in self.tours.items()
+            },
+            "tour_live": dict(self.tour_live),
         }
 
     def _flush(self) -> None:
@@ -600,6 +721,79 @@ class LocalJsonStore(AuthoringStore):
 
     def list_upload_records(self, project_id: str) -> list[UploadRecord]:
         return list(self.uploads.get(project_id, {}).values())
+
+    # -- letters (Build Plan step 28) ----------------------------------------
+
+    def save_letter(self, letter: Letter) -> None:
+        with self._lock:
+            self.letters.setdefault(letter.project_id, {})[letter.letter_id] = letter
+            self._flush()
+
+    def get_letter(self, project_id: str, letter_id: str) -> Letter | None:
+        return self.letters.get(project_id, {}).get(letter_id)
+
+    def list_letters(self, project_id: str) -> list[Letter]:
+        return list(self.letters.get(project_id, {}).values())
+
+    def record_letter_open(
+        self, project_id: str, letter_id: str, contributor_id: str, opened_at: datetime
+    ) -> bool:
+        _, LetterOpenRecord = _letter_model_types()
+        with self._lock:
+            opens = self.letter_opens.setdefault(project_id, {}).setdefault(letter_id, {})
+            if contributor_id in opens:
+                return False
+            opens[contributor_id] = LetterOpenRecord(
+                project_id=project_id, letter_id=letter_id, contributor_id=contributor_id, opened_at=opened_at
+            )
+            self._flush()
+            return True
+
+    def list_letter_opens(self, project_id: str, letter_id: str) -> list[LetterOpenRecord]:
+        return list(self.letter_opens.get(project_id, {}).get(letter_id, {}).values())
+
+    def letters_version(self, project_id: str) -> int:
+        return sum(len(opens) for opens in self.letter_opens.get(project_id, {}).values())
+
+    # -- guided tours (Build Plan step 30) -----------------------------------
+
+    def list_tours(self, project_id: str) -> list["GuidedTour"]:
+        return self.tours.setdefault(project_id, [])
+
+    def append_tour(self, tour: "GuidedTour") -> None:
+        with self._lock:
+            existing = self.tours.setdefault(tour.project_id, [])
+            if tour.tour_version != len(existing) + 1:
+                raise RevisionConflict(
+                    f"Tour version {tour.tour_version} for project {tour.project_id} is out of "
+                    f"sequence (expected {len(existing) + 1})."
+                )
+            existing.append(tour)
+            self._flush()
+
+    def get_tour(self, project_id: str, tour_version: int) -> "GuidedTour | None":
+        existing = self.tours.get(project_id, [])
+        if tour_version < 1 or tour_version > len(existing):
+            return None
+        return existing[tour_version - 1]
+
+    def get_active_tour_version(self, project_id: str) -> int | None:
+        return self.tour_live.get(project_id)
+
+    def activate_tour(self, project_id: str, expected: int | None, new_version: int) -> "GuidedTour | None":
+        with self._lock:
+            current = self.tour_live.get(project_id)
+            if current != expected:
+                return None
+            existing = self.tours.get(project_id, [])
+            if new_version < 1 or new_version > len(existing):
+                return None
+            if current is not None and 1 <= current <= len(existing):
+                existing[current - 1] = existing[current - 1].model_copy(update={"status": "retired"})
+            existing[new_version - 1] = existing[new_version - 1].model_copy(update={"status": "active"})
+            self.tour_live[project_id] = new_version
+            self._flush()
+            return existing[new_version - 1]
 
 
 class DynamoDbStore(AuthoringStore):
@@ -1206,6 +1400,163 @@ class DynamoDbStore(AuthoringStore):
             UploadRecord.model_validate_json(item["document"])
             for item in self._query_children(project_id, "UPLOAD")
         ]
+
+    # -- letters (Build Plan step 28) -----------------------------------------
+    #
+    # Letter = PK "PROJECT#<project_id>" / SK "LETTER#<letter_id>".
+    # LetterOpen = PK "PROJECT#<project_id>" / SK "LETTEROPEN#<letter_id>#<contributor_id>",
+    # written with a conditional put so a repeat open by the same recipient
+    # is a no-op rather than a second item. ("LETTEROPEN#" never collides
+    # with the "LETTER#" prefix query below -- the 7th character differs.)
+
+    def save_letter(self, letter: Letter) -> None:
+        with self._lock:
+            self._require_table().put_item(
+                Item={
+                    "pk": f"PROJECT#{letter.project_id}",
+                    "sk": f"LETTER#{letter.letter_id}",
+                    "document": letter.model_dump_json(),
+                }
+            )
+
+    def get_letter(self, project_id: str, letter_id: str) -> Letter | None:
+        Letter, _ = _letter_model_types()
+        response = self._require_table().get_item(
+            Key={"pk": f"PROJECT#{project_id}", "sk": f"LETTER#{letter_id}"}
+        )
+        item = response.get("Item")
+        if item is None:
+            return None
+        return Letter.model_validate_json(item["document"])
+
+    def list_letters(self, project_id: str) -> list[Letter]:
+        Letter, _ = _letter_model_types()
+        return [
+            Letter.model_validate_json(item["document"])
+            for item in self._query_children(project_id, "LETTER")
+        ]
+
+    def record_letter_open(
+        self, project_id: str, letter_id: str, contributor_id: str, opened_at: datetime
+    ) -> bool:
+        _, LetterOpenRecord = _letter_model_types()
+        record = LetterOpenRecord(
+            project_id=project_id, letter_id=letter_id, contributor_id=contributor_id, opened_at=opened_at
+        )
+        with self._lock:
+            try:
+                self._require_table().put_item(
+                    Item={
+                        "pk": f"PROJECT#{project_id}",
+                        "sk": f"LETTEROPEN#{letter_id}#{contributor_id}",
+                        "document": record.model_dump_json(),
+                    },
+                    ConditionExpression="attribute_not_exists(sk)",
+                )
+                return True
+            except Exception as error:  # noqa: BLE001 - narrowed below
+                if self._is_conditional_check_failure(error):
+                    return False
+                raise
+
+    def list_letter_opens(self, project_id: str, letter_id: str) -> list[LetterOpenRecord]:
+        _, LetterOpenRecord = _letter_model_types()
+        return [
+            LetterOpenRecord.model_validate_json(item["document"])
+            for item in self._query_children(project_id, f"LETTEROPEN#{letter_id}")
+        ]
+
+    def letters_version(self, project_id: str) -> int:
+        return len(self._query_children(project_id, "LETTEROPEN"))
+
+    # -- guided tours (Build Plan step 30) -----------------------------------
+    #
+    # TOUR#<0-padded version> mirrors BLUEPRINT#<rev>; TOURLIVE mirrors LIVE.
+    # `activate_tour` CASes the TOURLIVE pointer first (that's the actual
+    # linearization point, same as `set_live_revision`), then best-effort
+    # rewrites the two tour documents' `status` field so `GET /tours` shows
+    # draft/active/retired without a second read against the pointer.
+    #
+    # ponytail: the guided-tour-contract skill suggests TransactWriteItems
+    # for the pointer + two status rewrites; that's skipped here in favor of
+    # two plain conditional/unconditional puts after the CAS succeeds. The
+    # pointer write above is what actually decides which tour is live, so a
+    # crash between these three puts only leaves a stale `status` label, not
+    # a wrong live tour. Upgrade to TransactWriteItems if a reader ever needs
+    # the stored `status` field to be authoritative independent of a second
+    # `get_active_tour_version` read.
+
+    def _tour_key(self, project_id: str, tour_version: int) -> dict:
+        return {"pk": f"PROJECT#{project_id}", "sk": self._seq_key("TOUR", tour_version)}
+
+    def _put_tour(self, tour: "GuidedTour") -> None:
+        self._require_table().put_item(
+            Item={**self._tour_key(tour.project_id, tour.tour_version), "document": tour.model_dump_json()}
+        )
+
+    def list_tours(self, project_id: str) -> list["GuidedTour"]:
+        GuidedTour = _tour_model_type()
+        return [
+            GuidedTour.model_validate_json(item["document"])
+            for item in self._query_children(project_id, "TOUR")
+        ]
+
+    def append_tour(self, tour: "GuidedTour") -> None:
+        with self._lock:
+            try:
+                self._require_table().put_item(
+                    Item={**self._tour_key(tour.project_id, tour.tour_version), "document": tour.model_dump_json()},
+                    ConditionExpression="attribute_not_exists(sk)",
+                )
+            except Exception as error:  # noqa: BLE001 - narrowed below
+                if self._is_conditional_check_failure(error):
+                    raise RevisionConflict(
+                        f"Tour version {tour.tour_version} for project {tour.project_id} already exists."
+                    ) from error
+                raise
+
+    def get_tour(self, project_id: str, tour_version: int) -> "GuidedTour | None":
+        GuidedTour = _tour_model_type()
+        response = self._require_table().get_item(Key=self._tour_key(project_id, tour_version))
+        item = response.get("Item")
+        if item is None:
+            return None
+        return GuidedTour.model_validate_json(item["document"])
+
+    def get_active_tour_version(self, project_id: str) -> int | None:
+        response = self._require_table().get_item(Key={"pk": f"PROJECT#{project_id}", "sk": "TOURLIVE"})
+        item = response.get("Item")
+        if item is None:
+            return None
+        return int(item["tour_version"])
+
+    def activate_tour(self, project_id: str, expected: int | None, new_version: int) -> "GuidedTour | None":
+        pointer_item = {"pk": f"PROJECT#{project_id}", "sk": "TOURLIVE", "tour_version": new_version}
+        if expected is None:
+            kwargs: dict = {"Item": pointer_item, "ConditionExpression": "attribute_not_exists(pk)"}
+        else:
+            kwargs = {
+                "Item": pointer_item,
+                "ConditionExpression": "attribute_not_exists(pk) OR tour_version = :expected",
+                "ExpressionAttributeValues": {":expected": expected},
+            }
+        with self._lock:
+            try:
+                self._require_table().put_item(**kwargs)
+            except Exception as error:  # noqa: BLE001 - narrowed below
+                if self._is_conditional_check_failure(error):
+                    return None
+                raise
+            if expected is not None:
+                previous = self.get_tour(project_id, expected)
+                if previous is not None:
+                    self._put_tour(previous.model_copy(update={"status": "retired"}))
+            new_tour = self.get_tour(project_id, new_version)
+            if new_tour is None:
+                return None
+            new_tour = new_tour.model_copy(update={"status": "active"})
+            self._put_tour(new_tour)
+            return new_tour
 
 
 def create_store(

@@ -22,6 +22,7 @@ import type { Contributor, ProjectAsset, ProjectRecord, UploadSelection } from '
 import { rememberProject } from './localProjects';
 import { useAuthedImage } from './useAuthedImage';
 import { useAccount } from '../api/account';
+import LetterSection from './LetterSection';
 
 interface UploadEntry {
   upload_id: string;
@@ -536,6 +537,12 @@ export default function RealProjectPage() {
               />
             </div>
           </div>
+
+          <LetterSection
+            projectId={id}
+            contributors={contributors}
+            myContributorId={contributors.find((c) => c.clerk_user_id === account)?.contributor_id ?? null}
+          />
 
           <div className="app-section">
             <h2 className="title" style={{ margin: 0 }}>

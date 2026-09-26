@@ -166,3 +166,43 @@ export interface SelectionsRequestItem {
   label?: string | null;
   memory_text?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Letters (step 28) -- sealed/opened, recipient-only open.
+// ---------------------------------------------------------------------------
+
+export type EnvelopeStyle = 'classic';
+
+export interface Letter {
+  letter_id: string;
+  project_id: string;
+  author_contributor_id: string;
+  recipient_contributor_ids: string[];
+  asset_id: string;
+  contribution_id: string;
+  aspect_ratio: number;
+  note_text: string;
+  envelope_style: EnvelopeStyle;
+  created_at: string;
+}
+
+/** What `GET /v1/projects/{id}/letters` returns: `note_text`/`image_url` are
+ * only populated when the caller may see them (author, recipient, or --
+ * once opened -- anyone). */
+export interface LetterView {
+  letter_id: string;
+  author_contributor_id: string;
+  recipient_contributor_ids: string[];
+  envelope_style: EnvelopeStyle;
+  aspect_ratio: number;
+  sealed: boolean;
+  opened_by: string[];
+  note_text: string | null;
+  image_url: string | null;
+}
+
+export interface LetterOpenResponse {
+  opened: boolean;
+  opened_by: string;
+  opened_at: string;
+}

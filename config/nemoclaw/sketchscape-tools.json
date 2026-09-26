@@ -80,9 +80,9 @@
       "id": "room.state.fetch",
       "method": "GET",
       "path": "/v1/rooms/{project_id}/state",
-      "purpose": "Collaborative VR: read the live revision, objects, and ownership of a room (callable name get_room_state). Authenticated with NemoClaw's shared service token (SKETCHSCAPE_NEMOCLAW_TOKEN, built -- see docs/KNOWN_ISSUES.md R14). Build Plan step 21 (backend route: done); the NemoClaw tool wrapper itself waits on step 3/24.",
+      "purpose": "Collaborative VR: read the live revision, objects, and ownership of a room (callable name get_room_state). Authenticated with NemoClaw's shared service token (SKETCHSCAPE_NEMOCLAW_TOKEN, built -- see docs/KNOWN_ISSUES.md R14). Build Plan step 21 (backend route: done); step 24 (backend/room_tools.py, backend/room_tools_cli.py) built ahead of the step 3 gate, at the user's explicit request, untested (2026-09-26).",
       "approval_required": false,
-      "implementation_status": "backend-route-implemented-step21; nemoclaw-tool-pending-step3-24"
+      "implementation_status": "backend-route-implemented-step21; nemoclaw-tool-built-untested-step24"
     },
     {
       "id": "room.edit.draft",
@@ -90,7 +90,7 @@
       "path": "/v1/projects/{project_id}/blueprints?base_revision={live_revision}",
       "purpose": "Collaborative VR: draft a room edit as a new revision based on the live revision (callable name propose_room_edit). Never publishes; publishing uses blueprint.publish with approval. Returns 409 if the room changed. A person approves the publish on the website. Build Plan step 24; the underlying draft route (blueprint.draft, above) is already implemented.",
       "approval_required": false,
-      "implementation_status": "backend-route-implemented (see blueprint.draft); nemoclaw-tool-pending-step3-24"
+      "implementation_status": "backend-route-implemented (see blueprint.draft); nemoclaw-tool-built-untested-step24"
     },
     {
       "id": "tour.draft",
@@ -134,6 +134,22 @@
       "purpose": "Build Plan step 6: callable name stage_immersive_reveal(connection_insight, objects). Reveal order, theme-keyed lighting/mood preset, connecting light-path motif, spoken-narration text, per-object haptic signature. Backend-side tool only (Part A); Unity-side toolkit integration (Part B) waits on Unity Editor being available.",
       "approval_required": false,
       "implementation_status": "implemented-backend-only"
+    },
+    {
+      "id": "room.get_room_state",
+      "method": "LOCAL_SCRIPT",
+      "path": "backend/room_tools_cli.py get_room_state (installed in the NemoClaw sandbox as the sketchscape-room-tools OpenClaw skill, config/nemoclaw/skills/sketchscape-room-tools/SKILL.md)",
+      "purpose": "Build Plan step 24: callable name get_room_state(project_id). GET /v1/rooms/{project_id}/state with NemoClaw's service token; returns a concise summary (or the full state with response_format=detailed). Read-only.",
+      "approval_required": false,
+      "implementation_status": "built-untested-2026-09-26 (built ahead of the step 3 gate at the user's explicit request; no live NemoClaw runtime to verify tool-calling against yet)"
+    },
+    {
+      "id": "room.propose_room_edit",
+      "method": "LOCAL_SCRIPT",
+      "path": "backend/room_tools_cli.py propose_room_edit (same skill as room.get_room_state)",
+      "purpose": "Build Plan step 24: callable name propose_room_edit(project_id, base_revision, edits). Fetches the base_revision blueprint, applies the requested transforms, validates, and POSTs a new draft revision via base_revision=<live>. Never publishes. Raises/reports a stale-revision error with fresh room state on 409, per room-api-and-ownership.",
+      "approval_required": false,
+      "implementation_status": "built-untested-2026-09-26 (built ahead of the step 3 gate at the user's explicit request; no live NemoClaw runtime to verify tool-calling against yet)"
     }
   ],
   "unity_mcp_menu_tasks": [

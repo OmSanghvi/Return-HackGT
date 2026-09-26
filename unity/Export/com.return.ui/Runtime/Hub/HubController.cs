@@ -10,8 +10,9 @@ using UnityEngine.UI;
 namespace Return.UI
 {
     /// <summary>
-    /// The headset frontend. A dusk sky with your rooms as portals on a ring; glass panels for sign-in, creating a room and adding photos;
-    /// a wrist menu; and a fade into the room's world. Rig-agnostic: give it a head (and optionally a left hand) transform.
+    /// The headset frontend. A dusk sky with the worlds you're already in and ready to enter as portals on a ring;
+    /// an account picker before you're signed in; a wrist menu; and a fade into the room's world. Rig-agnostic: give it a head
+    /// (and optionally a left hand) transform. Inviting, uploading photos and creating rooms happen on the web, not here.
     /// </summary>
     public class HubController : MonoBehaviour
     {
@@ -23,21 +24,25 @@ namespace Return.UI
         public float fadeSeconds = 1.1f;
 
         public WorldSession Session { get; private set; }
-        public ScreenRouter Router { get; private set; }
         public SpatialPanel Work { get; private set; }
         public IReadOnlyList<PortalCard> Cards => _cards;
         public bool RingVisible => _ring != null && _ring.gameObject.activeSelf;
         public bool WorkVisible => Work != null && Work.gameObject.activeSelf;
 
+        /// <summary>Fired once the account picker signs someone in, with their display name.</summary>
+        public event Action<string> SignedIn;
+        /// <summary>Fired after the ring is (re)built, portals in ring order. For later work: greeting animation, audio, haptics.</summary>
+        public event Action<IReadOnlyList<RoomPortal>> PortalsLaidOut;
+        /// <summary>Fired right before a world is entered. For later work: step-through transitions, audio.</summary>
+        public event Action<Room, RoomPortal> EnteringRoom;
+
         static HubController _active;
         Transform _hubRoot, _ring, _persistent;
         readonly List<PortalCard> _cards = new List<PortalCard>();
         float _yaw; string _ringIds = "";
-        bool _immediate;
 
         public void Bootstrap()
         {
-            _immediate = !Application.isPlaying;
             if (head == null && Camera.main != null) head = Camera.main.transform;
             _yaw = head != null ? head.eulerAngles.y : 0f;
 
@@ -47,25 +52,23 @@ namespace Return.UI
 
             _active = this;
             ThemeManager.SetForced(ReturnTheme.Dusk);
-            var env = HubEnvironment.Build(_hubRoot, head, SceneKey.Hub, true, 150f);
+            var env = HubEnvironment.Build(_hubRoot, head, SceneKey.Hub, true, 150f, true); // extras: water floor, fireflies, motes, lanterns, ambience
             env.transform.rotation = Quaternion.Euler(0, _yaw, 0);
 
             var camGo = head != null ? (head.GetComponent<Camera>() != null ? head : head.GetComponentInChildren<Camera>()?.transform ?? head) : null;
             var fade = camGo != null ? ScreenFade.Attach(camGo) : ScreenFade.Attach(new GameObject("NoHead").transform);
-            Session = new WorldSession(loader ?? new StubWorldLoader(), fade, head, HubVisible) { fadeSeconds = fadeSeconds };
+            Session = new WorldSession(loader ?? new StubWorldLoader(), fade, head, HubVisible, new PortalTransition(head)) { fadeSeconds = fadeSeconds };
 
-            Work = SpatialPanel.Create("WorkPanel", 1360, 860, _hubRoot);
+            Work = SpatialPanel.Create("WorkPanel", 900, 520, _hubRoot);
             Work.gameObject.SetActive(false);
             var cam = camGo != null ? camGo.GetComponent<Camera>() : null;
             if (cam != null) Work.SetEventCamera(cam);
-            var ctx = new AppContext { store = store, backdrop = new NullBackdrop(), panel = Work.rect, enterWorld = Enter };
-            Router = Work.gameObject.AddComponent<ScreenRouter>(); Router.ctx = ctx; ctx.router = Router; Router.Hook();
-            Router.Intercept = HandleRoute;
 
             BuildHandMenu(cam);
             store.Changed += OnStore;
             RebuildRing();
-            Router.Go(store.SignedIn ? Route.Dashboard : Route.SignIn, null, _immediate);
+            if (store.SignedIn) ShowRing(); else ShowPicker();
+            HubIntro.Attach(this, store, head, _hubRoot);
         }
 
         void OnDestroy()
@@ -74,33 +77,50 @@ namespace Return.UI
             if (_active == this) { _active = null; ThemeManager.SetForced(null); } // a newer hub owns the theme now
         }
 
-        // ---- routing ---------------------------------------------------------------------
-        bool HandleRoute(Route route, string id)
+        // ---- account picker ---------------------------------------------------------------
+        public void ShowPicker()
         {
-            switch (route)
+            _ring.gameObject.SetActive(false);
+            Work.gameObject.SetActive(true);
+            PlaceWork();
+            BuildPicker();
+        }
+
+        void BuildPicker()
+        {
+            foreach (Transform t in Work.rect) Destroy(t.gameObject);
+            var col = UI.V(Work.rect, "Picker", 26, new RectOffset(56, 56, 48, 48), TextAnchor.MiddleCenter); UI.Stretch(col);
+            UI.Bg(col, ColorRole.Glass, 40); UI.Border(col, ColorRole.GlassEdge, 40, 2);
+            UI.Text(col, "Who's " + UI.Em("here") + "?", TextStyle.Title, ColorRole.OnGlass, TextAlignmentOptions.Center);
+            var row = UI.H(col, "Accounts", 28, null, TextAnchor.MiddleCenter); UI.Size(row, -1, 220);
+            var g = row.GetComponent<HorizontalLayoutGroup>(); g.childForceExpandWidth = false;
+            foreach (var acct in RoomLogic.Accounts)
             {
-                case Route.Dashboard: case Route.CreateRoom: ShowRing(); return true; // rooms are created on the web, not in the headset
-                case Route.Landing: Router.Go(store.SignedIn ? Route.Dashboard : Route.SignIn, null, _immediate); return true;
-                case Route.Room:
-                    var room = id != null ? store.Get(id) : null;
-                    if (room != null && room.phase == Phase.Ready) { ShowRing(); return true; }
-                    ShowWork(); return false;
-                default: ShowWork(); return false;
+                var card = UI.V(row, "Account:" + acct.id, 14, UI.Pad(24), TextAnchor.MiddleCenter); UI.Size(card, 210, 220);
+                UI.Bg(card, ColorRole.GlassStrong, 28); UI.Border(card, ColorRole.GlassEdge, 28, 2);
+                Avatars.Create(card, acct.name, 84, false, true);
+                UI.Text(card, acct.name.Split(' ')[0], TextStyle.Title, ColorRole.OnGlass, TextAlignmentOptions.Center);
+                var hit = UI.Img(card, "Hit", ColorRole.Ink, null, Image.Type.Simple, true); hit.color = new Color(0, 0, 0, 0); hit.GetComponent<ThemedGraphic>().enabled = false;
+                UI.Stretch(hit.rectTransform); UI.Overlay(hit.rectTransform);
+                var id = acct.id; var name = acct.name;
+                var p = card.gameObject.AddComponent<Pressable>(); p.onClick = () => Pick(id, name); p.hoverScale = 1.03f;
             }
         }
 
+        void Pick(string accountId, string displayName)
+        {
+            store.SignIn(accountId);
+            SignedIn?.Invoke(displayName);
+            RebuildRing();
+            ShowRing();
+        }
+
+        // ---- ring / work panel visibility -------------------------------------------------
         public void ShowRing()
         {
             if (Work != null) Work.gameObject.SetActive(false);
             _ring.gameObject.SetActive(store.SignedIn);
             LayoutRing();
-        }
-
-        public void ShowWork()
-        {
-            _ring.gameObject.SetActive(false);
-            Work.gameObject.SetActive(true);
-            PlaceWork();
         }
 
         void PlaceWork() { if (head != null) Work.PlaceInFront(head, 1.6f, -0.05f); }
@@ -113,18 +133,14 @@ namespace Return.UI
         }
 
         // ---- ring ------------------------------------------------------------------------
-        List<Room> RingRooms()
-        {
-            var mine = store.Rooms.ToList();
-            return mine.Where(r => RoomLogic.Mine(r)?.status == MemberStatus.Invited).Concat(mine.Where(r => RoomLogic.Mine(r)?.status != MemberStatus.Invited)).ToList();
-        }
+        List<Room> RingRooms() => RoomLogic.ReadyRoomsFor(store.Rooms, store.CurrentAccountId);
 
         void OnStore()
         {
             if (Session != null && Session.State == SessionState.InWorld) return;
-            if (!store.SignedIn) { if (RingVisible) { Router.Go(Route.SignIn, null, _immediate); } return; }
+            if (!store.SignedIn) { if (RingVisible) ShowPicker(); return; }
             var ids = string.Join(",", RingRooms().Select(r => r.id));
-            if (ids != _ringIds) RebuildRing(); else foreach (var c in _cards) c.Refresh(store, Router);
+            if (ids != _ringIds) RebuildRing(); else foreach (var c in _cards) c.Refresh(store);
         }
 
         void RebuildRing()
@@ -132,8 +148,9 @@ namespace Return.UI
             foreach (var c in _cards) if (c != null) Destroy(c.gameObject);
             _cards.Clear();
             var rooms = RingRooms(); _ringIds = string.Join(",", rooms.Select(r => r.id));
-            foreach (var r in rooms) _cards.Add(PortalCard.Create(_ring, r, store, Router, OnPortal));
+            foreach (var r in rooms) _cards.Add(PortalCard.Create(_ring, r, store, EnterRoom));
             LayoutRing();
+            PortalsLaidOut?.Invoke(_cards.Where(c => c != null).Select(c => c.portal).ToList());
         }
 
         void LayoutRing()
@@ -151,19 +168,15 @@ namespace Return.UI
             }
         }
 
-        void OnPortal(Room room)
+        // ---- worlds ----------------------------------------------------------------------
+        /// <summary>The one way in: fires EnteringRoom, then loads the world if it's ready.</summary>
+        public void EnterRoom(Room room, RoomPortal portal)
         {
-            var pres = PortalPresentation.For(room);
-            switch (pres.kind)
-            {
-                case PortalKind.Ready: Enter(room); break;
-                case PortalKind.Invited: store.Join(room.id); Router.Go(Route.RoomUpload, room.id, _immediate); break;
-                default: Router.OpenRoom(room); break;
-            }
+            EnteringRoom?.Invoke(room, portal);
+            Enter(room, portal);
         }
 
-        // ---- worlds ----------------------------------------------------------------------
-        public void Enter(Room room) { if (Session.State == SessionState.Hub && room.phase == Phase.Ready) _ = Session.EnterAsync(room); }
+        void Enter(Room room, RoomPortal portal) { if (Session.State == SessionState.Hub && room.phase == Phase.Ready) _ = Session.EnterAsync(room, portal); }
         public void ExitWorld() { _ = Session.ExitAsync(); }
 
         void HubVisible(bool visible)
@@ -180,10 +193,8 @@ namespace Return.UI
             if (cam != null) p.SetEventCamera(cam);
             var m = HandMenu.Create(p.rect, new[]
             {
-                new HandMenu.Item("home", "Hub", () => { if (Session.State == SessionState.InWorld) ExitWorld(); else Router.Go(Route.Dashboard, null, _immediate); }),
+                new HandMenu.Item("home", "Hub", () => { if (Session.State == SessionState.InWorld) ExitWorld(); else if (store.SignedIn) ShowRing(); else ShowPicker(); }),
                 new HandMenu.Item("pinch", "Recenter", Recenter),
-                new HandMenu.Item("moon", "Theme", () => ThemeManager.SetOverride(ThemeManager.Current == ReturnTheme.Dusk ? ReturnTheme.Day : ReturnTheme.Dusk)),
-                new HandMenu.Item("play", "Advance", () => { var id = FocusedRoomId(); if (id != null) store.FastForward(id); }),
             });
             UI.Anchor(m, new Vector2(0.5f, 0.5f), Vector2.zero);
             if (leftHand != null)
@@ -196,15 +207,6 @@ namespace Return.UI
                 var lf = p.gameObject.AddComponent<LazyFollow>(); lf.head = head; p.transform.localScale = Vector3.one * 0.001f;
                 if (head != null) p.PlaceInFront(head, 0.7f, -0.42f);
             }
-        }
-
-        /// <summary>The room the viewer means: the one on the work panel, or the portal they are facing.</summary>
-        public string FocusedRoomId()
-        {
-            if (WorkVisible && Router.CurrentId != null) return Router.CurrentId;
-            if (head == null || _cards.Count == 0) return null;
-            var f = head.forward; f.y = 0; f.Normalize();
-            return _cards.Where(c => c != null).OrderByDescending(c => Vector3.Dot(f, (c.transform.position - head.position).normalized)).FirstOrDefault()?.roomId;
         }
     }
 }
