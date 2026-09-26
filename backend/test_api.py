@@ -625,6 +625,22 @@ class SketchAssetApiTests(unittest.TestCase):
             compiled = next(item for item in scene["objects"] if item["id"] == card_object["id"])
             self.assertEqual(compiled["source"], "sketch_card")
             self.assertEqual(compiled["asset_url"], card["artifact_url"])
+            # A mug can be picked up; a card stays on its stand.
+            self.assertFalse(compiled["grabbable"])
+            mug = next(item for item in scene["objects"] if item["id"] != card_object["id"])
+            self.assertTrue(mug["grabbable"])
+
+    def test_only_small_reconstructions_are_pickup_sized(self) -> None:
+        def asset(label: str, bounds: list[float], kind: str = "reconstruction") -> main.ProjectAsset:
+            return main.ProjectAsset(
+                asset_id="a1", project_id="p1", label=label, status=main.AssetStatus.READY,
+                kind=kind, reconstruction_job_id="", bounds=bounds,
+            )
+
+        self.assertTrue(main.is_pickup_sized(asset("thing", [0.2, 0.3, 0.2])))
+        self.assertTrue(main.is_pickup_sized(asset("grandma's mug", [1.0, 1.0, 1.0])))
+        self.assertFalse(main.is_pickup_sized(asset("sofa", [1.0, 1.0, 1.0])))
+        self.assertFalse(main.is_pickup_sized(asset("drawing", [0.4, 0.3, 0.02], kind="sketch_card")))
 
 
 class ConnectionComposeApiTests(unittest.TestCase):

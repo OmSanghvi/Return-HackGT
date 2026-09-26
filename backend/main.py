@@ -92,6 +92,9 @@ class SceneObject(BaseModel):
     actions: list[Literal["scale_by", "translate_by", "rotate_by"]] = Field(
         default_factory=lambda: ["scale_by", "translate_by", "rotate_by"]
     )
+    # Anyone in the room may pick this up to look at it; it returns to its
+    # place when released (local only; nothing is saved).
+    grabbable: bool = False
 
 
 class SceneDocument(BaseModel):
@@ -308,7 +311,7 @@ class BlueprintObject(BaseModel):
     position: list[float] = Field(min_length=3, max_length=3)
     rotation: list[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0], min_length=3, max_length=3)
     scale: list[float] = Field(default_factory=lambda: [1.0, 1.0, 1.0], min_length=3, max_length=3)
-    interactions: list[Literal["highlight", "inspect", "scale", "translate", "rotate", "activate"]] = Field(
+    interactions: list[Literal["highlight", "inspect", "scale", "translate", "rotate", "activate", "grab"]] = Field(
         default_factory=list
     )
     # The contribution this object stands for; compile_blueprint turns it into
@@ -900,6 +903,7 @@ def compile_blueprint(blueprint: ExperienceBlueprint) -> SceneDocument:
                     for action in ("scale_by", "translate_by", "rotate_by")
                     if action.removesuffix("_by") in item.interactions
                 ],
+                grabbable="grab" in item.interactions,
             )
         )
     return SceneDocument(
@@ -2534,11 +2538,31 @@ _MOCK_FALLBACK_THEMES: list[tuple[str, str]] = [
     ("What we held onto", "soft_daylight"),
     ("Pieces of the same afternoon", "golden_hour"),
 ]
-_MOCK_OBJECT_INTERACTIONS: list[Literal["highlight", "inspect", "scale", "translate", "rotate", "activate"]] = [
+_MOCK_OBJECT_INTERACTIONS: list[Literal["highlight", "inspect", "scale", "translate", "rotate", "activate", "grab"]] = [
     "highlight",
     "inspect",
     "rotate",
 ]
+# Something one person can comfortably hold, in meters (largest side).
+PICKUP_MAX_SIZE_METERS = 0.6
+# Hand-held things, for assets whose real size is still unknown (mock mode
+# reconstructions report the default 1 m bounds).
+_PICKUP_LABEL_WORDS = frozenset(
+    {
+        "mug", "cup", "teacup", "teapot", "bowl", "plate", "spoon", "jar", "bottle", "candle",
+        "book", "notebook", "journal", "letter", "postcard", "photo", "frame", "camera", "phone",
+        "shell", "stone", "rock", "ball", "toy", "plush", "doll", "figurine", "kite",
+        "ring", "watch", "necklace", "bracelet", "key", "keychain", "glasses", "hat", "box",
+    }
+)
+
+
+def is_pickup_sized(asset: ProjectAsset) -> bool:
+    """Whether a room object is small enough to pick up (sketch cards stay on their stands)."""
+    if asset.kind != "reconstruction":
+        return False
+    size = max(bound * scale for bound, scale in zip(asset.bounds, asset.suggested_scale))
+    return size <= PICKUP_MAX_SIZE_METERS or bool(_mock_tokens(asset.label) & _PICKUP_LABEL_WORDS)
 
 
 def _mock_tokens(text: str) -> set[str]:
@@ -2599,7 +2623,7 @@ def compose_connection_mock(
                 position=[x, y, z],
                 rotation=[0.0, facing, 0.0],
                 scale=list(asset.suggested_scale),
-                interactions=list(_MOCK_OBJECT_INTERACTIONS),
+                interactions=list(_MOCK_OBJECT_INTERACTIONS) + (["grab"] if is_pickup_sized(asset) else []),
                 contribution_id=contribution.contribution_id,
             )
         )

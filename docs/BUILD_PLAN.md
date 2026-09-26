@@ -239,6 +239,27 @@ implementations), `backend/test_storage.py` (new tests).
 
 **Definition of done:** both tools produce a schema-valid `ExperienceBlueprintInput` (validated against `shared/experience-blueprint.schema.json`) for a 2-object input and a 5-object input in the same test run.
 
+**NemoClaw note — object pickup (added 2026-09-26).** A simple pickup
+interface already exists without NemoClaw: the `grab` interaction on a
+`BlueprintObject` compiles to `grabbable: true` on the scene object, and Unity
+(`SketchScapePickup`) lets anyone pick it up with a controller (or left-click in
+the Editor) and floats it back to its place on release. Nothing is saved.
+Today the mock composer decides `grab` with a fixed rule (`is_pickup_sized` in
+`backend/main.py`: a reconstruction ≤ 0.6 m, or a known hand-held label such as
+"mug"; sketch cards never). When this step lands:
+- `place_objects_in_scene` should decide `grab` per object as part of the same
+  layout pass (it knows what the object is and how big it is), instead of the
+  fixed rule. Keep `is_pickup_sized` as the mock/fallback path.
+- Picking up someone's object is a natural moment for step 6's
+  `stage_immersive_reveal` (e.g. a cue that plays that contributor's memory
+  when their object is lifted). That needs a `staging_cue_id` per object
+  (already in the social manifest) and a Unity hook in
+  `SketchScapePickup.BeginHold`; don't let NemoClaw run anything live at
+  pickup time.
+- Moving an object *and keeping it moved* is not pickup: it goes through the
+  owner-checked room API (steps 21/23), and live replication of a held object
+  to other headsets is step 22.
+
 ---
 
 ## Step 4a — NemoClaw subject labeling for uploads

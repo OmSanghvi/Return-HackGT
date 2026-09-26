@@ -155,7 +155,8 @@
               "scale",
               "translate",
               "rotate",
-              "activate"
+              "activate",
+              "grab"
             ]
           }
         },
