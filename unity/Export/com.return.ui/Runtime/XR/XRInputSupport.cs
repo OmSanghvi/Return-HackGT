@@ -75,7 +75,12 @@ namespace Return.UI.XR
         static void SetupRigComfort()
         {
             foreach (var origin in Object.FindObjectsByType<XROrigin>(FindObjectsSortMode.None))
+            {
                 origin.RequestedTrackingOriginMode = XROrigin.TrackingOriginMode.Floor;
+                // Real skyboxes (see Return.Design.Skyboxes) replaced the painted dome + panorama; a rig baked into
+                // ReturnHub.unity before that (clear flags Solid Color) would otherwise never show them.
+                if (origin.Camera != null) origin.Camera.clearFlags = CameraClearFlags.Skybox;
+            }
 
             foreach (var turn in Object.FindObjectsByType<ContinuousTurnProvider>(FindObjectsSortMode.None))
             {

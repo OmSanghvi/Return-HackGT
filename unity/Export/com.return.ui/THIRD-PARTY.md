@@ -19,9 +19,14 @@ All clips are CC0 1.0 (public domain) or generated in-house; no attribution is l
 - **ripple.ogg** (0.13s): from `drop_001.wav`, Kenney "Interface Sounds" pack. Author: Kenney (kenney.nl). License: CC0 1.0. Source mirror: https://github.com/Calinou/kenney-interface-sounds
 - **lantern_bump.ogg** (0.07s): from `back_001.wav`, Kenney "Interface Sounds" pack. Author: Kenney (kenney.nl). License: CC0 1.0. Source mirror: https://github.com/Calinou/kenney-interface-sounds
 - **ambience_hub.ogg** (42.8s): looped/crossfaded from "Crickets Ambient Noise - loopable" (`crickets_1.mp3`, original 11.45s). Author: Wolfgang_ (additional attribution noted: Ted Kerr). License: CC0. Source: https://opengameart.org/content/crickets-ambient-noise-loopable
+- **ambience_birds_day.ogg** (45s, seamless loop): trimmed/looped from `park_ambience_birds.wav`. Author: thimras. License: CC0. Source: https://opengameart.org/content/park-ambiences. Trimmed and looped with ffmpeg on 2026-09-26.
+- **bird_chirp.ogg** (3s): trimmed from `birdchirping071414.wav`. Author: syncopika. License: CC0. Source: https://opengameart.org/content/bird-chirping-sounds. Trimmed with ffmpeg on 2026-09-26.
 - **portal_hum.ogg** (4.0s), **greeting_swell.ogg** (3.0s), **whoosh_in.ogg** (1.4s), **whoosh_out.ogg** (1.4s): generated in-house with ffmpeg lavfi sine/noise synthesis (no external source), 2026-09-26. Treat as placeholder-quality; swap for sourced/composed audio before any commercial release.
 
 All clips converted/mixed to Ogg Vorbis at 44.1kHz with ffmpeg. Total folder size ~1.24MB.
+
+## Skyboxes (`Runtime/Resources/ReturnUI/Skyboxes`)
+Real equirectangular skies (`Return.Design.Skyboxes`), replacing the old painted dome + panorama. All from Poly Haven (polyhaven.com), CC0: `kloofendal_48d_partly_cloudy_puresky`, `citrus_orchard_puresky`, `kloofendal_38d_partly_cloudy_puresky`, `kloppenheim_06_puresky`, `belfast_sunset_puresky`. Tonemapped JPGs downscaled to 4096x2048 and color-graded (desaturated ~20%, lifted toward pale haze) on 2026-09-26 to match the hub's dreamy daylight theme.
 
 ## Unity packages (not bundled)
 This package depends on `com.unity.ugui`, `com.unity.inputsystem` and URP. The XR files activate only if `com.unity.xr.interaction.toolkit` is installed. The XR Interaction Toolkit sample rig used by `Return > Build VR Hub Scene` is imported from Unity's package samples, not shipped here.

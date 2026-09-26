@@ -21,6 +21,7 @@ Shader "Return/SkyParallax"
         _Alpha ("Alpha", Range(0, 1)) = 1
         _Light ("Light glow", Float) = 0
         _Edge ("Edge feather (uv fraction, 0 = hard)", Float) = 0
+        _HorizonTint ("Edge tint (feathered rim melts toward this instead of just fading)", Color) = (0.9, 0.92, 0.95, 1)
         _TouchUV ("Touch point (uv)", Vector) = (-1, -1, 0, 0)
         _TouchTime ("Touch time (_Time.y at touch)", Float) = -100
     }
@@ -46,7 +47,7 @@ Shader "Return/SkyParallax"
             TEXTURE2D(_DepthB); SAMPLER(sampler_DepthB);
 
             CBUFFER_START(UnityPerMaterial)
-                float4 _Size, _Pointer, _Fog, _TouchUV;
+                float4 _Size, _Pointer, _Fog, _TouchUV, _HorizonTint;
                 float _AspA, _AspB, _Mix, _Mist, _Zoom, _Arch, _Radius, _Alpha, _Light, _Edge, _TouchTime;
             CBUFFER_END
 
@@ -128,6 +129,9 @@ Shader "Return/SkyParallax"
                 col = lerp(col, _Fog.rgb, smoothstep(0.0, 1.0, mist * (0.75 + 0.5 * n)));
                 float feather = 1.0;
                 if (_Edge > 0.0001) feather = smoothstep(0.0, _Edge, luv.x) * smoothstep(0.0, _Edge, 1.0 - luv.x) * smoothstep(0.0, _Edge * 1.4, 1.0 - luv.y);
+                // as the rim feathers out, tint it toward the surrounding sky's horizon color first, so it melts into
+                // the real skybox behind instead of just fading to nothing (a hard-edged cutout).
+                col = lerp(_HorizonTint.rgb, col, feather);
                 return half4(col, inside * _Alpha * feather);
             }
             ENDHLSL

@@ -39,6 +39,7 @@ namespace Return.UI.Tests
         [TestCase("SkyParallax", ReturnShaders.SkyParallax)]
         [TestCase("Vignette", ReturnShaders.Vignette)]
         [TestCase("WaterFloor", ReturnShaders.WaterFloor)]
+        [TestCase("SkyboxEquirect", ReturnShaders.SkyboxEquirect)]
         [TestCase("ParticlesUnlit", ReturnShaders.ParticlesUnlit)]
         public void RuntimeShaders_HaveBuildTemplates(string template, string shader)
         {

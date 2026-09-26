@@ -14,7 +14,7 @@ namespace Return.UI
     {
         static readonly int Main = Shader.PropertyToID("_MainTex"), Depth = Shader.PropertyToID("_DepthTex"), Asp = Shader.PropertyToID("_AspA"),
             Size = Shader.PropertyToID("_Size"), Arch = Shader.PropertyToID("_Arch"), Pointer = Shader.PropertyToID("_Pointer"), Fog = Shader.PropertyToID("_Fog"), Light = Shader.PropertyToID("_Light"),
-            TouchUV = Shader.PropertyToID("_TouchUV"), TouchTime = Shader.PropertyToID("_TouchTime");
+            TouchUV = Shader.PropertyToID("_TouchUV"), TouchTime = Shader.PropertyToID("_TouchTime"), HorizonTint = Shader.PropertyToID("_HorizonTint"), GlowColor = Shader.PropertyToID("_Color");
 
         public string roomId;
         /// <summary>Raised when the portal is pinched, poked, ray-clicked or mouse-clicked. The hub decides what that means for the room's state.</summary>
@@ -24,7 +24,7 @@ namespace Return.UI
         /// <summary>Raised the first time any portal is hovered or touched. HubIntro uses this to dismiss the guided nudge for good.</summary>
         public static event Action AnyHoverOrTouch;
         public Collider Collider => GetComponent<Collider>();
-        Material _m; Vector3 _base; float _phase; float _hover; float _lastTouchSfx = -10f;
+        Material _m, _halo; Color _haloBase; Vector3 _base; float _phase; float _hover; float _lastTouchSfx = -10f;
         Transform _head; AudioSource _hum; float _humBoost;
 
         const float HeadLeanScale = 1.2f;   // local units are already divided by the portal's own size, so ~0.4 m of lean saturates the shift
@@ -62,12 +62,31 @@ namespace Return.UI
             var sky = UIAssets.Sky(room.scene);
             p._m.SetTexture(Main, sky); p._m.SetTexture(Depth, UIAssets.Depth(room.scene)); p._m.SetFloat(Asp, (float)sky.width / sky.height);
             p._m.SetVector(Size, new Vector4(ReturnSpatial.PortalWidth, ReturnSpatial.PortalHeight, 0, 0)); p._m.SetFloat(Arch, 1);
+            var horizon = Skyboxes.Horizon(room.scene);
+            p._m.SetFloat("_Edge", 0.06f); p._m.SetColor(HorizonTint, horizon); // feathered rim melts into the real sky behind instead of a hard cutout
             r.sharedMaterial = p._m;
             var col = go.GetComponent<BoxCollider>(); col.size = new Vector3(1, 1, 0.1f);
             p._base = go.transform.localPosition; p._phase = UnityEngine.Random.value * 6f;
             p._hum = ReturnAudio.PortalHumSource(go.transform, room.scene, BaseHumVolume);
+            p.BuildHalo(go.transform, horizon);
             Created?.Invoke(p);
             return p;
+        }
+
+        /// <summary>A soft halo behind and larger than the arch: a plain additive quad using Return/ParticleGlow (already
+        /// build-safe and used elsewhere for fireflies/motes), tinted toward the sky's horizon color brightened toward
+        /// warm white. Brightens a little on hover/touch via _hover, the same value that lifts the window's own glow.</summary>
+        void BuildHalo(Transform parent, Color horizon)
+        {
+            var go = new GameObject("Halo"); go.transform.SetParent(parent, false);
+            go.transform.localPosition = new Vector3(0, 0, 0.06f); go.transform.localScale = new Vector3(1.45f, 1.3f, 1f);
+            go.AddComponent<MeshFilter>().sharedMesh = SkyBackdrop.Quad();
+            var r = go.AddComponent<MeshRenderer>(); r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
+            _halo = ReturnShaders.Create(ReturnShaders.ParticleGlow);
+            _haloBase = Color.Lerp(horizon, new Color(1f, 0.96f, 0.88f), 0.6f);
+            _haloBase.a = 0.35f;
+            _halo.SetColor(GlowColor, _haloBase);
+            r.sharedMaterial = _halo;
         }
 
         void Update()
@@ -78,6 +97,7 @@ namespace Return.UI
             _m.SetFloat(Light, _hover * 0.5f);
             var fog = ThemeManager.Current == ReturnTheme.Dusk ? new Color32(10, 15, 31, 255) : new Color32(237, 234, 228, 255);
             _m.SetColor(Fog, fog);
+            if (_halo != null) _halo.SetColor(GlowColor, Color.Lerp(_haloBase, Color.Lerp(_haloBase, Color.white, 0.6f), _hover));
             UpdateParallax();
             UpdateHum();
         }
@@ -136,6 +156,6 @@ namespace Return.UI
         static readonly int MistId = Shader.PropertyToID("_Mist"), AlphaId = Shader.PropertyToID("_Alpha");
         /// <summary>How the window reads: mist 0 clear to 1 fogged, alpha 1 solid to 0 gone.</summary>
         public void SetPresentation(float mist, float alpha) { _m.SetFloat(MistId, mist); _m.SetFloat(AlphaId, alpha); }
-        void OnDestroy() { if (_m != null) Destroy(_m); }
+        void OnDestroy() { if (_m != null) Destroy(_m); if (_halo != null) Destroy(_halo); }
     }
 }
