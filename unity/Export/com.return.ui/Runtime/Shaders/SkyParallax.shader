@@ -21,6 +21,8 @@ Shader "Return/SkyParallax"
         _Alpha ("Alpha", Range(0, 1)) = 1
         _Light ("Light glow", Float) = 0
         _Edge ("Edge feather (uv fraction, 0 = hard)", Float) = 0
+        _TouchUV ("Touch point (uv)", Vector) = (-1, -1, 0, 0)
+        _TouchTime ("Touch time (_Time.y at touch)", Float) = -100
     }
     SubShader
     {
@@ -44,8 +46,8 @@ Shader "Return/SkyParallax"
             TEXTURE2D(_DepthB); SAMPLER(sampler_DepthB);
 
             CBUFFER_START(UnityPerMaterial)
-                float4 _Size, _Pointer, _Fog;
-                float _AspA, _AspB, _Mix, _Mist, _Zoom, _Arch, _Radius, _Alpha, _Light, _Edge;
+                float4 _Size, _Pointer, _Fog, _TouchUV;
+                float _AspA, _AspB, _Mix, _Mist, _Zoom, _Arch, _Radius, _Alpha, _Light, _Edge, _TouchTime;
             CBUFFER_END
 
             struct A { float4 pos : POSITION; float2 uv : TEXCOORD0; };
@@ -113,6 +115,15 @@ Shader "Return/SkyParallax"
                 col = lerp(col, dot(col, float3(0.299, 0.587, 0.114)).xxx, mist * 0.6);
                 float2 dl = luv - (_Pointer.xy + 0.5);
                 col += _Light * float3(1.0, 0.96, 0.88) * exp(-dot(dl, dl) * 7.0) * (1.0 - mist);
+
+                // touch ripple: a ring expanding out from the touch point over ~1s, then gone
+                float age = _Time.y - _TouchTime;
+                if (age >= 0.0 && age < 1.0)
+                {
+                    float d = length(luv - _TouchUV.xy);
+                    float ring = exp(-age * 2.2) * exp(-abs(d - age * 0.7) * 12.0) * sin(d * 26.0 - age * 18.0);
+                    col += ring * float3(1.0, 0.98, 0.9) * 0.4 * (1.0 - mist);
+                }
                 col = lerp(col, _Fog.rgb, 0.07 * n * (1.0 - mist));
                 col = lerp(col, _Fog.rgb, smoothstep(0.0, 1.0, mist * (0.75 + 0.5 * n)));
                 float feather = 1.0;

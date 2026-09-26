@@ -57,7 +57,7 @@ namespace Return.UI
 
             var camGo = head != null ? (head.GetComponent<Camera>() != null ? head : head.GetComponentInChildren<Camera>()?.transform ?? head) : null;
             var fade = camGo != null ? ScreenFade.Attach(camGo) : ScreenFade.Attach(new GameObject("NoHead").transform);
-            Session = new WorldSession(loader ?? new StubWorldLoader(), fade, head, HubVisible) { fadeSeconds = fadeSeconds };
+            Session = new WorldSession(loader ?? new StubWorldLoader(), fade, head, HubVisible, new PortalTransition(head)) { fadeSeconds = fadeSeconds };
 
             Work = SpatialPanel.Create("WorkPanel", 900, 520, _hubRoot);
             Work.gameObject.SetActive(false);
@@ -68,6 +68,7 @@ namespace Return.UI
             store.Changed += OnStore;
             RebuildRing();
             if (store.SignedIn) ShowRing(); else ShowPicker();
+            HubIntro.Attach(this, store, head, _hubRoot);
         }
 
         void OnDestroy()
@@ -172,10 +173,10 @@ namespace Return.UI
         public void EnterRoom(Room room, RoomPortal portal)
         {
             EnteringRoom?.Invoke(room, portal);
-            Enter(room);
+            Enter(room, portal);
         }
 
-        void Enter(Room room) { if (Session.State == SessionState.Hub && room.phase == Phase.Ready) _ = Session.EnterAsync(room); }
+        void Enter(Room room, RoomPortal portal) { if (Session.State == SessionState.Hub && room.phase == Phase.Ready) _ = Session.EnterAsync(room, portal); }
         public void ExitWorld() { _ = Session.ExitAsync(); }
 
         void HubVisible(bool visible)

@@ -62,7 +62,7 @@ namespace Return.UI
             }
 
             b.press = rt.gameObject.AddComponent<Pressable>();
-            b.press.onClick = onClick;
+            b.press.onClick = () => { ReturnAudio.Play(ReturnAudio.UiSelect, 0.5f); onClick?.Invoke(); };
             return b;
         }
 

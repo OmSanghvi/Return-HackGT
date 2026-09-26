@@ -13,15 +13,18 @@ namespace Return.UI
     public class RoomPortal : MonoBehaviour, UnityEngine.EventSystems.IPointerClickHandler
     {
         static readonly int Main = Shader.PropertyToID("_MainTex"), Depth = Shader.PropertyToID("_DepthTex"), Asp = Shader.PropertyToID("_AspA"),
-            Size = Shader.PropertyToID("_Size"), Arch = Shader.PropertyToID("_Arch"), Pointer = Shader.PropertyToID("_Pointer"), Fog = Shader.PropertyToID("_Fog"), Light = Shader.PropertyToID("_Light");
+            Size = Shader.PropertyToID("_Size"), Arch = Shader.PropertyToID("_Arch"), Pointer = Shader.PropertyToID("_Pointer"), Fog = Shader.PropertyToID("_Fog"), Light = Shader.PropertyToID("_Light"),
+            TouchUV = Shader.PropertyToID("_TouchUV"), TouchTime = Shader.PropertyToID("_TouchTime");
 
         public string roomId;
         /// <summary>Raised when the portal is pinched, poked, ray-clicked or mouse-clicked. The hub decides what that means for the room's state.</summary>
         public event Action<string> Activated;
         /// <summary>Raised for every new portal. XR glue subscribes to attach an interactable.</summary>
         public static event Action<RoomPortal> Created;
+        /// <summary>Raised the first time any portal is hovered or touched. HubIntro uses this to dismiss the guided nudge for good.</summary>
+        public static event Action AnyHoverOrTouch;
         public Collider Collider => GetComponent<Collider>();
-        Material _m; Vector3 _base; float _phase; float _hover;
+        Material _m; Vector3 _base; float _phase; float _hover; float _lastTouchSfx = -10f;
 
         public static RoomPortal Create(Transform parent, Room room, Vector3 localPosition)
         {
@@ -53,7 +56,19 @@ namespace Return.UI
         }
 
         /// <summary>Call while a ray or hand hovers to brighten the window.</summary>
-        public void Hover() { _hover = 1f; }
+        public void Hover() { _hover = 1f; AnyHoverOrTouch?.Invoke(); }
+
+        /// <summary>Call with a world-space hit point (ray, poke or pinch) to brighten the window and ripple the sky from that point.</summary>
+        public void Touch(Vector3 worldPoint)
+        {
+            _hover = 1f;
+            var local = transform.InverseTransformPoint(worldPoint);
+            _m.SetVector(TouchUV, new Vector4(local.x + 0.5f, local.y + 0.5f, 0, 0));
+            _m.SetFloat(TouchTime, Time.time);
+            AnyHoverOrTouch?.Invoke();
+            if (Time.time - _lastTouchSfx > 0.15f) { _lastTouchSfx = Time.time; ReturnAudio.PlayAt(ReturnAudio.UiHover, transform.position, 0.5f); }
+        }
+
         public void Activate() { Activated?.Invoke(roomId); }
         public void OnPointerClick(UnityEngine.EventSystems.PointerEventData e) { Activate(); }
 

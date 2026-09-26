@@ -86,5 +86,21 @@ namespace Return.UI.PlayTests
             CollectionAssert.DoesNotContain(ids, "ava-graduation"); // still just invited, not ready
             Assert.IsTrue(ids.All(id => _app.Store.Get(id).phase == Phase.Ready));
         }
+
+        [UnityTest]
+        public IEnumerator SigningIn_PlaysGreeting_AndBloomsEveryPortalToFullScale()
+        {
+            yield return null;
+            var hub = _app.Hub;
+            var dylanCard = hub.Work.GetComponentsInChildren<Pressable>().First(p => p.name == "Account:" + RoomLogic.MeId);
+            dylanCard.onClick(); // fires SignedIn, which starts HubIntro's welcome sequence
+            yield return Until(() => hub.RingVisible);
+            Assert.AreEqual(4, hub.Cards.Count);
+
+            var target = new Vector3(ReturnSpatial.PortalWidth, ReturnSpatial.PortalHeight, 1);
+            bool AllBloomed() => hub.Cards.All(c => c != null && c.portal != null && Vector3.Distance(c.portal.transform.localScale, target) < 0.01f);
+            yield return Until(AllBloomed, 8f); // greeting text (~2.5s) then a staggered bloom per portal
+            Assert.IsTrue(AllBloomed());
+        }
     }
 }
