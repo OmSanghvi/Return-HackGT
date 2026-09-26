@@ -7,7 +7,9 @@ absent. Run with `python -m unittest test_storage.py`.
 """
 
 import importlib.util
+import json
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -195,6 +197,57 @@ class LocalJsonStoreContractTests(unittest.TestCase):
         self.assertEqual(len(reloaded.list_contributions("p1")), 1)
         self.assertEqual(len(reloaded.list_connection_insights("p1")), 1)
 
+    def test_append_blueprint_out_of_sequence_raises_revision_conflict(self) -> None:
+        """Build Plan step 15: a duplicate/out-of-order revision must not
+        silently overwrite — it raises RevisionConflict so the caller retries.
+        """
+        self.store.save_project(make_project())
+        self.store.append_blueprint(_make_blueprint("p1", revision=1))
+        with self.assertRaises(storage.RevisionConflict):
+            self.store.append_blueprint(_make_blueprint("p1", revision=1))
+        # A skipped number is out of sequence too, not just an exact repeat.
+        with self.assertRaises(storage.RevisionConflict):
+            self.store.append_blueprint(_make_blueprint("p1", revision=3))
+        # The list is unaffected by the rejected appends.
+        self.assertEqual([bp.revision for bp in self.store.list_blueprints("p1")], [1])
+
+    def test_live_revision_defaults_to_none_and_roundtrips(self) -> None:
+        self.store.save_project(make_project())
+        self.assertIsNone(self.store.get_live_revision("p1"))
+        self.assertTrue(self.store.set_live_revision("p1", None, 1))
+        self.assertEqual(self.store.get_live_revision("p1"), 1)
+
+    def test_set_live_revision_with_wrong_expected_returns_false(self) -> None:
+        """Build Plan step 15: a compare-and-set against a stale `expected`
+        value must fail closed (return False), not raise and not apply.
+        """
+        self.store.save_project(make_project())
+        self.assertTrue(self.store.set_live_revision("p1", None, 1))
+        self.assertFalse(self.store.set_live_revision("p1", 0, 2))
+        self.assertFalse(self.store.set_live_revision("p1", None, 2))
+        # The pointer must be unchanged by the rejected attempts.
+        self.assertEqual(self.store.get_live_revision("p1"), 1)
+
+    def test_live_revision_survives_reload(self) -> None:
+        self.store.save_project(make_project())
+        self.store.set_live_revision("p1", None, 1)
+        reloaded = storage.LocalJsonStore(self._state)
+        reloaded.load()
+        self.assertEqual(reloaded.get_live_revision("p1"), 1)
+
+    def test_old_snapshot_without_live_revisions_field_loads_cleanly(self) -> None:
+        """A state file written before this field existed must still load,
+        with the pointer defaulting to unset rather than failing to load."""
+        self.store.save_project(make_project())
+        raw = json.loads(self._state.read_text("utf-8"))
+        del raw["live_revisions"]
+        self._state.write_text(json.dumps(raw), encoding="utf-8")
+
+        reloaded = storage.LocalJsonStore(self._state)
+        reloaded.load()
+        self.assertIsNotNone(reloaded.get_project("p1"))
+        self.assertIsNone(reloaded.get_live_revision("p1"))
+
 
 class DynamoDbStoreTests(unittest.TestCase):
     def test_missing_table_name_raises(self) -> None:
@@ -285,6 +338,63 @@ class DynamoDbStoreTests(unittest.TestCase):
         self.assertEqual(len(contributions), 4)
         self.assertEqual({c.contributor_id for c in contributions}, set(contributor_ids))
 
+    @unittest.skipUnless(_HAS_BOTO3, "DynamoDB conditional-write test needs botocore's ClientError.")
+    def test_duplicate_append_blueprint_raises_revision_conflict(self) -> None:
+        """Build Plan step 15: the DynamoDB ConditionExpression on `sk` must
+        reject a second writer landing the same revision, as RevisionConflict
+        — not silently overwrite it with `put_item`.
+        """
+        store = storage.DynamoDbStore("fake")
+        store._table = _FakeTable()
+        store.save_project(make_project())
+        store.append_blueprint(_make_blueprint("p1", revision=1))
+        with self.assertRaises(storage.RevisionConflict):
+            store.append_blueprint(_make_blueprint("p1", revision=1))
+        # The original write must be intact.
+        self.assertEqual([bp.revision for bp in store.list_blueprints("p1")], [1])
+
+    @unittest.skipUnless(_HAS_BOTO3, "DynamoDB conditional-write test needs botocore's ClientError.")
+    def test_append_publication_retries_past_a_conflicting_sequence_slot(self) -> None:
+        """A racing writer that already grabbed the next sequence slot must not
+        stop this append — publications are append-only, so retrying with the
+        next number is always correct.
+        """
+        store = storage.DynamoDbStore("fake")
+        store._table = _FakeTable()
+        store.save_project(make_project())
+        # Simulate another instance already having written PUBLICATION#1.
+        store._table.put_item(
+            Item={
+                "pk": "PROJECT#p1",
+                "sk": storage.DynamoDbStore._seq_key("PUBLICATION", 1),
+                "document": main.PublicationRecord(
+                    project_id="p1", revision=1, published_at=main.utc_now()
+                ).model_dump_json(),
+            }
+        )
+        store.append_publication(
+            main.PublicationRecord(project_id="p1", revision=1, published_at=main.utc_now())
+        )
+        published = [rec.revision for rec in store.list_publications("p1")]
+        self.assertEqual(published, [1, 1])
+
+    @unittest.skipUnless(_HAS_BOTO3, "DynamoDB conditional-write test needs botocore's ClientError.")
+    def test_live_revision_compare_and_set_against_fake_table(self) -> None:
+        store = storage.DynamoDbStore("fake")
+        store._table = _FakeTable()
+        store.save_project(make_project())
+
+        self.assertIsNone(store.get_live_revision("p1"))
+        self.assertTrue(store.set_live_revision("p1", None, 1))
+        self.assertEqual(store.get_live_revision("p1"), 1)
+
+        # A stale `expected` must fail closed, not raise, and not apply.
+        self.assertFalse(store.set_live_revision("p1", 0, 2))
+        self.assertEqual(store.get_live_revision("p1"), 1)
+
+        self.assertTrue(store.set_live_revision("p1", 1, 2))
+        self.assertEqual(store.get_live_revision("p1"), 2)
+
 
 def _make_blueprint(project_id: str, revision: int) -> "main.ExperienceBlueprint":
     return main.ExperienceBlueprint(
@@ -301,8 +411,9 @@ def _make_blueprint(project_id: str, revision: int) -> "main.ExperienceBlueprint
 class _FakeTable:
     """A tiny in-memory stand-in for a boto3 DynamoDB Table.
 
-    It supports only the operations DynamoDbStore uses: get_item, put_item, and
-    a begins_with/eq Query with ScanIndexForward. Keys are (pk, sk) tuples.
+    It supports only the operations DynamoDbStore uses: get_item, put_item
+    (with a ``ConditionExpression`` for the step-15 conditional writes), and a
+    begins_with/eq Query with ScanIndexForward. Keys are (pk, sk) tuples.
     """
 
     def __init__(self) -> None:
@@ -312,8 +423,55 @@ class _FakeTable:
         item = self._items.get((Key["pk"], Key["sk"]))
         return {"Item": item} if item is not None else {}
 
-    def put_item(self, Item: dict) -> None:  # noqa: N803 - boto3 API name
-        self._items[(Item["pk"], Item["sk"])] = dict(Item)
+    def put_item(  # noqa: N803 - boto3 API names
+        self,
+        Item: dict,
+        ConditionExpression: str | None = None,
+        ExpressionAttributeNames: dict | None = None,
+        ExpressionAttributeValues: dict | None = None,
+    ) -> None:
+        key = (Item["pk"], Item["sk"])
+        if ConditionExpression is not None:
+            existing = self._items.get(key)
+            if not self._condition_holds(
+                ConditionExpression,
+                ExpressionAttributeNames or {},
+                ExpressionAttributeValues or {},
+                existing,
+            ):
+                from botocore.exceptions import ClientError  # noqa: PLC0415
+
+                raise ClientError(
+                    {
+                        "Error": {
+                            "Code": "ConditionalCheckFailedException",
+                            "Message": "The conditional request failed",
+                        }
+                    },
+                    "PutItem",
+                )
+        self._items[key] = dict(Item)
+
+    @staticmethod
+    def _condition_holds(
+        expression: str, names: dict, values: dict, existing: dict | None
+    ) -> bool:
+        """Evaluate the small subset of DynamoDB condition expressions that
+        ``DynamoDbStore`` actually issues: ``attribute_not_exists(x)``,
+        optionally OR'd with an equality check such as ``#r = :expected``.
+        """
+        for clause in (part.strip() for part in expression.split(" OR ")):
+            if re.fullmatch(r"attribute_not_exists\(\w+\)", clause):
+                if existing is None:
+                    return True
+                continue
+            match = re.fullmatch(r"(\S+)\s*=\s*(\S+)", clause)
+            if match and existing is not None:
+                attr = names.get(match.group(1), match.group(1))
+                expected = values.get(match.group(2), match.group(2))
+                if existing.get(attr) == expected:
+                    return True
+        return False
 
     def query(self, **kwargs) -> dict:
         # DynamoDbStore builds the condition with boto3's Key helper; rather

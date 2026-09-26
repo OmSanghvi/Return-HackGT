@@ -27,7 +27,7 @@ cd backend
 .venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py
 ```
 
-51 tests (2 are skipped either way, depending on whether `boto3` is
+72 tests (2 are skipped either way, depending on whether `boto3` is
 installed). They exercise only `PIPELINE_MODE=mock`; they don't contact AWS
 or load a model. From the repo root, `bash scripts/verify_local.sh` runs
 these plus the syntax, JSON, and secret checks.

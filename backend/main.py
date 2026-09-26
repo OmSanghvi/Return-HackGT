@@ -18,12 +18,12 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from storage import create_store
+from storage import RevisionConflict, create_store
 from artifact_store import create_artifact_store
 from subject_labeler import SubjectLabelError, create_subject_labeler
 
@@ -279,6 +279,14 @@ class ExperienceBlueprint(ExperienceBlueprintInput):
     project_id: str
     revision: int
     created_at: datetime
+    # Which published revision this draft was built on, so publish can refuse
+    # a stale draft (compare-and-set). None means legacy/manual authoring —
+    # that revision keeps today's unconditional publish behavior, including
+    # deliberate rollback to an older revision.
+    based_on_revision: int | None = None
+    # Filled by step 16 (Clerk auth) once it lands; unset for mock-mode/manual
+    # authoring today.
+    author: str | None = None
 
 
 class PublicationRecord(BaseModel):
@@ -988,22 +996,70 @@ async def validate_blueprint(project_id: str, request: ExperienceBlueprintInput)
     return request
 
 
+_MAX_BLUEPRINT_APPEND_ATTEMPTS = 5
+
+
 @app.post("/v1/projects/{project_id}/blueprints", response_model=ExperienceBlueprint, status_code=201)
-async def create_blueprint(project_id: str, request: ExperienceBlueprintInput) -> ExperienceBlueprint:
+async def create_blueprint(
+    project_id: str,
+    request: ExperienceBlueprintInput,
+    base_revision: Annotated[
+        int | None,
+        Query(
+            ge=0,
+            description=(
+                "The published revision this draft was built on (0 = nothing "
+                "published yet). Optional for backward compatibility with "
+                "manual authoring; new callers (room API, NemoClaw) should "
+                "always send it so a stale draft is rejected instead of "
+                "silently erasing newer edits."
+            ),
+        ),
+    ] = None,
+) -> ExperienceBlueprint:
     project = get_project(project_id)
     validate_blueprint_assets(project, request)
-    revisions = store.list_blueprints(project_id)
-    blueprint = ExperienceBlueprint(
-        **request.model_dump(),
-        project_id=project_id,
-        revision=len(revisions) + 1,
-        created_at=utc_now(),
+
+    if base_revision is not None:
+        current_published = store.get_live_revision(project_id) or 0
+        if base_revision != current_published:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": (
+                        f"base_revision {base_revision} is stale; the currently "
+                        f"published revision is {current_published}."
+                    ),
+                    "published_revision": current_published,
+                },
+            )
+
+    last_error: RevisionConflict | None = None
+    for _ in range(_MAX_BLUEPRINT_APPEND_ATTEMPTS):
+        revisions = store.list_blueprints(project_id)
+        blueprint = ExperienceBlueprint(
+            **request.model_dump(),
+            project_id=project_id,
+            revision=len(revisions) + 1,
+            created_at=utc_now(),
+            based_on_revision=base_revision,
+        )
+        try:
+            store.append_blueprint(blueprint)
+        except RevisionConflict as error:
+            last_error = error
+            continue
+        project.blueprint_revisions.append(blueprint.revision)
+        project.updated_at = utc_now()
+        store.save_project(project)
+        return blueprint
+
+    raise HTTPException(
+        409,
+        f"Could not create a new blueprint revision after "
+        f"{_MAX_BLUEPRINT_APPEND_ATTEMPTS} attempts (too many concurrent "
+        f"writers); try again. Last conflict: {last_error}",
     )
-    store.append_blueprint(blueprint)
-    project.blueprint_revisions.append(blueprint.revision)
-    project.updated_at = utc_now()
-    store.save_project(project)
-    return blueprint
 
 
 @app.get("/v1/projects/{project_id}/blueprints/{revision}", response_model=ExperienceBlueprint)
@@ -1015,13 +1071,68 @@ async def get_blueprint(project_id: str, revision: int) -> ExperienceBlueprint:
     return revisions[revision - 1]
 
 
+_MAX_LIVE_POINTER_ATTEMPTS = 5
+
+
 @app.post("/v1/projects/{project_id}/blueprints/{revision}/publish", response_model=SceneResponse)
 async def publish_blueprint(project_id: str, revision: int) -> SceneResponse:
     global current_scene
     project = get_project(project_id)
     blueprint = await get_blueprint(project_id, revision)
     validate_blueprint_assets(project, blueprint)
+
+    if blueprint.based_on_revision is not None:
+        # New-style draft: publish only if it was built on what's currently
+        # live (the LIVE pointer, not the last-write-wins ProjectRecord blob).
+        # A losing compare-and-set means someone else published in between —
+        # that's the same "stale draft" condition as a stale base_revision, so
+        # it's reported the same way instead of silently retried.
+        current_live = store.get_live_revision(project_id)
+        expected_published = current_live if current_live is not None else 0
+        if blueprint.based_on_revision != expected_published:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": (
+                        f"stale draft: rebase on revision {expected_published} "
+                        "and try again."
+                    ),
+                    "published_revision": expected_published,
+                },
+            )
+        if not store.set_live_revision(project_id, current_live, revision):
+            latest = store.get_live_revision(project_id)
+            latest_published = latest if latest is not None else 0
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": (
+                        f"stale draft: rebase on revision {latest_published} "
+                        "and try again."
+                    ),
+                    "published_revision": latest_published,
+                },
+            )
+    else:
+        # Legacy/manual authoring: unconditional publish, including a
+        # deliberate rollback to an older revision. The compare-and-set still
+        # runs (against a freshly read pointer, retried) to keep the LIVE
+        # pointer update atomic under concurrent writers — but a true race
+        # here is retried rather than rejected, since this path never applies
+        # the "stale base" business rule.
+        for _ in range(_MAX_LIVE_POINTER_ATTEMPTS):
+            current_live = store.get_live_revision(project_id)
+            if store.set_live_revision(project_id, current_live, revision):
+                break
+        else:
+            raise HTTPException(
+                500, "Could not update the live revision pointer; try again."
+            )
+
     current_scene = compile_blueprint(blueprint)
+    # Cached copy only — kept for existing clients/tests that read it, but no
+    # longer the source of truth for what's live (see get_live_revision above
+    # and get_compiled_project_scene below).
     project.published_revision = revision
     project.updated_at = utc_now()
     store.save_project(project)
@@ -1036,9 +1147,16 @@ async def publish_blueprint(project_id: str, revision: int) -> SceneResponse:
 @app.get("/v1/projects/{project_id}/compiled-scene", response_model=SceneResponse)
 async def get_compiled_project_scene(project_id: str) -> SceneResponse:
     project = get_project(project_id)
-    if project.published_revision is None:
+    # The LIVE pointer is authoritative; project.published_revision is only a
+    # last-write-wins cached copy, kept for backward-compat reads if the
+    # pointer is somehow unset (e.g. a snapshot from before this pointer
+    # existed).
+    live_revision = store.get_live_revision(project_id)
+    if live_revision is None:
+        live_revision = project.published_revision
+    if live_revision is None:
         raise HTTPException(404, "This project has no published blueprint.")
-    blueprint = await get_blueprint(project_id, project.published_revision)
+    blueprint = await get_blueprint(project_id, live_revision)
     return SceneResponse(scene=compile_blueprint(blueprint))
 
 

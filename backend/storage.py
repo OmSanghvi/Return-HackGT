@@ -50,7 +50,16 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a circular import.
     )
 
 
-STATE_VERSION = 1
+STATE_VERSION = 2
+
+
+class RevisionConflict(Exception):
+    """Raised when an append would collide with an existing revision/sequence.
+
+    Both backends raise this from ``append_blueprint``/``append_publication``
+    when a conditional write loses a race with another writer (another API
+    instance, another headset, NemoClaw). Callers retry with the next number.
+    """
 
 
 def _utc_now_iso() -> str:
@@ -121,6 +130,24 @@ class AuthoringStore(ABC):
     def append_publication(self, record: PublicationRecord) -> None: ...
 
     @abstractmethod
+    def get_live_revision(self, project_id: str) -> int | None:
+        """Return the revision currently live for a project, or None if unset.
+
+        This is the authoritative "what's published" pointer — readers
+        (compiled-scene, the room API) should use this, not the cached
+        ``ProjectRecord.published_revision``.
+        """
+
+    @abstractmethod
+    def set_live_revision(self, project_id: str, expected: int | None, new: int) -> bool:
+        """Compare-and-set the live revision pointer.
+
+        Succeeds only if the current live revision equals ``expected``
+        (``None`` means "nothing published yet"). Returns whether the update
+        applied; never raises on a losing race.
+        """
+
+    @abstractmethod
     def list_contributors(self, project_id: str) -> list[Contributor]: ...
 
     @abstractmethod
@@ -160,6 +187,7 @@ class LocalJsonStore(AuthoringStore):
         self.contributors: dict[str, list[Contributor]] = {}
         self.contributions: dict[str, list[Contribution]] = {}
         self.connection_insights: dict[str, list[ConnectionInsight]] = {}
+        self.live_revisions: dict[str, int] = {}
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -176,6 +204,7 @@ class LocalJsonStore(AuthoringStore):
             self.contributors = {}
             self.contributions = {}
             self.connection_insights = {}
+            self.live_revisions = {}
             if not self._state_path.is_file():
                 return
             try:
@@ -211,6 +240,10 @@ class LocalJsonStore(AuthoringStore):
                 self.connection_insights[project_id] = [
                     ConnectionInsight.model_validate(item) for item in records
                 ]
+            # Absent in files written before this field existed — default to
+            # unset per project rather than failing to load an older snapshot.
+            for project_id, revision in raw.get("live_revisions", {}).items():
+                self.live_revisions[project_id] = int(revision)
 
     def _quarantine_corrupt_state(self) -> None:
         backup = self._state_path.with_suffix(
@@ -249,6 +282,7 @@ class LocalJsonStore(AuthoringStore):
                 project_id: [item.model_dump(mode="json") for item in records]
                 for project_id, records in self.connection_insights.items()
             },
+            "live_revisions": dict(self.live_revisions),
         }
 
     def _flush(self) -> None:
@@ -302,7 +336,14 @@ class LocalJsonStore(AuthoringStore):
 
     def append_blueprint(self, blueprint: ExperienceBlueprint) -> None:
         with self._lock:
-            self.blueprints.setdefault(blueprint.project_id, []).append(blueprint)
+            existing = self.blueprints.setdefault(blueprint.project_id, [])
+            if blueprint.revision != len(existing) + 1:
+                raise RevisionConflict(
+                    f"Blueprint revision {blueprint.revision} for project "
+                    f"{blueprint.project_id} is out of sequence (expected "
+                    f"{len(existing) + 1})."
+                )
+            existing.append(blueprint)
             self._flush()
 
     # -- publications ------------------------------------------------------
@@ -320,6 +361,20 @@ class LocalJsonStore(AuthoringStore):
         with self._lock:
             self.publications.setdefault(record.project_id, []).append(record)
             self._flush()
+
+    # -- live revision pointer ----------------------------------------------
+
+    def get_live_revision(self, project_id: str) -> int | None:
+        return self.live_revisions.get(project_id)
+
+    def set_live_revision(self, project_id: str, expected: int | None, new: int) -> bool:
+        with self._lock:
+            current = self.live_revisions.get(project_id)
+            if current != expected:
+                return False
+            self.live_revisions[project_id] = new
+            self._flush()
+            return True
 
     # -- contributors --------------------------------------------------------
 
@@ -416,6 +471,19 @@ class DynamoDbStore(AuthoringStore):
     def _seq_key(prefix: str, value: int) -> str:
         return f"{prefix}#{value:0{DynamoDbStore._SORT_WIDTH}d}"
 
+    @staticmethod
+    def _is_conditional_check_failure(error: Exception) -> bool:
+        """Identify a DynamoDB conditional-write rejection, without importing
+        botocore at module scope (boto3/botocore stay optional dependencies).
+        """
+        try:
+            from botocore.exceptions import ClientError  # noqa: PLC0415
+        except ImportError:  # pragma: no cover - botocore ships with boto3
+            return False
+        if not isinstance(error, ClientError):
+            return False
+        return error.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException"
+
     # -- projects ----------------------------------------------------------
 
     def get_project(self, project_id: str) -> ProjectRecord | None:
@@ -489,14 +557,31 @@ class DynamoDbStore(AuthoringStore):
         ]
 
     def append_blueprint(self, blueprint: ExperienceBlueprint) -> None:
+        """Append a blueprint revision, rejecting a collision with a sibling.
+
+        ``self._lock`` only serializes this process; the ``ConditionExpression``
+        is what actually protects against a second API instance writing the
+        same revision number at the same time. On a collision this raises
+        ``RevisionConflict`` so the caller (``create_blueprint``) can retry
+        with the next revision number instead of silently overwriting.
+        """
         with self._lock:
-            self._require_table().put_item(
-                Item={
-                    "pk": f"PROJECT#{blueprint.project_id}",
-                    "sk": self._seq_key("BLUEPRINT", blueprint.revision),
-                    "document": blueprint.model_dump_json(),
-                }
-            )
+            try:
+                self._require_table().put_item(
+                    Item={
+                        "pk": f"PROJECT#{blueprint.project_id}",
+                        "sk": self._seq_key("BLUEPRINT", blueprint.revision),
+                        "document": blueprint.model_dump_json(),
+                    },
+                    ConditionExpression="attribute_not_exists(sk)",
+                )
+            except Exception as error:  # noqa: BLE001 - narrowed below
+                if self._is_conditional_check_failure(error):
+                    raise RevisionConflict(
+                        f"Blueprint revision {blueprint.revision} for project "
+                        f"{blueprint.project_id} already exists."
+                    ) from error
+                raise
 
     # -- publications ------------------------------------------------------
 
@@ -511,17 +596,74 @@ class DynamoDbStore(AuthoringStore):
         """Append an immutable publication record using an ordered sort key.
 
         The sort key is the next sequence number, so republishing an earlier
-        revision appends a new item rather than overwriting history.
+        revision appends a new item rather than overwriting history. The
+        write is conditional on that sequence slot being free; publications
+        are append-only, so on a collision (another instance grabbed the same
+        slot) it's always correct to retry with the next number — no data can
+        be lost by retrying, unlike a blueprint revision.
         """
         with self._lock:
-            next_seq = len(self._query_children(record.project_id, "PUBLICATION")) + 1
-            self._require_table().put_item(
-                Item={
-                    "pk": f"PROJECT#{record.project_id}",
-                    "sk": self._seq_key("PUBLICATION", next_seq),
-                    "document": record.model_dump_json(),
-                }
-            )
+            last_error: Exception | None = None
+            for _ in range(5):
+                next_seq = len(self._query_children(record.project_id, "PUBLICATION")) + 1
+                try:
+                    self._require_table().put_item(
+                        Item={
+                            "pk": f"PROJECT#{record.project_id}",
+                            "sk": self._seq_key("PUBLICATION", next_seq),
+                            "document": record.model_dump_json(),
+                        },
+                        ConditionExpression="attribute_not_exists(sk)",
+                    )
+                    return
+                except Exception as error:  # noqa: BLE001 - narrowed below
+                    if self._is_conditional_check_failure(error):
+                        last_error = error
+                        continue
+                    raise
+            raise RevisionConflict(
+                f"Could not append a publication record for project "
+                f"{record.project_id} after retries."
+            ) from last_error
+
+    # -- live revision pointer ----------------------------------------------
+
+    def get_live_revision(self, project_id: str) -> int | None:
+        response = self._require_table().get_item(
+            Key={"pk": f"PROJECT#{project_id}", "sk": "LIVE"}
+        )
+        item = response.get("Item")
+        if item is None:
+            return None
+        return int(item["revision"])
+
+    def set_live_revision(self, project_id: str, expected: int | None, new: int) -> bool:
+        """Compare-and-set the LIVE pointer item for a project.
+
+        ``expected is None`` means "nothing published yet", so the condition
+        requires the item not to exist at all; otherwise it requires the
+        stored ``revision`` attribute to still equal ``expected``. A losing
+        race returns False rather than raising, so callers can turn it into a
+        409 without a try/except.
+        """
+        item = {"pk": f"PROJECT#{project_id}", "sk": "LIVE", "revision": new}
+        if expected is None:
+            kwargs: dict = {"Item": item, "ConditionExpression": "attribute_not_exists(pk)"}
+        else:
+            kwargs = {
+                "Item": item,
+                "ConditionExpression": "attribute_not_exists(pk) OR #r = :expected",
+                "ExpressionAttributeNames": {"#r": "revision"},
+                "ExpressionAttributeValues": {":expected": expected},
+            }
+        with self._lock:
+            try:
+                self._require_table().put_item(**kwargs)
+                return True
+            except Exception as error:  # noqa: BLE001 - narrowed below
+                if self._is_conditional_check_failure(error):
+                    return False
+                raise
 
     # -- contributors --------------------------------------------------------
 

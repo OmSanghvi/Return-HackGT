@@ -24,8 +24,8 @@ this plan does not re-litigate them, only sequences the work.
 
 | # | Step | Depends on | Status | Skill |
 |---|------|-----------|--------|-------|
-| 1 | Contributor/Contribution/ConnectionInsight data model + storage | — | Not started | `contributor-data-model` |
-| 2 | Contributor/Contribution API endpoints | 1 | Not started | `contributor-api-endpoints` |
+| 1 | Contributor/Contribution/ConnectionInsight data model + storage | — | Done | `contributor-data-model` |
+| 2 | Contributor/Contribution API endpoints | 1 | Done | `contributor-api-endpoints` |
 | 3 | NemoClaw agent + Unity MCP Extension setup | — | Not started | `nemoclaw-agent-setup` |
 | 4 | NemoClaw layout tools (`place_objects_in_scene`, `read_sketch_layout`) | 3 | Not started | `nemoclaw-scene-tools` |
 | 4a | NemoClaw subject labeling for uploads (`identify_subject`) | 3 (live path only) | Mock path built; live path waits on 3 | `nemoclaw-subject-labeling` |

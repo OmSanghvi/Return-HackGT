@@ -504,5 +504,166 @@ class ContributorContributionApiTests(unittest.TestCase):
             self.assertEqual(client.get(f"/v1/projects/{pid}/contributions").json(), [])
 
 
+class RevisionConcurrencyApiTests(unittest.TestCase):
+    """Build Plan step 15: based_on_revision, 409 on stale writes, LIVE pointer."""
+
+    def _make_project(self, client, name: str = "Concurrency room") -> str:
+        return client.post(
+            "/v1/projects", json={"name": name, "description": ""}
+        ).json()["project_id"]
+
+    def _create_ready_asset(self, client, project_id: str, hint: str = "object") -> dict:
+        r = client.post(
+            f"/v1/projects/{project_id}/assets",
+            data={"subject_hint": hint},
+            files={"image": (f"{hint}.png", io.BytesIO(b"PNG-DATA"), "image/png")},
+        )
+        self.assertEqual(r.status_code, 202)
+        asset_id = r.json()["asset_id"]
+        full = client.get(f"/v1/projects/{project_id}/assets/{asset_id}")
+        self.assertEqual(full.status_code, 200)
+        asset = full.json()
+        self.assertEqual(asset["status"], "ready")
+        return asset
+
+    def _blueprint_payload(self, asset_id: str, scale: float = 1.0) -> dict:
+        return {
+            "experience": {"mode": "vr", "theme": "concurrency test", "units": "meters"},
+            "environment": {"lighting_preset": "neutral", "floor": True},
+            "objects": [
+                {
+                    "id": "hero",
+                    "asset_id": asset_id,
+                    "position": [0, 0, 2],
+                    "rotation": [0, 0, 0],
+                    "scale": [scale, scale, scale],
+                    "interactions": ["inspect"],
+                }
+            ],
+            "navigation": {"vr": "none", "ar": "none"},
+        }
+
+    def test_create_with_base_revision_zero_succeeds_when_nothing_published(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            asset = self._create_ready_asset(client, pid)
+            created = client.post(
+                f"/v1/projects/{pid}/blueprints",
+                params={"base_revision": 0},
+                json=self._blueprint_payload(asset["asset_id"]),
+            )
+            self.assertEqual(created.status_code, 201)
+            self.assertEqual(created.json()["revision"], 1)
+            self.assertEqual(created.json()["based_on_revision"], 0)
+
+    def test_create_with_stale_base_revision_is_409_with_published_revision(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            asset = self._create_ready_asset(client, pid)
+
+            first = client.post(
+                f"/v1/projects/{pid}/blueprints",
+                params={"base_revision": 0},
+                json=self._blueprint_payload(asset["asset_id"]),
+            )
+            self.assertEqual(first.status_code, 201)
+            published = client.post(f"/v1/projects/{pid}/blueprints/1/publish")
+            self.assertEqual(published.status_code, 200)
+
+            # Someone still building on the old "nothing published" baseline.
+            stale = client.post(
+                f"/v1/projects/{pid}/blueprints",
+                params={"base_revision": 0},
+                json=self._blueprint_payload(asset["asset_id"], scale=2.0),
+            )
+            self.assertEqual(stale.status_code, 409)
+            body = stale.json()
+            self.assertIn("detail", body)
+            self.assertEqual(body["published_revision"], 1)
+
+    def test_two_drafts_on_same_base_only_first_publishes(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            asset = self._create_ready_asset(client, pid)
+
+            base = client.post(
+                f"/v1/projects/{pid}/blueprints",
+                params={"base_revision": 0},
+                json=self._blueprint_payload(asset["asset_id"]),
+            )
+            self.assertEqual(base.status_code, 201)
+            client.post(f"/v1/projects/{pid}/blueprints/1/publish")
+
+            draft_a = client.post(
+                f"/v1/projects/{pid}/blueprints",
+                params={"base_revision": 1},
+                json=self._blueprint_payload(asset["asset_id"], scale=2.0),
+            ).json()
+            draft_b = client.post(
+                f"/v1/projects/{pid}/blueprints",
+                params={"base_revision": 1},
+                json=self._blueprint_payload(asset["asset_id"], scale=3.0),
+            ).json()
+            self.assertEqual(draft_a["based_on_revision"], 1)
+            self.assertEqual(draft_b["based_on_revision"], 1)
+
+            publish_a = client.post(
+                f"/v1/projects/{pid}/blueprints/{draft_a['revision']}/publish"
+            )
+            self.assertEqual(publish_a.status_code, 200)
+
+            publish_b = client.post(
+                f"/v1/projects/{pid}/blueprints/{draft_b['revision']}/publish"
+            )
+            self.assertEqual(publish_b.status_code, 409)
+            self.assertEqual(publish_b.json()["published_revision"], draft_a["revision"])
+
+    def test_legacy_draft_without_base_revision_still_publishes_and_rolls_back(self) -> None:
+        """Manual authoring (no base_revision) keeps today's behavior, including
+        deliberately republishing an older revision."""
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            asset = self._create_ready_asset(client, pid)
+
+            v1 = client.post(
+                f"/v1/projects/{pid}/blueprints", json=self._blueprint_payload(asset["asset_id"], 1.0)
+            ).json()
+            v2 = client.post(
+                f"/v1/projects/{pid}/blueprints", json=self._blueprint_payload(asset["asset_id"], 2.0)
+            ).json()
+            self.assertIsNone(v1["based_on_revision"])
+            self.assertIsNone(v2["based_on_revision"])
+
+            self.assertEqual(
+                client.post(f"/v1/projects/{pid}/blueprints/{v1['revision']}/publish").status_code, 200
+            )
+            self.assertEqual(
+                client.post(f"/v1/projects/{pid}/blueprints/{v2['revision']}/publish").status_code, 200
+            )
+            # Deliberate rollback to the older legacy revision must still work.
+            rollback = client.post(f"/v1/projects/{pid}/blueprints/{v1['revision']}/publish")
+            self.assertEqual(rollback.status_code, 200)
+
+            compiled = client.get(f"/v1/projects/{pid}/compiled-scene")
+            self.assertEqual(compiled.status_code, 200)
+            self.assertEqual(compiled.json()["scene"]["objects"][0]["scale"], [1.0, 1.0, 1.0])
+
+    def test_compiled_scene_reads_the_live_pointer(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            asset = self._create_ready_asset(client, pid)
+
+            client.post(
+                f"/v1/projects/{pid}/blueprints",
+                params={"base_revision": 0},
+                json=self._blueprint_payload(asset["asset_id"]),
+            )
+            client.post(f"/v1/projects/{pid}/blueprints/1/publish")
+
+            self.assertEqual(main.store.get_live_revision(pid), 1)
+            compiled = client.get(f"/v1/projects/{pid}/compiled-scene")
+            self.assertEqual(compiled.status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main()
