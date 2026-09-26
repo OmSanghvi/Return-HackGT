@@ -1560,6 +1560,7 @@ def compose_connection_mock(
     "/v1/projects/{project_id}/connection/compose",
     response_model=ConnectionComposeResponse,
     status_code=201,
+    dependencies=[Depends(require_identity)],
 )
 async def compose_connection(project_id: str) -> ConnectionComposeResponse:
     project = get_project(project_id)
