@@ -1,5 +1,5 @@
 {
-  "description": "Manual gates for the Collaborative VR + web accounts track (docs/BUILD_PLAN.md steps 13-29). These are facts no script can detect (dashboard setup, on-device tests). scripts/check_collab_gates.py reads this file.",
+  "description": "Manual gates for the Collaborative VR + web accounts track (docs/BUILD_PLAN.md steps 13-29) and the guided tour bot track (steps 30-34). These are facts no script can detect (dashboard setup, on-device tests). scripts/check_collab_gates.py reads this file.",
   "rules": [
     "An agent may set a gate to true ONLY after the user explicitly confirms it in the conversation. Never flip a gate to unblock yourself.",
     "When setting a gate to true, fill confirmed_by (the person's role, e.g. 'user') and confirmed_on (YYYY-MM-DD).",
@@ -38,6 +38,27 @@
       "value": false,
       "step": 27,
       "meaning": "After an approved GPU run: one photo with 3 objects produced 3 PLYs, two uploads submitted together both completed, and the SKETCHSCAPE_GPU_CONCURRENCY benchmark result (or 'kept at 1') is recorded in docs/BUILD_PLAN.md step 27.",
+      "confirmed_by": null,
+      "confirmed_on": null
+    },
+    "guide_live_model_verified": {
+      "value": false,
+      "step": 32,
+      "meaning": "After explicit approval: Build Plan step 32.0's Muse Spark compatibility table and scripts/eval_guide_live.py results are recorded in docs/BUILD_PLAN.md step 32, and 100% of delivered guide turns were grounded. Required before any demo or write-up claims the guide runs live on Muse Spark.",
+      "confirmed_by": null,
+      "confirmed_on": null
+    },
+    "guide_bot_verified": {
+      "value": false,
+      "step": 33,
+      "meaning": "On one real Quest: the guide bot plays the full tour with spatial audio, reveals the hidden element, answers ask_about on every contributed object, holds 72 Hz while moving, and the room still loads correctly with no active tour.",
+      "confirmed_by": null,
+      "confirmed_on": null
+    },
+    "shared_guide_verified": {
+      "value": false,
+      "step": 34,
+      "meaning": "On two real Quests in one session: either person's ask_about is answered by the same bot, audio is heard in sync on both, and the tour continues from the same step after the session owner leaves.",
       "confirmed_by": null,
       "confirmed_on": null
     }

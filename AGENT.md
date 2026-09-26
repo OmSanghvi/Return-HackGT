@@ -74,6 +74,24 @@ any number.
   staging come from the same reasoning pass. Do not build a separate
   standalone "composition backend" that bypasses NemoClaw and calls a model
   API directly — the tools *are* the composition mechanism.
+- **Guided tour bot (decision, user, 2026-09-26; Build Plan steps 30–34).**
+  After NemoClaw builds the room, its `author_guided_tour` tool writes a
+  structured **guided tour JSON** (`shared/guided-tour.schema.json`). It
+  holds the facts, stops, and elements a tour may use, and it's stored in
+  the authoring store (DynamoDB in cloud). A person activates it on the
+  website.
+  - In the VR room, a guide bot performs that tour. The backend calls
+    **Muse Spark** with the tour JSON as the model's **only** knowledge,
+    through the `guide_turn` tool. That tool's ids are enums generated from
+    the tour.
+  - A deterministic grounding validator repairs or replaces any line that
+    isn't supported by the facts it cites. Nothing unvalidated reaches
+    Unity.
+  - This backend-proxied, read-only, runtime Muse call is the **one
+    approved exception** to "no standalone model call". The exception holds
+    because it never composes, edits, or publishes; it only performs what
+    NemoClaw authored.
+  - Unity never calls Muse and never holds a model key (Hard Rule 4).
 - NemoClaw's reasoning and vision model comes from one of three providers,
   all OpenAI-SDK compatible and chosen with `NEMOCLAW_MODEL_PROVIDER`
   (updated 2026-09-25; details in the `nemoclaw-model-providers` skill and
@@ -459,7 +477,10 @@ All .ply files in catalog
    `X-SketchScape-Dev-User` header, restricted to the two
    `SKETCHSCAPE_DEMO_USERS` in `demo` mode, sent directly by the headset —
    never a Clerk secret, never a Meta room token (retired, R13). Headsets
-   never call blueprint create/publish directly.
+   never call blueprint create/publish directly. The guide bot's
+   `/v1/rooms/{project_id}/guide/*` routes (Build Plan step 32) are part of
+   this public room API. The backend makes the Muse Spark call behind them,
+   so the headset never calls a model provider and never holds a model key.
 
 5. **Within a job, SAM 3.1 and Fast-SAM3D never hold GPU memory at the
    same time.** Release SAM 3.1 memory before starting Fast-SAM3D.
@@ -485,7 +506,7 @@ All .ply files in catalog
    confirm all tests pass before reporting done. Currently 219 backend tests plus 33 worker tests (2 backend tests are
    skipped either way, depending on whether `boto3` is installed).
 
-9. **Collaborative VR + web accounts steps (13–29) are gated.** Before writing any code or
+9. **Collaborative VR + web accounts steps (13–29) and guided tour bot steps (30–34) are gated.** Before writing any code or
    config for one, run `python3 scripts/check_collab_gates.py <step>`. If
    it says BLOCKED, stop: don't implement, stub, fake, or work around the
    missing prerequisite. Tell the user what is missing and offer to do that
@@ -526,7 +547,7 @@ infra/aws/         Terraform — GPU EC2, DynamoDB, S3, IAM
 
 scripts/
   verify_local.sh           Run this after every change
-  check_collab_gates.py     Gate check for steps 13–29 + secret scan (Hard Rule 9)
+  check_collab_gates.py     Gate check for steps 13–34 + secret scan (Hard Rule 9)
   start_mock_demo.sh        Start the backend in mock mode for the Unity demo
   smoke_test_aws_storage.py Live DynamoDB + S3 verification
   export_unity_experience.py Package .ply files into Unity project
@@ -931,6 +952,17 @@ META_MODEL_API_KEY=                    # secret, runtime only
 XAI_API_KEY=                           # secret, runtime only
 NEBIUS_API_KEY=                        # secret, runtime only
 
+# Guided tour bot (Build Plan steps 30-34; not yet implemented).
+# The backend makes the Muse call; the key stays in the backend process env only.
+SKETCHSCAPE_TOUR_AUTHOR=mock           # mock | nemoclaw (step 31)
+SKETCHSCAPE_GUIDE_MODEL_PROVIDER=mock  # mock | meta (Muse Spark) | xai | nebius; uses META_MODEL_API_KEY etc.
+SKETCHSCAPE_GUIDE_MODEL=               # optional override (default muse-spark-1.3 on meta)
+SKETCHSCAPE_GUIDE_ROUTING=hybrid       # hybrid (next/repeat scripted, questions to the model) | model_all (eval only)
+SKETCHSCAPE_GUIDE_MODEL_TIMEOUT_S=8    # over this, the turn falls back to the step's scripted narration
+SKETCHSCAPE_GUIDE_TTS=none             # none | mms (Meta MMS-TTS, CPU; needs backend/requirements-tts.txt)
+SKETCHSCAPE_GUIDE_MAX_TURNS_PER_SESSION=60
+SKETCHSCAPE_GUIDE_DAILY_MODEL_TURNS=500  # per project; over it, model events fall back to the mock guide
+
 # Subject labeling for uploads (Build Plan step 4a; mock is built)
 SKETCHSCAPE_SUBJECT_LABELER=mock       # mock | nemoclaw
 
@@ -1054,4 +1086,8 @@ building, not a skill for the whole project at once.
 | `gpu-multi-object-worker` | 27 |
 | `letters-backend-and-web` | 28 |
 | `letters-vr-envelope` | 29 |
+| `guided-tour-contract` | 30 |
+| `nemoclaw-tour-authoring` | 31 |
+| `muse-guide-runtime` | 32 |
+| `unity-guide-bot` | 33, 34 |
 | `nemoclaw-model-providers` | 3 (model config), and any change to NemoClaw's model |

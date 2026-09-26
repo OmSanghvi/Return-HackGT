@@ -35,7 +35,14 @@ This document explains the design; the build plan executes it.
 - **Backend** validates uploads, owns job status and scene JSON, and exposes
   only public-safe artifact URLs.
 - **Worker** is the only component allowed to load models and receive the
-  `SKETCHSCAPE_WORKER_TOKEN`.
+  `SKETCHSCAPE_WORKER_TOKEN`. The one exception is the guided tour bot
+  (Build Plan steps 30–34, decision 2026-09-26):
+  - The backend may call Muse Spark (Meta Model API) for the guide's
+    `guide_turn`, and may run MMS-TTS on CPU for its voice.
+  - It does this only through `/v1/rooms/{project_id}/guide/*`, and only
+    grounded in the active tour JSON. Every line passes a deterministic
+    validator before it reaches Unity.
+  - Unity never calls a model provider and never holds a model key.
 - **Terraform** creates a private bundle bucket, narrowly-scoped instance role,
   SSM access, and a single GPU host. It does not contain Hugging Face tokens.
 

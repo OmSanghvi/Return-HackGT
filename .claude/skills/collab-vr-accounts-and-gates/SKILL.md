@@ -88,7 +88,13 @@ config, since a demo can rename the accounts).
   an in-headset panel. A native Quest client sends no `Origin` header, so
   the `demo`-mode CORS lock (`SKETCHSCAPE_WEB_ORIGINS`) doesn't affect it.
 
-## Gate rule (every step 13-29)
+## Gate rule (every step 13-29, and the guided tour bot steps 30-34)
+
+Steps 30–34 (the in-VR guide bot, decision 2026-09-26) use the same gate
+script, the same identity header, and the same secret scan. Their skills
+are `guided-tour-contract`, `nemoclaw-tour-authoring`, `muse-guide-runtime`,
+and `unity-guide-bot`.
+
 
 1. Before writing code or config for a step, run
    `python3 scripts/check_collab_gates.py <step>`.

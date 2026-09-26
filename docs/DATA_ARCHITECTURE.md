@@ -53,6 +53,10 @@ needs them.
 | Room edit idempotency | `PROJECT#<id>` | `EDIT#<author>#<client_edit_id>` | `revision`; `ttl` (7 days) | step 21 |
 | Letter **(new)** | `PROJECT#<id>` | `LETTER#<letter_id>` | document (author contributor, `recipient_contributor_ids[]`, page image key, texture key, aspect, `note_text`, envelope style) | step 28 |
 | Letter opened **(new)** | `PROJECT#<id>` | `LETTEROPEN#<letter_id>#<contributor_id>` | `opened_at` (conditional put; first open wins, repeat is a no-op) | step 28 |
+| Guided tour **(new)** | `PROJECT#<id>` | `TOUR#<tour_version padded 6>` | document (the full `GuidedTour` JSON, ≤ 256 KB: facts, elements, steps, guardrails, `based_on_revision`, `authored_by` {backend, model, tool, prompt_version}, `status` draft\|active\|retired); conditional put | steps 30, 31 |
+| Active tour pointer **(new)** | `PROJECT#<id>` | `TOURLIVE` | `tour_version` (number; compare-and-set, same pattern as `LIVE`) | step 30 |
+| Guide session **(new)** | `PROJECT#<id>` | `GUIDESESSION#<session_id>` | document (tour_version, account, current_step_id, visited_step_ids, said_fact_ids, revealed_element_ids, last 20 events); top-level `turn_count` (compare-and-set per turn); `ttl` (24 h) | step 32 |
+| Guide turn log **(new)** | `PROJECT#<id>` | `GUIDETURN#<session_id>#<turn_seq padded 4>` | document (event, response, `source` scripted\|model\|repaired\|fallback, validation repairs, token usage, latency, `client_turn_id`); `ttl` (7 days) | step 32 |
 | ~~Meta link~~ | ~~`META#<meta_user_id>`~~ | ~~`LINK`~~ | ~~`clerk_user_id`~~ | step 18 — **retired, not built** (R13) |
 | ~~Meta link (reverse, uniqueness)~~ | ~~`USERLINK#<clerk_user_id>`~~ | ~~`META`~~ | ~~`meta_user_id`~~ | step 18 — **retired, not built** (R13) |
 | ~~Link code~~ | ~~`LINKCODE#<sha256(code)>`~~ | ~~`META`~~ | ~~`meta_user_id`, `code_id`, `status` pending\|linked; `ttl` (10 min)~~ | step 18 — **retired, not built** (R13) |
@@ -93,6 +97,7 @@ rebuilt at load.
 | `artifacts/<job_id>/object.ply`, `mask.png`, `mask-preview.png` | Worker-produced Gaussian splat + final mask (existing layout) | Worker via internal route | Headset/Unity, web thumbnails |
 | `letters/<project_id>/<letter_id>/page.png` | Original letter page | API (step 28) | Author and recipients (sealed); all members once opened |
 | `letters/<project_id>/<letter_id>/texture-2048.png` | Page downscaled to 2048 px on the long edge for Quest memory | API (Pillow) | Headset |
+| `guide-audio/<project_id>/<sha256(voice + text)>.wav` **(new)** | Guide line speech (MMS-TTS, 16 kHz mono WAV). Content-addressed, so a line is synthesized once; step narrations are pre-synthesized when a tour is activated | API (step 32) | Headset, through the presigned `/v1/artifacts/...` redirect after the membership check |
 
 - **Uploads go to S3 in cloud mode (new, step 26).** Today uploads are
   saved on the API host's disk (`UPLOAD_ROOT`), so with more than one API
@@ -140,6 +145,12 @@ All of it is **untrusted input**:
 - Screened by Llama Guard if step 9 is built.
 - Never put into prompts that decide tool calls without schema validation
   of the result.
+- In a guided tour (step 30), `memory_text` appears only as a
+  `contribution_memory` fact whose text is **verbatim** from the
+  contribution. A letter's `note_text` and page never appear in a tour,
+  because the guide speaks to the whole room. The visitor's spoken or typed
+  `question` (≤ 300 chars) is untrusted too: it's passed to the model in a
+  delimited `<visitor>` block and kept only in the 7-day `GUIDETURN` log.
 
 ## Accounts and auth data
 
@@ -211,6 +222,7 @@ clients honor `Retry-After`.
 | Web: a single legacy job | `GET /v1/reconstructions/{job_id}` | Same curve | Terminal status |
 | Headset: session owner | `GET /v1/rooms/{id}/state?since_revision=N` (304 if the live revision and letter states are unchanged) | 3 s | Session ends |
 | NemoClaw | `GET /v1/rooms/{id}/state`, jobs endpoint | On demand only, never in a loop | — |
+| Headset: guide bot | `GET /v1/rooms/{id}/guide/tour` (ETag) at scene load; `POST .../guide/sessions/{sid}/turns` only on a visitor event (never polled) | Once per load, then event-driven | Session ends |
 
 Server-sent events or WebSockets can replace polling later without changing
 these resources.

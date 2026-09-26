@@ -524,6 +524,16 @@ useful. Instructions are in `infra/aws/SMOKE_TEST_GUIDE.md` Step 5.
 Follow the demo plan and write-up structure above. Use the local mock path
 and precomputed, attractive assets as the judging-safe recording path.
 
+### 7a — In-room AI guide (optional, gated: Build Plan steps 30–34)
+
+A guide bot inside the VR room tours visitors through what NemoClaw built.
+NemoClaw writes a structured tour JSON after building the scene; the
+backend calls Muse Spark with that JSON as the guide's only knowledge; a
+deterministic validator makes sure every spoken line cites facts from it.
+It's post-MVP and never on the recording's critical path. Step 30 (the
+tour contract) is ready to start. See `docs/BUILD_PLAN.md` "Guided tour
+bot track" and `docs/KNOWN_ISSUES.md` R16–R18.
+
 ### 8 — Production hardening (post-hackathon, not needed for the demo)
 - HTTPS / TLS termination (currently plain HTTP on port 8000).
 - Rate limiting. (Client authentication is done — Build Plan step 16;

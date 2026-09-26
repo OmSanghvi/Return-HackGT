@@ -140,7 +140,22 @@ integrated, originality, strength of the demo.
      Frame this as a strength: the product works with zero excuses and zero
      required per-run cost at judging time.
 
-10. A SMALL RESPONSIBLE-AI TOUCH (if built, low effort)
+10. AN AI GUIDE INSIDE THE ROOM (only if Build Plan steps 30–33 are built)
+   - A small light-orb guide walks the visitors through the room. It
+     speaks each contributor's memory in their own words, highlights and
+     reveals what NemoClaw staged, and answers "who brought this?" or
+     "why is this here?" when someone points at an object.
+   - The judge-legible point: the guide knows only what's in the tour
+     NemoClaw authored from the contributions. Every line cites a fact
+     from that JSON, a validator enforces it, and it declines anything
+     else. Say this in one sentence; it's the "AI well-integrated" and
+     "responsible AI" beat at once.
+   - Honest labelling: in mock mode the guide is the deterministic mock
+     guide. Say "Muse Spark" only if the manual gate
+     guide_live_model_verified is confirmed. Voice is spoken; no caption
+     panel.
+
+11. A SMALL RESPONSIBLE-AI TOUCH (if built, low effort)
    - Contributor memory text is moderated with Llama Guard (Meta's
      open-source PurpleLlama safety project, github.com/meta-llama/PurpleLlama)
      before it reaches the composition step. One sentence in the write-up,

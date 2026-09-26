@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Prerequisite gates for the Collaborative VR + web accounts track (docs/BUILD_PLAN.md steps
-13-29). Identity is two hardcoded accounts (SKETCHSCAPE_AUTH_MODE=demo) selected with an
+13-29) and the guided tour bot track (steps 30-34). Identity is two hardcoded accounts (SKETCHSCAPE_AUTH_MODE=demo) selected with an
 in-app account switcher -- there is no Clerk or Meta account setup in this plan (decision
 2026-09-26). Steps 14 and 18, which were Quest Meta-identity work, are retired.
 
@@ -38,7 +38,7 @@ SECRET_PATTERNS = {
     "xAI API key": re.compile(r"\bxai-[A-Za-z0-9]{20,}"),
     "secret assigned in a file": re.compile(
         r"\b(CLERK_SECRET_KEY|META_MODEL_API_KEY|XAI_API_KEY|NEBIUS_API_KEY|SKETCHSCAPE_META_APP_SECRET|"
-        r"SKETCHSCAPE_ROOM_TOKEN_SECRET|SKETCHSCAPE_WORKER_TOKEN)[ \t]*[=:][ \t]*[\"']?(?!<|your|\$)[A-Za-z0-9_.\-/+]{16,}"
+        r"SKETCHSCAPE_ROOM_TOKEN_SECRET|SKETCHSCAPE_WORKER_TOKEN|SKETCHSCAPE_NEMOCLAW_TOKEN)[ \t]*[=:][ \t]*[\"']?(?!<|your|\$)[A-Za-z0-9_.\-/+]{16,}"
     ),
 }
 VITE_SECRET_VAR = re.compile(r"\bVITE_[A-Z0-9_]*SECRET[A-Z0-9_]*\b")
@@ -193,6 +193,8 @@ STEPS: dict[int, dict] = {
                    lambda: contains(MAIN, "/v1/projects/{project_id}/contributions", "contributions route")]},
     3: {"title": "NemoClaw agent + Unity MCP setup", "skill": "nemoclaw-agent-setup", "deps": [],
         "checks": [lambda: manual("nemoclaw_agent_ready")]},
+    5: {"title": "connection/compose endpoint (mock path)", "skill": "connection-compose-endpoint", "deps": [1, 2],
+        "checks": [lambda: contains(MAIN, "/v1/projects/{project_id}/connection/compose", "compose route")]},
     7: {"title": "Notability sketch assets (flat card + memory plaque)", "skill": "sketch-image-gen-backends", "deps": [],
         "checks": [lambda: contains(MAIN, "/sketch-assets", "sketch asset route")]},
     13: {"title": "Collaborative VR + web accounts: scope approval", "skill": "collab-vr-accounts-and-gates", "deps": [],
@@ -260,6 +262,28 @@ STEPS: dict[int, dict] = {
          "checks": [lambda: unity_script_contains("/letters/"),
                     lambda: unity_script_contains("LetterEnvelope"),
                     lambda: unity_script_contains("NetworkVariable<")]},
+    30: {"title": "Guided tour contract: schema, validation, storage, authoring + activation API, mock author", "skill": "guided-tour-contract", "deps": [5, 15, 17],
+         "checks": [lambda: exists(ROOT / "shared" / "guided-tour.schema.json"),
+                    lambda: contains(MAIN, "/v1/projects/{project_id}/tours", "tour routes"),
+                    lambda: contains(MAIN, "def validate_guided_tour", "tour validator"),
+                    lambda: contains(STORAGE, "def set_active_tour_version", "TOURLIVE compare-and-set"),
+                    lambda: exists(BACKEND / "test_guided_tour.py")]},
+    31: {"title": "NemoClaw author_guided_tour (live tour authoring)", "skill": "nemoclaw-tour-authoring", "deps": [3, 30],
+         "checks": [lambda: contains(AUTH, "SKETCHSCAPE_NEMOCLAW_TOKEN", "NemoClaw service token (R14)"),
+                    lambda: tool_implemented("tour.draft")]},
+    32: {"title": "Guide runtime: room guide API, Muse Spark guide_turn, grounding validator, session memory, TTS", "skill": "muse-guide-runtime", "deps": [30],
+         "checks": [lambda: contains(MAIN, "/v1/rooms/{project_id}/guide/sessions", "guide session routes"),
+                    lambda: contains(BACKEND / "guide_tools.py", "guide_turn", "per-tour guide_turn tool schema"),
+                    lambda: contains(BACKEND / "guide_validator.py", "def validate_turn", "grounding validator"),
+                    lambda: exists(BACKEND / "test_guide.py"),
+                    lambda: exists(ROOT / "scripts" / "guide_cli.py")]},
+    33: {"title": "Unity guide bot (single headset)", "skill": "unity-guide-bot", "deps": [32],
+         "checks": [lambda: unity_script_contains("class SketchScapeGuideBot"),
+                    lambda: unity_script_contains("/guide/sessions"),
+                    lambda: manual("guide_bot_verified")]},
+    34: {"title": "Shared guide bot across headsets (session owner drives it)", "skill": "unity-guide-bot", "deps": [22, 33],
+         "checks": [lambda: unity_script_contains("SubmitGuideEventRpc"),
+                    lambda: manual("shared_guide_verified")]},
 }
 
 
