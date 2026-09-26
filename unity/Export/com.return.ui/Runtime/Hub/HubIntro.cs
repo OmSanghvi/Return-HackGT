@@ -18,8 +18,7 @@ namespace Return.UI
     {
         HubController _hub; IRoomStore _store; Transform _head;
         ScreenFade _wake;
-        SessionState _lastState = SessionState.Hub;
-        bool _nudgeHidden;
+        bool _nudgeHidden, _awaitingBloom, _enabledOnce;
 
         /// <summary>hubRoot is the hub's own visibility root (hidden while in a world); the greeting/nudge panels are parented
         /// under it so they hide and reset together with everything else, instead of floating over a world mid-sequence.</summary>
@@ -32,7 +31,7 @@ namespace Return.UI
             it._wake = camGo != null ? ScreenFade.Attach(camGo) : null;
             RoomPortal.AnyHoverOrTouch += it.HideNudge;
             hub.SignedIn += n => _ = it.WelcomeSequence(n.Split(' ')[0]);
-            if (hub.Session != null) hub.Session.StateChanged += it.OnSessionState;
+            hub.PortalsLaidOut += it.HideUntilBloom; // SignedIn fires before the ring is built, so hide portals as they appear
             if (store.SignedIn) _ = it.WelcomeSequence(FirstName(store));
             return it;
         }
@@ -45,10 +44,13 @@ namespace Return.UI
             return "";
         }
 
-        void OnSessionState(SessionState s)
+        /// <summary>This object lives under the hub root, so it re-enables exactly when the hub reappears after a world.</summary>
+        void OnEnable() { if (_enabledOnce) _ = ReWake(); _enabledOnce = true; }
+
+        void HideUntilBloom(System.Collections.Generic.IReadOnlyList<RoomPortal> portals)
         {
-            if (s == SessionState.Hub && _lastState == SessionState.InWorld) _ = ReWake();
-            _lastState = s;
+            if (!_awaitingBloom) return;
+            foreach (var p in portals) if (p != null) p.transform.localScale = Vector3.zero;
         }
 
         static async Task Wait(float seconds) { float t = 0; while (t < seconds) { t += Time.unscaledDeltaTime; await Task.Yield(); } }
@@ -77,6 +79,8 @@ namespace Return.UI
 
         async Task WelcomeSequence(string firstName)
         {
+            _awaitingBloom = true;
+            if (_hub != null) HideUntilBloom(_hub.Cards.Where(c => c != null).Select(c => c.portal).ToList());
             if (_wake != null)
             {
                 _wake.SetColor(Color.black); _wake.SetAlpha(1f);
@@ -86,6 +90,7 @@ namespace Return.UI
             await GreetingText(firstName);
             if (_hub == null) return;
             var portals = _hub.Cards.Where(c => c != null).Select(c => c.portal).Where(p => p != null).ToList();
+            _awaitingBloom = false;
             await BloomPortals(portals);
             await Nudge();
         }

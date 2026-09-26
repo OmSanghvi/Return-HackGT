@@ -23,7 +23,7 @@ namespace Return.UI
             shape.shapeType = ParticleSystemShapeType.Circle; shape.radius = 7f; shape.position = new Vector3(0, 3.2f, 0); shape.rotation = new Vector3(90, 0, 0);
 
             var vel = ps.velocityOverLifetime; vel.enabled = true;
-            vel.x = new ParticleSystem.MinMaxCurve(-0.05f, 0.05f); vel.z = new ParticleSystem.MinMaxCurve(-0.05f, 0.05f);
+            vel.x = new ParticleSystem.MinMaxCurve(-0.05f, 0.05f); vel.z = new ParticleSystem.MinMaxCurve(-0.05f, 0.05f); vel.y = new ParticleSystem.MinMaxCurve(0f, 0f); // all three axes must share a curve mode
 
             var noise = ps.noise; noise.enabled = true; noise.strength = 0.15f; noise.frequency = 0.2f; noise.scrollSpeed = 0.1f;
 

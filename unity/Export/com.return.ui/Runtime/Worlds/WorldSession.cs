@@ -40,27 +40,30 @@ namespace Return.UI
                 await _fade.FadeTo(1f, fadeSeconds);
                 _hubVisible(false);
                 await _loader.LoadAsync(room, _head, p => Progress = p);
-                Set(SessionState.InWorld);
                 await _fade.FadeTo(0f, fadeSeconds);
+                Set(SessionState.InWorld); // only once the transition is done, so nothing can start on top of it
             }
             catch (Exception e)
             {
                 Debug.LogError("Return: could not enter " + room.title + ": " + e);
-                await _loader.UnloadAsync(); _hubVisible(true); Current = null; Set(SessionState.Hub); await _fade.FadeTo(0f, fadeSeconds);
+                await _loader.UnloadAsync(); _hubVisible(true); Current = null; await _fade.FadeTo(0f, fadeSeconds);
                 if (_transition != null) await _transition.ExitStep(_head); // undo the glide so a failed enter doesn't strand the rig mid-arch
+                Set(SessionState.Hub);
             }
         }
 
         public async Task ExitAsync()
         {
             if (State != SessionState.InWorld) return;
+            Set(SessionState.Loading);
             _fade.SetColor(FadeColor(Current));
             await _fade.FadeTo(1f, fadeSeconds);
             await _loader.UnloadAsync();
             _hubVisible(true);
-            Current = null; Set(SessionState.Hub);
+            Current = null;
             await _fade.FadeTo(0f, fadeSeconds);
             if (_transition != null) await _transition.ExitStep(_head);
+            Set(SessionState.Hub);
         }
     }
 }

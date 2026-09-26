@@ -96,6 +96,8 @@ namespace Return.UI.PlayTests
             dylanCard.onClick(); // fires SignedIn, which starts HubIntro's welcome sequence
             yield return Until(() => hub.RingVisible);
             Assert.AreEqual(4, hub.Cards.Count);
+            yield return null;
+            Assert.IsTrue(hub.Cards.All(c => c.portal.transform.localScale == Vector3.zero), "portals stay hidden during the greeting, then bloom");
 
             var target = new Vector3(ReturnSpatial.PortalWidth, ReturnSpatial.PortalHeight, 1);
             bool AllBloomed() => hub.Cards.All(c => c != null && c.portal != null && Vector3.Distance(c.portal.transform.localScale, target) < 0.01f);
