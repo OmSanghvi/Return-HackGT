@@ -2,7 +2,7 @@
   "dependencies": {
     "com.arloopa.unitysplats": "https://github.com/arloopa/UnitySplats.git#v1.2.0",
     "com.netpyoung.webp": "https://github.com/netpyoung/unity.webp.git?path=unity_project/Assets/unity.webp#0.3.22",
-    "com.return.ui": "file:../Export/com.return.ui-0.2.0.tgz",
+    "com.return.ui": "file:../Export/com.return.ui",
     "com.unity.ai.assistant": "2.19.0-pre.2",
     "com.unity.cloud.gltfast": "6.20.0",
     "com.unity.collab-proxy": "2.13.6",

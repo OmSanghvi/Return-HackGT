@@ -38,3 +38,4 @@ data/
 *.ply
 infra/aws/.terraform.tfstate.lock.info
 !web-app/src/data/
+!unity/Export/com.return.ui/Runtime/Data/
