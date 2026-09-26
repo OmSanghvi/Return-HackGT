@@ -50,6 +50,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a circular import.
         ReconstructionJob,
         UploadRecord,
     )
+    from letters import Letter, LetterOpenRecord
 
 
 STATE_VERSION = 3
@@ -109,6 +110,12 @@ def _job_status_type():
 
 def _job_max_attempts() -> int:
     return max(1, int(os.environ.get("SKETCHSCAPE_JOB_MAX_ATTEMPTS", "2")))
+
+
+def _letter_model_types() -> tuple[type, type]:
+    from letters import Letter, LetterOpenRecord
+
+    return Letter, LetterOpenRecord
 
 
 _ACTIVE_JOB_STATUSES = ("queued", "running", "mask_review")
@@ -226,6 +233,34 @@ class AuthoringStore(ABC):
     @abstractmethod
     def list_upload_records(self, project_id: str) -> list[UploadRecord]: ...
 
+    # -- letters (Build Plan step 28) ----------------------------------------
+
+    @abstractmethod
+    def save_letter(self, letter: Letter) -> None: ...
+
+    @abstractmethod
+    def get_letter(self, project_id: str, letter_id: str) -> Letter | None: ...
+
+    @abstractmethod
+    def list_letters(self, project_id: str) -> list[Letter]: ...
+
+    @abstractmethod
+    def record_letter_open(
+        self, project_id: str, letter_id: str, contributor_id: str, opened_at: datetime
+    ) -> bool:
+        """Conditional put of one recipient's open. Returns True if this call
+        created the record, False if it already existed (idempotent -- a
+        repeat open never writes a duplicate item)."""
+
+    @abstractmethod
+    def list_letter_opens(self, project_id: str, letter_id: str) -> list[LetterOpenRecord]: ...
+
+    @abstractmethod
+    def letters_version(self, project_id: str) -> int:
+        """A cheap, monotonically non-decreasing count of every open
+        recorded for this project, used to fold letter state into the
+        room-state ETag (room-api-and-ownership polling contract)."""
+
     def persist_all(self) -> None:  # pragma: no cover - default no-op
         """Force a full flush. Backends that write eagerly need not override."""
 
@@ -252,6 +287,10 @@ class LocalJsonStore(AuthoringStore):
         self.jobs: dict[str, ReconstructionJob] = {}
         self.uploads: dict[str, dict[str, UploadRecord]] = {}
         self.asset_links: dict[str, list[str]] = {}
+        # Step 28: project_id -> letter_id -> Letter; project_id -> letter_id
+        # -> contributor_id -> LetterOpenRecord.
+        self.letters: dict[str, dict[str, Letter]] = {}
+        self.letter_opens: dict[str, dict[str, dict[str, LetterOpenRecord]]] = {}
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -272,6 +311,8 @@ class LocalJsonStore(AuthoringStore):
             self.jobs = {}
             self.uploads = {}
             self.asset_links = {}
+            self.letters = {}
+            self.letter_opens = {}
             if not self._state_path.is_file():
                 return
             try:
@@ -321,6 +362,18 @@ class LocalJsonStore(AuthoringStore):
                 }
             for project_id, asset_ids in raw.get("asset_links", {}).items():
                 self.asset_links[project_id] = list(asset_ids)
+            Letter, LetterOpenRecord = _letter_model_types()
+            for project_id, records in raw.get("letters", {}).items():
+                self.letters[project_id] = {
+                    item["letter_id"]: Letter.model_validate(item) for item in records
+                }
+            for project_id, by_letter in raw.get("letter_opens", {}).items():
+                self.letter_opens[project_id] = {
+                    letter_id: {
+                        item["contributor_id"]: LetterOpenRecord.model_validate(item) for item in records
+                    }
+                    for letter_id, records in by_letter.items()
+                }
 
     def _quarantine_corrupt_state(self) -> None:
         backup = self._state_path.with_suffix(
@@ -366,6 +419,17 @@ class LocalJsonStore(AuthoringStore):
                 for project_id, records in self.uploads.items()
             },
             "asset_links": {project_id: list(ids) for project_id, ids in self.asset_links.items()},
+            "letters": {
+                project_id: [letter.model_dump(mode="json") for letter in letters.values()]
+                for project_id, letters in self.letters.items()
+            },
+            "letter_opens": {
+                project_id: {
+                    letter_id: [record.model_dump(mode="json") for record in records.values()]
+                    for letter_id, records in by_letter.items()
+                }
+                for project_id, by_letter in self.letter_opens.items()
+            },
         }
 
     def _flush(self) -> None:
@@ -600,6 +664,39 @@ class LocalJsonStore(AuthoringStore):
 
     def list_upload_records(self, project_id: str) -> list[UploadRecord]:
         return list(self.uploads.get(project_id, {}).values())
+
+    # -- letters (Build Plan step 28) ----------------------------------------
+
+    def save_letter(self, letter: Letter) -> None:
+        with self._lock:
+            self.letters.setdefault(letter.project_id, {})[letter.letter_id] = letter
+            self._flush()
+
+    def get_letter(self, project_id: str, letter_id: str) -> Letter | None:
+        return self.letters.get(project_id, {}).get(letter_id)
+
+    def list_letters(self, project_id: str) -> list[Letter]:
+        return list(self.letters.get(project_id, {}).values())
+
+    def record_letter_open(
+        self, project_id: str, letter_id: str, contributor_id: str, opened_at: datetime
+    ) -> bool:
+        _, LetterOpenRecord = _letter_model_types()
+        with self._lock:
+            opens = self.letter_opens.setdefault(project_id, {}).setdefault(letter_id, {})
+            if contributor_id in opens:
+                return False
+            opens[contributor_id] = LetterOpenRecord(
+                project_id=project_id, letter_id=letter_id, contributor_id=contributor_id, opened_at=opened_at
+            )
+            self._flush()
+            return True
+
+    def list_letter_opens(self, project_id: str, letter_id: str) -> list[LetterOpenRecord]:
+        return list(self.letter_opens.get(project_id, {}).get(letter_id, {}).values())
+
+    def letters_version(self, project_id: str) -> int:
+        return sum(len(opens) for opens in self.letter_opens.get(project_id, {}).values())
 
 
 class DynamoDbStore(AuthoringStore):
@@ -1206,6 +1303,74 @@ class DynamoDbStore(AuthoringStore):
             UploadRecord.model_validate_json(item["document"])
             for item in self._query_children(project_id, "UPLOAD")
         ]
+
+    # -- letters (Build Plan step 28) -----------------------------------------
+    #
+    # Letter = PK "PROJECT#<project_id>" / SK "LETTER#<letter_id>".
+    # LetterOpen = PK "PROJECT#<project_id>" / SK "LETTEROPEN#<letter_id>#<contributor_id>",
+    # written with a conditional put so a repeat open by the same recipient
+    # is a no-op rather than a second item. ("LETTEROPEN#" never collides
+    # with the "LETTER#" prefix query below -- the 7th character differs.)
+
+    def save_letter(self, letter: Letter) -> None:
+        with self._lock:
+            self._require_table().put_item(
+                Item={
+                    "pk": f"PROJECT#{letter.project_id}",
+                    "sk": f"LETTER#{letter.letter_id}",
+                    "document": letter.model_dump_json(),
+                }
+            )
+
+    def get_letter(self, project_id: str, letter_id: str) -> Letter | None:
+        Letter, _ = _letter_model_types()
+        response = self._require_table().get_item(
+            Key={"pk": f"PROJECT#{project_id}", "sk": f"LETTER#{letter_id}"}
+        )
+        item = response.get("Item")
+        if item is None:
+            return None
+        return Letter.model_validate_json(item["document"])
+
+    def list_letters(self, project_id: str) -> list[Letter]:
+        Letter, _ = _letter_model_types()
+        return [
+            Letter.model_validate_json(item["document"])
+            for item in self._query_children(project_id, "LETTER")
+        ]
+
+    def record_letter_open(
+        self, project_id: str, letter_id: str, contributor_id: str, opened_at: datetime
+    ) -> bool:
+        _, LetterOpenRecord = _letter_model_types()
+        record = LetterOpenRecord(
+            project_id=project_id, letter_id=letter_id, contributor_id=contributor_id, opened_at=opened_at
+        )
+        with self._lock:
+            try:
+                self._require_table().put_item(
+                    Item={
+                        "pk": f"PROJECT#{project_id}",
+                        "sk": f"LETTEROPEN#{letter_id}#{contributor_id}",
+                        "document": record.model_dump_json(),
+                    },
+                    ConditionExpression="attribute_not_exists(sk)",
+                )
+                return True
+            except Exception as error:  # noqa: BLE001 - narrowed below
+                if self._is_conditional_check_failure(error):
+                    return False
+                raise
+
+    def list_letter_opens(self, project_id: str, letter_id: str) -> list[LetterOpenRecord]:
+        _, LetterOpenRecord = _letter_model_types()
+        return [
+            LetterOpenRecord.model_validate_json(item["document"])
+            for item in self._query_children(project_id, f"LETTEROPEN#{letter_id}")
+        ]
+
+    def letters_version(self, project_id: str) -> int:
+        return len(self._query_children(project_id, "LETTEROPEN"))
 
 
 def create_store(
