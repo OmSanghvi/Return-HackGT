@@ -438,6 +438,9 @@ class UploadSelection(BaseModel):
     alternatives: list[dict[str, Any]] = Field(default_factory=list)
     origin: SelectionOrigin = "person"
     mask_preview_url: str | None = None
+    # Set on a `failed` selection (Build Plan step 27): why SAM 3.1 found
+    # nothing usable for this typed name, shown so the person can refine it.
+    error: str | None = Field(default=None, max_length=200)
 
 
 class UploadRecord(BaseModel):
@@ -498,6 +501,22 @@ class WorkerResult(BaseModel):
     status: Literal["complete", "mask_review", "failed"]
     object_label: str = Field(default="gaussian_splat", max_length=80)
     error: str | None = Field(default=None, max_length=500)
+
+
+class SelectionWorkerResult(BaseModel):
+    """Per-selection SAM 3.1 outcome (Build Plan step 27).
+
+    One `segment` job masks every selection the person typed in a single
+    SAM 3.1 pass over the photo, so the worker reports back once per
+    selection rather than once per job (see
+    ``POST /v1/internal/reconstructions/{job_id}/selections/{selection_id}/result``).
+    A `failed` selection never blocks the others (Hard Rule 7).
+    """
+
+    status: Literal["segmented", "failed"]
+    score: float | None = Field(default=None, ge=0.0, le=1.0)
+    alternatives: list[dict[str, Any]] = Field(default_factory=list)
+    reason: str | None = Field(default=None, max_length=200)
 
 
 def placeholder_scene(uploaded_filename: str = "sketch.png") -> SceneDocument:
@@ -972,13 +991,13 @@ def dispatch_job(job: ReconstructionJob, background_tasks: BackgroundTasks) -> N
         return
     if pipeline_mode == "aws-local":
         if job.kind == "segment":
-            # The live multi-selection SAM 3.1 worker path is Build Plan step
-            # 27; aws-local mode only drives the legacy single-object
-            # `reconstruct` push path today.
-            job.status = JobStatus.FAILED
-            job.error = "Live segmentation needs the step 27 GPU worker; use PIPELINE_MODE=mock."
-            job.updated_at = utc_now()
-            store.save_job(job)
+            # Build Plan step 27: left `queued`. The GPU-host dispatcher
+            # (worker/gpu_dispatcher.py) claims it via POST
+            # /v1/internal/jobs/claim, batches every pending selection's
+            # typed name into one SAM 3.1 pass, and reports back per
+            # selection through /selections/{selection_id}/result -- unlike
+            # the legacy single-object `reconstruct` push path below, which
+            # is unchanged.
             return
         background_tasks.add_task(run_local_gpu_job, job.job_id)
         return
@@ -1540,6 +1559,130 @@ async def receive_worker_result(
     store.save_job(job)
     sync_project_asset(job)
     return job
+
+
+class SegmentTaskSelection(BaseModel):
+    selection_id: str
+    text: str
+
+
+class SegmentTaskResponse(BaseModel):
+    job_id: str
+    image_key: str | None = None
+    selections: list[SegmentTaskSelection]
+
+
+@app.get("/v1/internal/reconstructions/{job_id}/selections", response_model=SegmentTaskResponse)
+async def get_worker_selections(
+    job_id: str,
+    worker_token: Annotated[str | None, Header(alias="X-SketchScape-Worker-Token")] = None,
+) -> SegmentTaskResponse:
+    """Worker-only (Build Plan step 27): the typed names for a `segment`
+    job's pending selections, so the dispatcher can batch every one of them
+    into a single SAM 3.1 predictor call (skill item 1) -- unlike
+    `/task` above, which only carries one legacy `subject_hint`.
+    """
+    if not worker_is_authorized(worker_token):
+        raise HTTPException(401, "Invalid GPU worker token.")
+    job = get_job_or_404(job_id)
+    if job.kind != "segment":
+        raise HTTPException(404, "This job has no selections; it is not a segment job.")
+    if job.project_id is None or job.upload_id is None:
+        raise HTTPException(404, "This segment job has no upload to read selections from.")
+    upload = get_upload_or_404(job.project_id, job.upload_id)
+    by_id = {item.selection_id: item for item in upload.selections}
+    selections = [
+        SegmentTaskSelection(selection_id=sid, text=by_id[sid].prompt.text)
+        for sid in job.selection_ids
+        if sid in by_id
+    ]
+    return SegmentTaskResponse(job_id=job_id, image_key=job.image_key, selections=selections)
+
+
+@app.post(
+    "/v1/internal/reconstructions/{job_id}/selections/{selection_id}/result",
+    response_model=UploadSelection,
+)
+async def receive_selection_result(
+    job_id: str,
+    selection_id: str,
+    result: Annotated[str, Form(description="JSON SelectionWorkerResult payload")],
+    worker_token: Annotated[str | None, Form()] = None,
+    worker_id: Annotated[str | None, Form(description="Lease owner from /v1/internal/jobs/claim")] = None,
+    mask: UploadFile | None = File(default=None, description="Binary object mask, white is the object"),
+    preview: UploadFile | None = File(default=None, description="Optional mask-preview PNG"),
+) -> UploadSelection:
+    """Worker-only (Build Plan step 27): one call per selection from the
+    single SAM 3.1 pass over a `segment` job's typed names. The job
+    completes once every selection has a terminal outcome; a selection with
+    no usable mask is `failed` with a reason and never blocks the others
+    (Hard Rule 7)."""
+    if not worker_is_authorized(worker_token):
+        raise HTTPException(401, "Invalid GPU worker token.")
+    job = get_job_or_404(job_id)
+    if job.kind != "segment":
+        raise HTTPException(422, "This job is not a segment job.")
+    if job.lease_owner is not None and job.lease_owner != worker_id:
+        raise HTTPException(401, "This job's lease is held by a different worker.")
+    if selection_id not in job.selection_ids:
+        raise HTTPException(404, "Unknown selection for this job.")
+    if job.project_id is None or job.upload_id is None:
+        raise HTTPException(404, "This segment job has no upload.")
+    upload = get_upload_or_404(job.project_id, job.upload_id)
+    selection = next((item for item in upload.selections if item.selection_id == selection_id), None)
+    if selection is None:
+        raise HTTPException(404, "Unknown selection for this upload.")
+
+    try:
+        payload = SelectionWorkerResult.model_validate_json(result)
+    except ValueError as error:
+        raise HTTPException(422, "`result` must be valid SelectionWorkerResult JSON.") from error
+
+    if payload.status == "segmented":
+        if mask is None:
+            raise HTTPException(422, "A segmented selection must include a `mask` file.")
+        mask_key = await artifact_store.put_upload(
+            job.project_id,
+            job.upload_id,
+            f"selections/{selection_id}-mask.png",
+            mask,
+            size_limit=MAX_UPLOAD_BYTES,
+        )
+        preview_key = mask_key
+        if preview is not None:
+            preview_key = await artifact_store.put_upload(
+                job.project_id,
+                job.upload_id,
+                f"selections/{selection_id}-preview.png",
+                preview,
+                size_limit=MAX_UPLOAD_BYTES,
+            )
+        selection.mask_key = mask_key
+        selection.preview_key = preview_key
+        selection.mask_preview_url = (
+            f"/v1/projects/{job.project_id}/uploads/{job.upload_id}"
+            f"/selections/{selection_id}/mask"
+        )
+        selection.score = payload.score
+        selection.alternatives = payload.alternatives
+        selection.status = "segmented"
+        selection.error = None
+    else:
+        selection.status = "failed"
+        selection.score = None
+        selection.error = payload.reason or "Nothing found matching that name; try being more specific."
+
+    store.save_upload_record(upload)
+
+    resolved = {item.selection_id for item in upload.selections if item.status in ("segmented", "failed")}
+    if set(job.selection_ids) <= resolved:
+        job.status = JobStatus.COMPLETE
+        job.lease_owner = None
+        job.lease_expires_at = None
+        job.updated_at = utc_now()
+        store.save_job(job)
+
+    return selection
 
 
 @app.get("/v1/scene", response_model=SceneResponse, dependencies=[Depends(require_mock_mode)])

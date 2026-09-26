@@ -4,3 +4,8 @@ httpx2>=2.0,<3.0
 # Optional cloud backend, so the DynamoDB store's CRUD test path is exercisable
 # in a dev/CI environment. Runtime keeps boto3 optional (see requirements-cloud.txt).
 boto3>=1.34,<2.0
+# worker/test_segment_sam31_local.py (Build Plan step 27) exercises
+# segment_sam31_local.py's testable functions on plain numpy arrays -- never
+# torch/ultralytics, which stay lazily imported and are never installed
+# here. scripts/verify_local.sh runs those worker tests with this venv.
+numpy>=1.26,<3.0

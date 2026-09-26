@@ -584,7 +584,7 @@ its current contents before relying on any of them.
 
 | Area | What exists | What's missing |
 |---|---|---|
-| GPU worker | Verified for one object per job | Several objects per photo and a worker-side claim/lease dispatcher (Build Plan step 27). The durable job store from step 26 exists, but nothing calls `/v1/internal/jobs/claim` yet |
+| GPU worker | Verified for one object per job (push path, unchanged). Step 27's multi-object segmentation, `worker/gpu_dispatcher.py` claim/lease loop, and per-selection result routes are built and unit-tested (mocks/fakes, no GPU) | An approved real-GPU run: one photo with 3 typed names -> 3 masks -> 3 PLYs, two uploads in flight, and the `SKETCHSCAPE_GPU_CONCURRENCY` benchmark (`worker/benchmark_concurrency.py`) or "kept at 1" recorded in `docs/BUILD_PLAN.md` step 27 |
 | Cloud backends on EC2 host | DynamoDB + S3 provisioned | Env vars not set on the running API process |
 | Gaussian-splat rendering | UnitySplats installed | Never loaded a real Fast-SAM3D `.ply`; Quest perf unverified |
 | Unity offline builder | Exists | Still falls back to placeholder primitives — needs that code removed |
