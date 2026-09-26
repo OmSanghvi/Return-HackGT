@@ -165,9 +165,9 @@ namespace Return.UI.XR
 
             static bool SecondaryHeld()
             {
-                var devices = new System.Collections.Generic.List<InputDevice>();
+                var devices = new System.Collections.Generic.List<UnityEngine.XR.InputDevice>();
                 InputDevices.GetDevicesWithCharacteristics(InputDeviceCharacteristics.Controller, devices);
-                foreach (var d in devices) if (d.TryGetFeatureValue(CommonUsages.secondaryButton, out bool b) && b) return true;
+                foreach (var d in devices) if (d.TryGetFeatureValue(UnityEngine.XR.CommonUsages.secondaryButton, out bool b) && b) return true;
                 // Editor / device simulator fallback so this is testable without a headset.
                 return Application.isEditor && Keyboard.current != null && Keyboard.current.hKey.isPressed;
             }

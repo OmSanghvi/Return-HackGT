@@ -97,7 +97,7 @@ public static class ReturnWorldLighting
         foreach (var root in scene.GetRootGameObjects())
             foreach (var r in root.GetComponentsInChildren<Renderer>(true))
             {
-                if (bounds.HasValue) { var b = bounds.Value; b.Encapsulate(r.bounds); bounds = b; }
+                if (bounds.HasValue) { var acc = bounds.Value; acc.Encapsulate(r.bounds); bounds = acc; }
                 else bounds = r.bounds;
             }
         if (!bounds.HasValue) return;
