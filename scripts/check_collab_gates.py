@@ -27,7 +27,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BACKEND = ROOT / "backend"
-APP = ROOT / "app"
+APP = ROOT / "web-app"
 GATES_FILE = ROOT / "config" / "collab-vr" / "gates.json"
 TOOLS_FILE = ROOT / "config" / "nemoclaw" / "sketchscape-tools.json"
 UNITY = Path(os.environ.get("SKETCHSCAPE_UNITY_PROJECT", ROOT.parent / "HackGTUnity")).resolve()
@@ -86,11 +86,11 @@ def exists(path: Path) -> tuple[bool, str]:
 def app_source_contains(needle: str, label: str) -> tuple[bool, str]:
     src = APP / "src"
     if not src.exists():
-        return False, "app/src does not exist"
+        return False, "web-app/src does not exist"
     for path in src.rglob("*"):
         if path.suffix in {".ts", ".tsx", ".js", ".jsx"} and needle in read(path):
             return True, f"{rel(path)} has {label}"
-    return False, f"nothing under app/src has {label}"
+    return False, f"nothing under web-app/src has {label}"
 
 
 def unity_cloud_linked() -> tuple[bool, str]:
@@ -152,7 +152,7 @@ def _candidate_files() -> list[Path]:
         paths = [ROOT / f for f in listed]
     except (OSError, subprocess.CalledProcessError):
         paths = [p for p in ROOT.rglob("*") if not {".venv", ".git", "node_modules"} & set(p.parts)]
-    # Vite bakes VITE_* variables from app/.env* into the public bundle even though .env is git-ignored.
+    # Vite bakes VITE_* variables from web-app/.env* into the public bundle even though .env is git-ignored.
     if APP.exists():
         paths += [p for p in APP.glob(".env*")]
     if UNITY.exists():
@@ -211,7 +211,7 @@ STEPS: dict[int, dict] = {
          "checks": [lambda: contains(MAIN, "clerk_user_id", "account id on Contributor"),
                     lambda: contains(MAIN, "invite_code", "project invite code"),
                     lambda: contains(TEST_API, "clerk_user_id", "membership/ownership tests")]},
-    19: {"title": "Web app foundation (app/: React + Vite, hardcoded-account picker, API client)", "skill": "web-app-foundation", "deps": [16],
+    19: {"title": "Web app foundation (web-app/: React + Vite, hardcoded-account picker, API client)", "skill": "web-app-foundation", "deps": [16],
          "checks": [lambda: contains(APP / "package.json", "vite", "vite"),
                     lambda: app_source_contains("X-SketchScape-Dev-User", "account-picker header on every API call")]},
     20: {"title": "Web uploads with object-name entry, Notability sketches, optional text, invites", "skill": "web-uploads-and-linking", "deps": [7, 17, 19, 26],
