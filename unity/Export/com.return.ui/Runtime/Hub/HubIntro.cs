@@ -8,7 +8,7 @@ using UnityEngine;
 namespace Return.UI
 {
     /// <summary>
-    /// The hub's greeting: sky wakes from black with a swell, "Welcome back, &lt;name&gt;" drifts up and dissolves, portals
+    /// The hub's greeting: the sky wakes with a swell (from black at dusk, from white with a light bloom in day), "Welcome back, &lt;name&gt;" drifts up and dissolves, portals
     /// bloom in one by one with a chime, then a soft nudge toward the ring until the first portal hover or touch.
     /// Only plays on sign-in or first load; returning from a world is just a gentle re-wake, no replay.
     /// Every step re-checks its Unity objects for null each frame: nothing here is awaited by a caller, so it can still be
@@ -19,6 +19,10 @@ namespace Return.UI
         HubController _hub; IRoomStore _store; Transform _head;
         ScreenFade _wake;
         bool _nudgeHidden, _awaitingBloom, _enabledOnce;
+
+        /// <summary>The greeting wakes from black at dusk (the sky was dark) and from white in day (a soft light bloom
+        /// brightening into the meadow sky). Same fade, same timings, just which color it clears from.</summary>
+        static Color WakeColor => ThemeManager.Current == ReturnTheme.Dusk ? Color.black : Color.white;
 
         /// <summary>hubRoot is the hub's own visibility root (hidden while in a world); the greeting/nudge panels are parented
         /// under it so they hide and reset together with everything else, instead of floating over a world mid-sequence.</summary>
@@ -59,7 +63,7 @@ namespace Return.UI
         async Task ReWake()
         {
             if (_wake == null) return;
-            _wake.SetColor(Color.black); _wake.SetAlpha(0.6f);
+            _wake.SetColor(WakeColor); _wake.SetAlpha(0.6f);
             await FadeWake(0f, 1f);
         }
 
@@ -83,7 +87,7 @@ namespace Return.UI
             if (_hub != null) HideUntilBloom(_hub.Cards.Where(c => c != null).Select(c => c.portal).ToList());
             if (_wake != null)
             {
-                _wake.SetColor(Color.black); _wake.SetAlpha(1f);
+                _wake.SetColor(WakeColor); _wake.SetAlpha(1f);
                 ReturnAudio.Play(ReturnAudio.GreetingSwell, 0.8f);
                 _ = FadeWake(0f, 3f);
             }

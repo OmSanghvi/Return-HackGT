@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using TMPro;
 using UnityEditor;
 using UnityEngine;
@@ -31,11 +32,12 @@ namespace Return.UI.Editor
         [MenuItem("Return/Build Font Assets")]
         public static void Build()
         {
-            foreach (var path in Directory.GetFiles(Dir, "*.ttf"))
+            // .otf too: Bemirs ships as OpenType (TMP_FontAsset.CreateFontAsset works from either via the same Font import).
+            foreach (var path in Directory.GetFiles(Dir, "*.ttf").Concat(Directory.GetFiles(Dir, "*.otf")))
             {
                 var assetPath = path.Replace('\\', '/');
                 var font = AssetDatabase.LoadAssetAtPath<Font>(assetPath);
-                var outPath = assetPath.Replace(".ttf", " SDF.asset");
+                var outPath = Path.ChangeExtension(assetPath, null) + " SDF.asset";
                 if (font == null || File.Exists(outPath)) continue;
 
                 var fa = TMP_FontAsset.CreateFontAsset(font, 90, 9, GlyphRenderMode.SDFAA, 1024, 1024, AtlasPopulationMode.Dynamic, true);

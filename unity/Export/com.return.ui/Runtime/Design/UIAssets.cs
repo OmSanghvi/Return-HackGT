@@ -27,7 +27,7 @@ namespace Return.Design
         {
             switch (f)
             {
-                case FontFace.Display: return "RoleModel-Regular SDF";
+                case FontFace.Display: return "Bemirs-Regular SDF"; // caps-only, no digits (matches web --font-display); see EnsureFonts for the Role Model fallback
                 case FontFace.Accent: return "Cormorant-LightItalic SDF";
                 case FontFace.Kicker: return "RusillaSerif-Regular SDF";
                 case FontFace.Medium: return "HankenGrotesk-Medium SDF";
@@ -46,8 +46,10 @@ namespace Return.Design
             if (TMP_Settings.instance == null)
                 Debug.LogError("Return UI: TextMeshPro Essentials are missing, so text cannot render. Run Return > Import TMP Essentials (Window > TextMeshPro > Import TMP Essential Resources) once per project.");
             var serif = Load<TMP_FontAsset>("Fonts/Cormorant-Regular SDF");
+            var numerals = Load<TMP_FontAsset>("Fonts/RoleModel-Regular SDF"); // Bemirs is caps-only with no digits (web falls back to Role Model for numerals)
             var display = Load<TMP_FontAsset>("Fonts/" + FontFile(FontFace.Display));
-            // Role Model's demo has letters and numbers only; punctuation falls back to Cormorant (BRAND.md).
+            if (display != null && numerals != null && !display.fallbackFontAssetTable.Contains(numerals)) display.fallbackFontAssetTable.Add(numerals);
+            // Role Model's demo has letters and numbers only; punctuation falls back further to Cormorant (BRAND.md).
             if (display != null && serif != null && !display.fallbackFontAssetTable.Contains(serif)) display.fallbackFontAssetTable.Add(serif);
             // Register so <font="name"> tags resolve without TMP's own Resources path.
             foreach (FontFace f in System.Enum.GetValues(typeof(FontFace)))
@@ -75,6 +77,21 @@ namespace Return.Design
                 case SceneKey.Hub: return "return-sky-dusk-hub";
                 default: return "return-sky-dusk-night-lake";
             }
+        }
+
+        /// <summary>New Return/LiquidGlass material, or null if the shader isn't in this build. Mirrors ReturnShaders'
+        /// stripping-safe pattern (a Quest player build only keeps shaders something references) without editing that
+        /// file, which is owned by a parallel work package; fold this into ReturnShaders proper on the next pass.
+        /// Needs a template material at Resources/ReturnUI/Shaders/LiquidGlass.mat to survive stripping in a device build.</summary>
+        public static Material LiquidGlass()
+        {
+            var s = Shader.Find("Return/LiquidGlass");
+            if (s == null)
+            {
+                var t = Resources.Load<Material>("ReturnUI/Shaders/LiquidGlass");
+                s = t != null ? t.shader : null;
+            }
+            return s != null ? new Material(s) { hideFlags = HideFlags.HideAndDontSave } : null;
         }
 
         public static Texture2D Sky(SceneKey k) => Load<Texture2D>("Skies/" + SkyName(k));
