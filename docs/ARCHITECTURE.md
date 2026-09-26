@@ -167,7 +167,10 @@ Unity Cloud path below, specifically:
   support host migration for Netcode for GameObjects there, so the room
   would close whenever the host left.
 - **Clerk is the account system**, used directly by the web app
-  (`@clerk/react`).
+  (`@clerk/react`). (For the demo right now, the backend runs
+  `SKETCHSCAPE_AUTH_MODE=demo` — two hardcoded accounts, no Clerk dashboard
+  needed yet. See `docs/BUILD_PLAN.md`'s "Demo auth mode" note; this doesn't
+  change the plan here.)
 - **The Quest uses the person's Meta account.**
   - Unity Cloud signs in with `SignInWithOculusAsync`.
   - The backend validates a Meta user-proof nonce, maps the Meta ID to the

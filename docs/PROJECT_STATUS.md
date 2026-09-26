@@ -519,7 +519,8 @@ and precomputed, attractive assets as the judging-safe recording path.
 ### 8 — Production hardening (post-hackathon, not needed for the demo)
 - HTTPS / TLS termination (currently plain HTTP on port 8000).
 - Rate limiting. (Client authentication is done — Build Plan step 16;
-  `SKETCHSCAPE_AUTH_MODE=mock|clerk`.)
+  `SKETCHSCAPE_AUTH_MODE=mock|demo|clerk`, where `demo` is a hardcoded
+  two-account stand-in used for the live demo ahead of step 13.)
 - Durable jobs so the API doesn't lose jobs on restart — planned in the
   store itself as Build Plan step 26, not SQS.
 - The "revisit and add to the room later" arc mentioned in the pitch — not

@@ -1098,6 +1098,122 @@ class _FakeClerk:
         return _FakeRequestState(True, payload=payload)
 
 
+class DemoMembershipApiTests(unittest.TestCase):
+    """Membership/ownership enforcement under SKETCHSCAPE_AUTH_MODE=demo.
+
+    Same enforcement as ClerkMembershipApiTests below, but through the two
+    hardcoded demo accounts instead of Clerk tokens -- this is what a live
+    two-person demo runs on ahead of step 13's real account setup.
+    """
+
+    def setUp(self) -> None:
+        from unittest.mock import patch
+
+        self._env = patch.dict(
+            os.environ,
+            {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com"},
+        )
+        self._env.start()
+
+    def tearDown(self) -> None:
+        self._env.stop()
+
+    def test_non_member_gets_403_on_reads_and_uploads(self) -> None:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/projects",
+                json={"name": "Private room", "creator_display_name": "Alice"},
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            self.assertEqual(created.status_code, 201, created.text)
+            pid = created.json()["project_id"]
+            invite = created.json()["invite_code"]
+            self.assertTrue(len(invite) >= 16)
+
+            # Bob is a known demo account but not a member of this project.
+            read = client.get(
+                f"/v1/projects/{pid}", headers={"X-SketchScape-Dev-User": "demo-bob"}
+            )
+            self.assertEqual(read.status_code, 403)
+
+            upload = client.post(
+                f"/v1/projects/{pid}/assets",
+                data={"subject_hint": "mug"},
+                files={"image": ("mug.png", io.BytesIO(b"PNG"), "image/png")},
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+            self.assertEqual(upload.status_code, 403)
+
+    def test_unknown_account_is_rejected_before_membership_is_checked(self) -> None:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/projects/does-not-exist", headers={"X-SketchScape-Dev-User": "not-a-demo-account"}
+            )
+        self.assertEqual(response.status_code, 401)
+
+    def test_bad_invite_code_is_403_and_duplicate_register_is_rejected(self) -> None:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/projects",
+                json={"name": "Invite room", "creator_display_name": "Alice"},
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            pid = created.json()["project_id"]
+            invite = created.json()["invite_code"]
+
+            bad = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bob", "invite_code": "wrong-code-xxxxxxxx"},
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+            self.assertEqual(bad.status_code, 403)
+
+            ok = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bob", "invite_code": invite},
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+            self.assertEqual(ok.status_code, 201)
+            self.assertEqual(ok.json()["clerk_user_id"], "demo-bob")
+
+            again = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bobby", "invite_code": invite},
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+            self.assertEqual(again.status_code, 409)
+
+    def test_member_cannot_edit_another_members_upload_selections(self) -> None:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/projects",
+                json={"name": "Shared room", "creator_display_name": "Alice"},
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            pid = created.json()["project_id"]
+            invite = created.json()["invite_code"]
+            client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bob", "invite_code": invite},
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+
+            uploaded = client.post(
+                f"/v1/projects/{pid}/uploads",
+                files={"image": ("mug.png", io.BytesIO(b"PNG"), "image/png")},
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            self.assertEqual(uploaded.status_code, 201, uploaded.text)
+            upload_id = uploaded.json()["upload_id"]
+
+            forbidden = client.post(
+                f"/v1/projects/{pid}/uploads/{upload_id}/selections",
+                json={"selections": [{"selection_id": "s1", "prompt": {"type": "text", "text": "mug"}}]},
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+            self.assertEqual(forbidden.status_code, 403)
+
+
 class ClerkMembershipApiTests(unittest.TestCase):
     """Membership enforcement that only applies in SKETCHSCAPE_AUTH_MODE=clerk."""
 

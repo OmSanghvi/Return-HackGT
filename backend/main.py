@@ -222,16 +222,17 @@ class Contributor(BaseModel):
     project_id: str
     display_name: str = Field(min_length=1, max_length=100)
     joined_at: datetime
-    # Bound to the caller's verified identity when they join (Clerk `sub` in
-    # clerk mode, or the mock `X-SketchScape-Dev-User` value). None for
-    # unbound demo personas created in mock mode after the creator.
+    # Bound to the caller's verified identity when they join (a Clerk `sub`
+    # in clerk mode, a fixed demo account id in demo mode, or the mock
+    # `X-SketchScape-Dev-User` value). None for unbound personas created in
+    # mock mode after the creator.
     clerk_user_id: str | None = None
 
 
 class ContributorCreateRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=100)
-    # Required in clerk mode; optional in mock so existing local/demo flows
-    # keep working (Hard Rule 2).
+    # Required outside mock mode (clerk, demo); optional in mock so existing
+    # local/demo flows keep working (Hard Rule 2).
     invite_code: str | None = Field(default=None, max_length=128)
 
 
@@ -346,9 +347,9 @@ class ExperienceBlueprint(ExperienceBlueprintInput):
     # that revision keeps today's unconditional publish behavior, including
     # deliberate rollback to an older revision.
     based_on_revision: int | None = None
-    # Set from the caller's verified identity in `clerk` mode (step 16);
-    # unset for mock-mode/manual authoring, matching that mode's behavior
-    # before step 16 (Hard Rule 2).
+    # Set from the caller's verified identity outside mock mode (clerk,
+    # demo -- step 16); unset for mock-mode/manual authoring, matching that
+    # mode's behavior before step 16 (Hard Rule 2).
     author: str | None = None
 
 
@@ -363,8 +364,9 @@ class PublicationRecord(BaseModel):
     project_id: str
     revision: int
     published_at: datetime
-    # Set from the caller's verified identity in `clerk` mode (step 16);
-    # unset for mock-mode/manual publishing, matching create_blueprint above.
+    # Set from the caller's verified identity outside mock mode (clerk,
+    # demo -- step 16); unset for mock-mode/manual publishing, matching
+    # create_blueprint above.
     author: str | None = None
 
 
@@ -542,13 +544,14 @@ async def lifespan(app: FastAPI):  # noqa: ARG001 - required by FastAPI's lifesp
 
 app = FastAPI(title="SketchScape Reconstruction API", version="0.2.0", lifespan=lifespan)
 
-# In `clerk` mode, only the configured web origin(s) may call this API, and
-# bearer tokens (not cookies) carry auth, so credentialed CORS isn't needed.
-# `mock` mode keeps today's SKETCHSCAPE_ALLOWED_ORIGINS behavior unchanged
-# (default "*") -- no behavior change for local/offline use (Hard Rule 2).
-if os.environ.get("SKETCHSCAPE_AUTH_MODE", "mock").strip().lower() == "clerk":
+# In `clerk` and `demo` mode, only the configured web origin(s) may call this
+# API, and bearer/header auth (not cookies) carries identity, so credentialed
+# CORS isn't needed. `mock` mode keeps today's SKETCHSCAPE_ALLOWED_ORIGINS
+# behavior unchanged (default "*") -- no behavior change for local/offline
+# use (Hard Rule 2).
+if os.environ.get("SKETCHSCAPE_AUTH_MODE", "mock").strip().lower() in ("clerk", "demo"):
     _cors_origins = web_origins()
-    _cors_headers = ["Authorization", "Content-Type"]
+    _cors_headers = ["Authorization", "Content-Type", "X-SketchScape-Dev-User"]
 else:
     _cors_origins = os.environ.get("SKETCHSCAPE_ALLOWED_ORIGINS", "*").split(",")
     _cors_headers = ["*"]
@@ -623,7 +626,7 @@ def project_asset_ids(project: ProjectRecord) -> set[str]:
 
 def require_upload_owner(upload: UploadRecord, identity: Identity) -> None:
     """Only the uploader may edit their upload's selections (mock mode: no-op, Hard Rule 2)."""
-    if _auth_mode() != "clerk" or identity.kind == "service":
+    if _auth_mode() == "mock" or identity.kind == "service":
         return
     if upload.uploader_user_id != identity.user_id:
         raise HTTPException(403, "Only the uploader can edit this upload's selections.")
@@ -694,13 +697,13 @@ def enforce_project_access(
     """Membership gate for project-scoped routes (step 17).
 
     In ``mock`` mode this is a no-op so local/demo flows and existing tests
-    keep working (Hard Rule 2). In ``clerk`` mode:
+    keep working (Hard Rule 2). In ``clerk`` and ``demo`` mode:
 
     - ``read`` / ``draft``: a project member, or a service (NemoClaw).
     - ``write``: a project member only (never a service) — uploads,
       contributions, invite rotation, room_prompt, publish.
     """
-    if _auth_mode() != "clerk":
+    if _auth_mode() == "mock":
         return
     get_project(project_id)  # 404 if unknown
     if identity.kind == "service":
@@ -1218,7 +1221,7 @@ async def create_contributor(
 
     mode = _auth_mode()
     existing = find_contributor_by_clerk_user(project_id, identity.user_id)
-    if mode == "clerk":
+    if mode != "mock":
         if not invite_codes_match(request.invite_code, project.invite_code):
             raise HTTPException(403, "Invalid invite code.")
         if existing is not None:

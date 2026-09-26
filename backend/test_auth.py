@@ -134,6 +134,65 @@ class MockIdentityTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 403)
 
 
+class DemoIdentityTests(unittest.TestCase):
+    """SKETCHSCAPE_AUTH_MODE=demo: exactly two hardcoded accounts."""
+
+    def test_known_demo_account_is_accepted(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "demo"}):
+            identity = auth.require_identity(make_request({"X-SketchScape-Dev-User": "demo-alice"}))
+        self.assertEqual(identity, auth.Identity(user_id="demo-alice", kind="user", via="demo"))
+
+    def test_other_known_demo_account_is_accepted(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "demo"}):
+            identity = auth.require_identity(make_request({"X-SketchScape-Dev-User": "demo-bob"}))
+        self.assertEqual(identity, auth.Identity(user_id="demo-bob", kind="user", via="demo"))
+
+    def test_unknown_account_is_rejected(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "demo"}):
+            with self.assertRaises(HTTPException) as ctx:
+                auth.require_identity(make_request({"X-SketchScape-Dev-User": "someone-else"}))
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_missing_header_is_rejected(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "demo"}):
+            with self.assertRaises(HTTPException) as ctx:
+                auth.require_identity(make_request())
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_accounts_are_configurable(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_DEMO_USERS": "carol,dave"}
+        with patch.dict(os.environ, env):
+            identity = auth.require_identity(make_request({"X-SketchScape-Dev-User": "carol"}))
+            self.assertEqual(identity.user_id, "carol")
+            with self.assertRaises(HTTPException):
+                auth.require_identity(make_request({"X-SketchScape-Dev-User": "demo-alice"}))
+
+    def test_misconfigured_account_count_raises(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_DEMO_USERS": "solo-user"}
+        with patch.dict(os.environ, env):
+            with self.assertRaises(RuntimeError):
+                auth.require_identity(make_request({"X-SketchScape-Dev-User": "solo-user"}))
+
+    def test_require_user_accepts_demo_identity(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "demo"}):
+            identity = auth.require_user(
+                auth.require_identity(make_request({"X-SketchScape-Dev-User": "demo-alice"}))
+            )
+        self.assertEqual(identity.kind, "user")
+
+    def test_require_service_rejects_demo_identity(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "demo"}):
+            with self.assertRaises(HTTPException) as ctx:
+                auth.require_service(
+                    auth.require_identity(make_request({"X-SketchScape-Dev-User": "demo-alice"}))
+                )
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_author_from_identity_records_demo_user(self) -> None:
+        identity = auth.Identity(user_id="demo-alice", kind="user", via="demo")
+        self.assertEqual(auth.author_from_identity(identity), "demo-alice")
+
+
 class ClerkIdentityTests(unittest.TestCase):
     """SKETCHSCAPE_AUTH_MODE=clerk, against a stubbed clerk_backend_api."""
 
@@ -267,6 +326,12 @@ class LegacyDemoRoutesModeGateTests(unittest.TestCase):
             self.assertEqual(client.get("/v1/scene").status_code, 200)
             self.assertEqual(client.get("/scene").status_code, 200)
 
+    def test_legacy_routes_404_in_demo_mode(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com"}
+        with patch.dict(os.environ, env), TestClient(app) as client:
+            self.assertEqual(client.get("/v1/scene").status_code, 404)
+            self.assertEqual(client.get("/scene").status_code, 404)
+
     def test_legacy_routes_404_in_clerk_mode(self) -> None:
         env = {
             "SKETCHSCAPE_AUTH_MODE": "clerk",
@@ -329,6 +394,29 @@ class StartupChecksTests(unittest.TestCase):
             "CLERK_SECRET_KEY": "sk_test_fake",
             "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com",
         }
+        self._run(env)  # must not raise
+
+    def test_demo_with_empty_web_origins_refuses_to_start(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_WEB_ORIGINS": ""}
+        with self.assertRaises(RuntimeError):
+            self._run(env)
+
+    def test_demo_with_wildcard_web_origins_refuses_to_start(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com,*"}
+        with self.assertRaises(RuntimeError):
+            self._run(env)
+
+    def test_demo_with_misconfigured_accounts_refuses_to_start(self) -> None:
+        env = {
+            "SKETCHSCAPE_AUTH_MODE": "demo",
+            "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com",
+            "SKETCHSCAPE_DEMO_USERS": "only-one",
+        }
+        with self.assertRaises(RuntimeError):
+            self._run(env)
+
+    def test_demo_with_valid_config_starts_cleanly(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com"}
         self._run(env)  # must not raise
 
     def test_mock_with_dynamodb_storage_refuses_to_start(self) -> None:

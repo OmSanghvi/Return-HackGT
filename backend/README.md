@@ -4,8 +4,9 @@ The only process clients (Unity, and later the web app) talk to, and the
 authority for project state, blueprints, and safe scene edits. It works
 without a GPU in `mock` mode, so upload, polling, scene loading, and safe
 edits are demoable without AWS. Identity is selected by
-`SKETCHSCAPE_AUTH_MODE` (`mock` default, or `clerk` for real deployments —
-see Auth and Membership below). Planned additions (the room API,
+`SKETCHSCAPE_AUTH_MODE` (`mock` default; `demo` for a real two-person demo
+with no Clerk/Meta account setup; `clerk` for a real deployment once step 13
+is done — see Auth and Membership below). Planned additions (the room API,
 durable jobs) are in `docs/BUILD_PLAN.md`.
 
 ## Run locally
@@ -26,21 +27,29 @@ Open `http://127.0.0.1:8000/docs`, submit a photo to
 
 | Mode | Who calls | How |
 | --- | --- | --- |
-| `mock` (default) | local/dev | `X-SketchScape-Dev-User` header (default `dev-user`); no secrets |
-| `clerk` | web app + NemoClaw | Clerk session tokens (`kind=user`) and M2M tokens (`kind=service`); requires `CLERK_SECRET_KEY` and an explicit `SKETCHSCAPE_WEB_ORIGINS` allowlist (no `*`) |
+| `mock` (default) | local/dev | `X-SketchScape-Dev-User` header (default `dev-user`); no secrets; membership/ownership checks are no-ops |
+| `demo` | a live two-person demo, ahead of step 13 | same `X-SketchScape-Dev-User` header, restricted to exactly two hardcoded accounts (`SKETCHSCAPE_DEMO_USERS`, default `demo-alice,demo-bob`); real membership/ownership enforcement, no Clerk dashboard needed |
+| `clerk` | web app + NemoClaw, once step 13 is done | Clerk session tokens (`kind=user`) and M2M tokens (`kind=service`); requires `CLERK_SECRET_KEY` and an explicit `SKETCHSCAPE_WEB_ORIGINS` allowlist (no `*`) |
 
-In `clerk` mode, every `/v1/projects/**`, `/v1/reconstructions`, and
-`/v1/artifacts/**` route requires a verified identity; CORS is locked to
-`SKETCHSCAPE_WEB_ORIGINS` and allows the `Authorization` header. Legacy
-demo routes (`/v1/scene`, `/scene`, `/sketch`, `/modify-scene`, and the
-related `/v1/interactives` / `/v1/scene/actions` / `/v1/scene/modify`
-surface) return 404. `/v1/internal/**` stays worker-token only and never
-accepts a Clerk bearer. Startup refuses unsafe combinations (e.g. `clerk`
-without a secret, or `mock` with DynamoDB / a non-mock pipeline). Meta
-room tokens for Quest headsets arrive in step 18.
+In `demo` and `clerk` mode, every `/v1/projects/**`, `/v1/reconstructions`,
+and `/v1/artifacts/**` route requires a verified identity; CORS is locked to
+`SKETCHSCAPE_WEB_ORIGINS`. Legacy demo routes (`/v1/scene`, `/scene`,
+`/sketch`, `/modify-scene`, and the related `/v1/interactives` /
+`/v1/scene/actions` / `/v1/scene/modify` surface) return 404 outside `mock`
+mode. `/v1/internal/**` stays worker-token only and never accepts a Clerk
+bearer or a demo header. Startup refuses unsafe combinations (e.g. `clerk`
+without a secret, `demo` without `SKETCHSCAPE_WEB_ORIGINS`, or `mock` with
+DynamoDB / a non-mock pipeline). Meta room tokens for Quest headsets arrive
+in step 18.
+
+`demo` mode is a temporary stand-in for step 13's real Clerk/Meta account
+setup — it exists so a two-account collaboration demo can run today. The
+Clerk code path is untouched and dormant; switching `SKETCHSCAPE_AUTH_MODE`
+back to `clerk` once accounts exist needs no code changes.
 
 `clerk-backend-api` is an optional cloud dependency
-(`pip install -r requirements-cloud.txt`); the base install never needs it.
+(`pip install -r requirements-cloud.txt`); the base install never needs it
+in `mock` or `demo` mode.
 
 ## Membership and ownership (step 17)
 
@@ -52,10 +61,10 @@ the first contributor (bound via `clerk_user_id`). Others join with
 `POST .../invite/rotate` to rotate the code. Only members see the invite
 code in project responses.
 
-In `clerk` mode every project-scoped route enforces membership (403 if
-not a member). NemoClaw (`kind=service`) may read and draft blueprints /
-`connection/compose`, but cannot upload, publish, or register as a
-contributor. Ownership of scene objects is **derived**
+In `demo` and `clerk` mode every project-scoped route enforces membership
+(403 if not a member). NemoClaw (`kind=service`) may read and draft
+blueprints / `connection/compose`, but cannot upload, publish, or register
+as a contributor. Ownership of scene objects is **derived**
 (`owned_object_ids`) from contributions — not stored twice. Mock mode
 skips membership enforcement so local demos keep working.
 

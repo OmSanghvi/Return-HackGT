@@ -24,6 +24,15 @@ description: Use before ANY work on the Collaborative VR + web accounts track (B
   federated into Unity via OIDC) is **dropped**. The browser redirect back
   into an immersive app was the riskiest step, and it's no longer needed.
 
+**Demo mode (added 2026-09-26):** `SKETCHSCAPE_AUTH_MODE=demo` (see
+`backend-auth-clerk`) is a temporary stand-in for the website's Clerk
+sign-in — exactly two hardcoded accounts, real membership/ownership
+enforcement, no Clerk dashboard needed. It exists so a two-person backend
+demo can run **before** step 13 is done. It changes nothing below: step 13's
+manual gates are still required for the real Clerk/Meta account setup, the
+web app's own Clerk sign-in (step 19), and Quest linking (step 18). Don't
+treat `demo` mode as satisfying any gate in this file.
+
 ## Gate rule (every step 13-29)
 
 1. Before writing code or config for a step, run

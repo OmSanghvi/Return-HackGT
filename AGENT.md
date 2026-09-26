@@ -501,7 +501,7 @@ backend/           FastAPI backend — the only process Unity talks to
   storage.py        AuthoringStore — LocalJsonStore + DynamoDbStore
   artifact_store.py ArtifactStore — LocalArtifactStore + S3ArtifactStore
   subject_labeler.py identify_subject labeler (mock built; NemoClaw path is step 4a)
-  auth.py          Identity verification — SKETCHSCAPE_AUTH_MODE=mock|clerk (step 16)
+  auth.py          Identity verification — SKETCHSCAPE_AUTH_MODE=mock|demo|clerk (step 16)
   test_api.py       API contract tests (run these)
   test_storage.py   Storage + artifact store tests (run these)
   test_subject_labeler.py  Subject labeler tests (run these)
@@ -558,7 +558,7 @@ its current contents before relying on any of them.
 | Area | Status |
 |---|---|
 | Backend API (upload, poll, mock pipeline, safe edits) | ✅ done, 106 tests passing (2 skipped) |
-| Identity (`SKETCHSCAPE_AUTH_MODE=mock\|clerk`, authors on revisions) | ✅ done — Meta room tokens wait on Build Plan step 18 |
+| Identity (`SKETCHSCAPE_AUTH_MODE=mock\|demo\|clerk`; `demo` added 2026-09-26 for a two-account demo ahead of step 13; authors on revisions) | ✅ done — Meta room tokens wait on Build Plan step 18 |
 | Membership, invites, ownership, `room_prompt` | ✅ done — Build Plan step 17 |
 | `identify_subject` mock labeler (`SKETCHSCAPE_SUBJECT_LABELER=mock`) | ✅ done — live NemoClaw path waits on Build Plan step 3 |
 | GPU pipeline (SAM 3.1 → Fast-SAM3D, `worker_server.py`) | ✅ verified end-to-end on an L40S (g6e.xlarge): 70 s, 53 MB PLY; instance stopped |
@@ -939,9 +939,10 @@ SKETCHSCAPE_JOB_LEASE_SECONDS=900
 # step 18). mock: dev identity header, offline only; the API refuses to start
 # in mock mode with dynamodb storage or a non-mock pipeline. Secrets below
 # live only in backend secret storage.
-SKETCHSCAPE_AUTH_MODE=mock             # mock | clerk
+SKETCHSCAPE_AUTH_MODE=mock             # mock | demo | clerk
 CLERK_SECRET_KEY=                      # secret — never in a file, commit, or chat
-SKETCHSCAPE_WEB_ORIGINS=http://localhost:5173  # CORS + Clerk authorized_parties; never * in clerk mode
+SKETCHSCAPE_WEB_ORIGINS=http://localhost:5173  # CORS (+ Clerk authorized_parties in clerk mode); never * in demo or clerk mode
+SKETCHSCAPE_DEMO_USERS=demo-alice,demo-bob     # exactly two accounts, demo mode only
 SKETCHSCAPE_META_ENABLED=false         # Quest Meta-account sign-in + linking
 SKETCHSCAPE_META_APP_ID=               # public
 SKETCHSCAPE_META_APP_SECRET=           # secret

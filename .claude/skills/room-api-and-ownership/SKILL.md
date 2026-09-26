@@ -19,9 +19,11 @@ description: Use for Build Plan step 17 (project membership, invite codes, bindi
   - Add `POST /v1/projects/{id}/invite/rotate` to rotate it.
 - `Contributor` gains `clerk_user_id: str | None`. Registering as a
   contributor requires a valid `invite_code` (except the project creator,
-  who is registered automatically) and binds the caller's Clerk user. A
-  Clerk user can be a contributor of a project only once.
-- **Membership check** for every project-scoped route in `clerk` mode:
+  who is registered automatically) and binds the caller's verified identity
+  (a Clerk user, or a hardcoded `demo` account — see `backend-auth-clerk`).
+  That identity can be a contributor of a project only once.
+- **Membership check** for every project-scoped route outside `mock` mode
+  (`demo` or `clerk`):
   - The caller must be a contributor of the project, else 403.
   - `kind="service"` (NemoClaw) may read all projects and draft revisions,
     but never upload as a person or register as a contributor.

@@ -58,7 +58,7 @@ blocked until its prerequisites are verifiably done. See "Collaborative VR
 | 13 | Accounts: Clerk app, Meta Horizon app + test users, Unity Meta Quest provider | — | Unity Cloud linked; rest not confirmed | `collab-vr-accounts-and-gates` |
 | 14 | Quest Meta identity spike on a real headset | 13 | Not started | `meta-quest-identity` |
 | 15 | Backend revision safety (`based_on_revision` 409, conditional DynamoDB writes, LIVE pointer) | — | Done | `backend-revision-concurrency` |
-| 16 | Backend auth core: Clerk web sessions + NemoClaw M2M, mock mode, fail-fast config | 15 | Done | `backend-auth-clerk` |
+| 16 | Backend auth core: Clerk web sessions + NemoClaw M2M, mock mode, `demo` mode (two hardcoded accounts, added 2026-09-26), fail-fast config | 15 | Done | `backend-auth-clerk` |
 | 17 | Membership, invite codes, Contributor ↔ Clerk user, ownership, `room_prompt` | 2, 16 | Done | `room-api-and-ownership` |
 | 18 | Meta identity exchange + Quest ↔ Clerk linking (backend, room tokens) | 14, 16 | Not started | `meta-quest-identity` |
 | 19 | Web app foundation: `app/` React + Vite + `@clerk/react`, API client, mock mode | 13, 16 | Not started | `web-app-foundation` |
@@ -75,6 +75,20 @@ blocked until its prerequisites are verifiably done. See "Collaborative VR
 
 Every known issue these steps fix, with status, is in
 `docs/KNOWN_ISSUES.md`.
+
+**Demo auth mode (added 2026-09-26):** `SKETCHSCAPE_AUTH_MODE=demo`
+(`backend/auth.py`) is a temporary stand-in for step 13's account setup —
+exactly two hardcoded accounts, selected with the same
+`X-SketchScape-Dev-User` header `mock` mode uses, but with real per-project
+membership/ownership enforcement (unlike `mock`, which no-ops those checks).
+It exists so a two-person collaboration demo can run **today**, without a
+Clerk dashboard or Meta Horizon app. It does not change the plan below or
+any gate: step 13's manual gates (`clerk_app_ready`, `meta_app_ready`,
+`unity_meta_provider_configured`) are still required before steps 18-22
+start, and the Clerk code path is untouched and dormant — switching
+`SKETCHSCAPE_AUTH_MODE` back to `clerk` once those accounts exist needs no
+code changes. See `backend/README.md`'s Auth section and the
+`backend-auth-clerk` skill.
 
 **Gate command (mandatory before starting steps 13–29):**
 `python3 scripts/check_collab_gates.py <step>`. BLOCKED means stop. Done
@@ -483,6 +497,11 @@ headset immediately and is saved, so the room looks the same after
 everyone leaves.
 
 **Architecture (decided 2026-09-25, don't re-litigate):**
+
+*Still the plan for the real deployment.* For the demo right now, backend
+auth runs in `SKETCHSCAPE_AUTH_MODE=demo` (two hardcoded accounts) instead
+of live Clerk sign-in — see "Demo auth mode" above. The web app's own
+Clerk sign-in (step 19) still waits on step 13.
 
 - **Accounts: Clerk.** Every person is a Clerk user, created on the
   website.

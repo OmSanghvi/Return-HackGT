@@ -127,9 +127,9 @@ optional helper, not the default.
     Reconstruct jobs complete with the existing mock PLY. No network, no
     GPU.
 
-Every route requires identity and membership in `clerk` mode (steps 16
-and 17). The uploader owns their upload's selections, and other members
-can't edit them.
+Every route requires identity and membership outside `mock` mode (`demo` or
+`clerk` — steps 16 and 17). The uploader owns their upload's selections, and
+other members can't edit them.
 
 ## Tests
 

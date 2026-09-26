@@ -140,6 +140,11 @@ All of it is **untrusted input**:
 - **Clerk**: users, sessions, and M2M machines live in Clerk. We store only
   `clerk_user_id` (on Contributor items and GSI1) and the author strings on
   revisions.
+- **Demo mode (added 2026-09-26):** with `SKETCHSCAPE_AUTH_MODE=demo`, the
+  same `clerk_user_id` field and GSI1 key just hold one of the two hardcoded
+  demo account ids (`SKETCHSCAPE_DEMO_USERS`) instead of a real Clerk `sub`.
+  No schema change; see `backend/auth.py` and `docs/BUILD_PLAN.md`'s "Demo
+  auth mode" note.
 - **Meta**: `META#<id>` / `USERLINK#<id>` link items, plus short-lived
   hashed link codes.
 - **Secrets are never stored in the table** (`CLERK_SECRET_KEY`, Meta app
