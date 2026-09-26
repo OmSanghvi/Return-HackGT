@@ -43,6 +43,49 @@ def make_asset(asset_id: str = "a1", project_id: str = "p1") -> "main.ProjectAss
     )
 
 
+def make_contributor(contributor_id: str = "c1", project_id: str = "p1", display_name: str = "Alice") -> "main.Contributor":
+    return main.Contributor(
+        contributor_id=contributor_id,
+        project_id=project_id,
+        display_name=display_name,
+        joined_at=main.utc_now(),
+    )
+
+
+def make_contribution(
+    contribution_id: str = "ctr1",
+    project_id: str = "p1",
+    contributor_id: str = "c1",
+    asset_id: str = "a1",
+    source_type: "main.ContributionSourceType" = "photo",
+    memory_text: str = "A trip we took together.",
+) -> "main.Contribution":
+    return main.Contribution(
+        contribution_id=contribution_id,
+        project_id=project_id,
+        contributor_id=contributor_id,
+        asset_id=asset_id,
+        source_type=source_type,
+        memory_text=memory_text,
+        created_at=main.utc_now(),
+    )
+
+
+def make_connection_insight(project_id: str = "p1", revision: int = 1) -> "main.ConnectionInsight":
+    return main.ConnectionInsight(
+        project_id=project_id,
+        revision=revision,
+        theme="Warm childhood summers",
+        explanation="Both objects evoke long summer afternoons together.",
+        placement_rationale=[
+            main.PlacementRationale(object_id="o1", asset_id="a1", rationale="Placed near the window light."),
+        ],
+        backend="mock",
+        model="mock-v1",
+        created_at=main.utc_now(),
+    )
+
+
 class FactoryTests(unittest.TestCase):
     def setUp(self) -> None:
         self._state = Path(_temp_dir.name) / "factory-state.json"
@@ -91,6 +134,67 @@ class LocalJsonStoreContractTests(unittest.TestCase):
         quarantined = list(self._state.parent.glob(self._state.name + ".corrupt-*"))
         self.assertTrue(quarantined, "corrupt snapshot should be preserved for inspection")
 
+    def test_contributor_and_contribution_roundtrip(self) -> None:
+        self.store.save_project(make_project())
+        self.store.save_asset(make_asset())
+        self.store.append_contributor(make_contributor())
+        self.store.append_contribution(make_contribution())
+
+        contributors = self.store.list_contributors("p1")
+        contributions = self.store.list_contributions("p1")
+        self.assertEqual([c.contributor_id for c in contributors], ["c1"])
+        self.assertEqual([c.contribution_id for c in contributions], ["ctr1"])
+        self.assertEqual(contributions[0].source_type, "photo")
+
+    def test_connection_insight_roundtrip(self) -> None:
+        self.store.save_project(make_project())
+        self.store.append_connection_insight(make_connection_insight())
+        insights = self.store.list_connection_insights("p1")
+        self.assertEqual(len(insights), 1)
+        self.assertEqual(insights[0].backend, "mock")
+        self.assertEqual(insights[0].placement_rationale[0].object_id, "o1")
+
+    def test_project_with_three_or_more_contributors_roundtrips(self) -> None:
+        """N-ary proof: this must work for 3+ contributors, not just a pair."""
+        self.store.save_project(make_project())
+        for asset_id in ("a1", "a2", "a3"):
+            self.store.save_asset(make_asset(asset_id=asset_id))
+
+        contributor_ids = ["c1", "c2", "c3"]
+        for contributor_id in contributor_ids:
+            self.store.append_contributor(
+                make_contributor(contributor_id=contributor_id, display_name=f"Person {contributor_id}")
+            )
+        for index, (contributor_id, asset_id) in enumerate(zip(contributor_ids, ("a1", "a2", "a3"))):
+            self.store.append_contribution(
+                make_contribution(
+                    contribution_id=f"ctr{index + 1}",
+                    contributor_id=contributor_id,
+                    asset_id=asset_id,
+                )
+            )
+
+        contributors = self.store.list_contributors("p1")
+        contributions = self.store.list_contributions("p1")
+        self.assertEqual(len(contributors), 3)
+        self.assertEqual(len(contributions), 3)
+        self.assertEqual(
+            {c.contributor_id for c in contributions},
+            set(contributor_ids),
+        )
+
+    def test_contributor_and_contribution_reload_rehydrates(self) -> None:
+        self.store.save_project(make_project())
+        self.store.append_contributor(make_contributor())
+        self.store.append_contribution(make_contribution())
+        self.store.append_connection_insight(make_connection_insight())
+
+        reloaded = storage.LocalJsonStore(self._state)
+        reloaded.load()
+        self.assertEqual(len(reloaded.list_contributors("p1")), 1)
+        self.assertEqual(len(reloaded.list_contributions("p1")), 1)
+        self.assertEqual(len(reloaded.list_connection_insights("p1")), 1)
+
 
 class DynamoDbStoreTests(unittest.TestCase):
     def test_missing_table_name_raises(self) -> None:
@@ -133,6 +237,53 @@ class DynamoDbStoreTests(unittest.TestCase):
         store.append_publication(main.PublicationRecord(project_id="p1", revision=1, published_at=main.utc_now()))
         published = [rec.revision for rec in store.list_publications("p1")]
         self.assertEqual(published, [1, 2, 1])
+
+    @unittest.skipUnless(_HAS_BOTO3, "DynamoDB CRUD test needs boto3 conditions helpers.")
+    def test_contributor_and_contribution_roundtrip_against_fake_table(self) -> None:
+        store = storage.DynamoDbStore("fake")
+        store._table = _FakeTable()
+        store.save_project(make_project())
+        store.save_asset(make_asset())
+
+        store.append_contributor(make_contributor())
+        store.append_contribution(make_contribution())
+
+        contributors = store.list_contributors("p1")
+        contributions = store.list_contributions("p1")
+        self.assertEqual([c.contributor_id for c in contributors], ["c1"])
+        self.assertEqual([c.contribution_id for c in contributions], ["ctr1"])
+
+        store.append_connection_insight(make_connection_insight(revision=1))
+        store.append_connection_insight(make_connection_insight(revision=2))
+        insights = [insight.revision for insight in store.list_connection_insights("p1")]
+        self.assertEqual(insights, [1, 2])
+
+    @unittest.skipUnless(_HAS_BOTO3, "DynamoDB CRUD test needs boto3 conditions helpers.")
+    def test_three_or_more_contributors_against_fake_table(self) -> None:
+        """N-ary proof against DynamoDbStore too — not just LocalJsonStore."""
+        store = storage.DynamoDbStore("fake")
+        store._table = _FakeTable()
+        store.save_project(make_project())
+        for asset_id in ("a1", "a2", "a3", "a4"):
+            store.save_asset(make_asset(asset_id=asset_id))
+
+        contributor_ids = ["c1", "c2", "c3", "c4"]
+        for contributor_id in contributor_ids:
+            store.append_contributor(make_contributor(contributor_id=contributor_id))
+        for index, (contributor_id, asset_id) in enumerate(zip(contributor_ids, ("a1", "a2", "a3", "a4"))):
+            store.append_contribution(
+                make_contribution(
+                    contribution_id=f"ctr{index + 1}",
+                    contributor_id=contributor_id,
+                    asset_id=asset_id,
+                )
+            )
+
+        contributors = store.list_contributors("p1")
+        contributions = store.list_contributions("p1")
+        self.assertEqual(len(contributors), 4)
+        self.assertEqual(len(contributions), 4)
+        self.assertEqual({c.contributor_id for c in contributions}, set(contributor_ids))
 
 
 def _make_blueprint(project_id: str, revision: int) -> "main.ExperienceBlueprint":

@@ -385,5 +385,124 @@ class MultiViewProvenanceTests(unittest.TestCase):
             self.assertEqual(published.json()["scene"]["objects"][0]["id"], "statue_1")
 
 
+class ContributorContributionApiTests(unittest.TestCase):
+    """Verify the Shared Room contributor/contribution endpoints (Build Plan step 2)."""
+
+    def _make_project(self, client, name: str = "Shared room") -> str:
+        return client.post(
+            "/v1/projects", json={"name": name, "description": ""}
+        ).json()["project_id"]
+
+    def _create_ready_asset(self, client, project_id: str, hint: str = "object") -> dict:
+        r = client.post(
+            f"/v1/projects/{project_id}/assets",
+            data={"subject_hint": hint},
+            files={"image": (f"{hint}.png", io.BytesIO(b"PNG-DATA"), "image/png")},
+        )
+        self.assertEqual(r.status_code, 202)
+        asset_id = r.json()["asset_id"]
+        # The mock pipeline completes as a background task; fetching the
+        # asset drives the settled status into the response, same pattern
+        # as MultiViewProvenanceTests.
+        full = client.get(f"/v1/projects/{project_id}/assets/{asset_id}")
+        self.assertEqual(full.status_code, 200)
+        asset = full.json()
+        self.assertEqual(asset["status"], "ready")
+        return asset
+
+    def test_three_contributors_register_and_contribute(self) -> None:
+        """N-ary check: three (not two) contributors, one contribution each."""
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+
+            contributors = []
+            for name in ["Alice", "Bo", "Cass"]:
+                r = client.post(f"/v1/projects/{pid}/contributors", json={"display_name": name})
+                self.assertEqual(r.status_code, 201)
+                body = r.json()
+                self.assertEqual(body["display_name"], name)
+                self.assertEqual(body["project_id"], pid)
+                contributors.append(body)
+            self.assertEqual(len(contributors), 3)
+
+            listed_contributors = client.get(f"/v1/projects/{pid}/contributors")
+            self.assertEqual(listed_contributors.status_code, 200)
+            self.assertEqual(
+                {c["contributor_id"] for c in listed_contributors.json()},
+                {c["contributor_id"] for c in contributors},
+            )
+
+            contributions = []
+            for index, contributor in enumerate(contributors):
+                asset = self._create_ready_asset(client, pid, hint=f"keepsake-{index}")
+                r = client.post(
+                    f"/v1/projects/{pid}/contributions",
+                    json={
+                        "contributor_id": contributor["contributor_id"],
+                        "asset_id": asset["asset_id"],
+                        "source_type": "photo",
+                        "memory_text": f"Memory number {index}",
+                    },
+                )
+                self.assertEqual(r.status_code, 201)
+                body = r.json()
+                self.assertEqual(body["contributor_id"], contributor["contributor_id"])
+                self.assertEqual(body["asset_id"], asset["asset_id"])
+                contributions.append(body)
+            self.assertEqual(len(contributions), 3)
+
+            listed_contributions = client.get(f"/v1/projects/{pid}/contributions")
+            self.assertEqual(listed_contributions.status_code, 200)
+            self.assertEqual(
+                {c["contribution_id"] for c in listed_contributions.json()},
+                {c["contribution_id"] for c in contributions},
+            )
+
+    def test_contribution_against_non_ready_asset_is_rejected(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            contributor = client.post(
+                f"/v1/projects/{pid}/contributors", json={"display_name": "Dana"}
+            ).json()
+
+            asset_response = client.post(
+                f"/v1/projects/{pid}/assets",
+                data={"subject_hint": "broken lamp"},
+                files={"image": ("lamp.png", io.BytesIO(b"PNG1"), "image/png")},
+            )
+            self.assertEqual(asset_response.status_code, 202)
+            asset = asset_response.json()
+            job_id = asset["reconstruction_job_id"]
+
+            # Force the asset's only view to FAILED via the worker callback,
+            # the same mechanism MultiViewProvenanceTests uses.
+            worker_token = os.environ.get("SKETCHSCAPE_WORKER_TOKEN", "")
+            failed = client.post(
+                f"/v1/internal/reconstructions/{job_id}/result",
+                data={
+                    "result": '{"status":"failed","object_label":"lamp","error":"VRAM OOM"}',
+                    "worker_token": worker_token,
+                },
+            )
+            self.assertEqual(failed.status_code, 200)
+            asset_after = client.get(f"/v1/projects/{pid}/assets/{asset['asset_id']}").json()
+            self.assertEqual(asset_after["status"], "failed")
+
+            r = client.post(
+                f"/v1/projects/{pid}/contributions",
+                json={
+                    "contributor_id": contributor["contributor_id"],
+                    "asset_id": asset["asset_id"],
+                    "source_type": "photo",
+                    "memory_text": "",
+                },
+            )
+            self.assertGreaterEqual(r.status_code, 400)
+            self.assertLess(r.status_code, 500)
+
+            # Nothing should have been recorded against the project.
+            self.assertEqual(client.get(f"/v1/projects/{pid}/contributions").json(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

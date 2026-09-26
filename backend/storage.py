@@ -40,6 +40,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a circular import.
     from main import (
+        ConnectionInsight,
+        Contribution,
+        Contributor,
         ExperienceBlueprint,
         ProjectAsset,
         ProjectRecord,
@@ -68,6 +71,17 @@ def _model_types() -> tuple[type, type, type, type]:
     )
 
     return ProjectRecord, ProjectAsset, ExperienceBlueprint, PublicationRecord
+
+
+def _social_model_types() -> tuple[type, type, type]:
+    """Return the Shared Room social models, imported lazily to avoid a cycle.
+
+    Kept separate from ``_model_types`` so existing call sites that destructure
+    a fixed 4-tuple don't need to change.
+    """
+    from main import ConnectionInsight, Contribution, Contributor
+
+    return Contributor, Contribution, ConnectionInsight
 
 
 class AuthoringStore(ABC):
@@ -106,6 +120,24 @@ class AuthoringStore(ABC):
     @abstractmethod
     def append_publication(self, record: PublicationRecord) -> None: ...
 
+    @abstractmethod
+    def list_contributors(self, project_id: str) -> list[Contributor]: ...
+
+    @abstractmethod
+    def append_contributor(self, contributor: Contributor) -> None: ...
+
+    @abstractmethod
+    def list_contributions(self, project_id: str) -> list[Contribution]: ...
+
+    @abstractmethod
+    def append_contribution(self, contribution: Contribution) -> None: ...
+
+    @abstractmethod
+    def list_connection_insights(self, project_id: str) -> list[ConnectionInsight]: ...
+
+    @abstractmethod
+    def append_connection_insight(self, insight: ConnectionInsight) -> None: ...
+
     def persist_all(self) -> None:  # pragma: no cover - default no-op
         """Force a full flush. Backends that write eagerly need not override."""
 
@@ -125,18 +157,25 @@ class LocalJsonStore(AuthoringStore):
         self.assets: dict[str, ProjectAsset] = {}
         self.blueprints: dict[str, list[ExperienceBlueprint]] = {}
         self.publications: dict[str, list[PublicationRecord]] = {}
+        self.contributors: dict[str, list[Contributor]] = {}
+        self.contributions: dict[str, list[Contribution]] = {}
+        self.connection_insights: dict[str, list[ConnectionInsight]] = {}
 
     # -- lifecycle ---------------------------------------------------------
 
     def load(self) -> None:
         """Rehydrate state from disk. A missing or empty file starts empty."""
         ProjectRecord, ProjectAsset, ExperienceBlueprint, PublicationRecord = _model_types()
+        Contributor, Contribution, ConnectionInsight = _social_model_types()
 
         with self._lock:
             self.projects = {}
             self.assets = {}
             self.blueprints = {}
             self.publications = {}
+            self.contributors = {}
+            self.contributions = {}
+            self.connection_insights = {}
             if not self._state_path.is_file():
                 return
             try:
@@ -159,6 +198,18 @@ class LocalJsonStore(AuthoringStore):
             for project_id, records in raw.get("publications", {}).items():
                 self.publications[project_id] = [
                     PublicationRecord.model_validate(item) for item in records
+                ]
+            for project_id, records in raw.get("contributors", {}).items():
+                self.contributors[project_id] = [
+                    Contributor.model_validate(item) for item in records
+                ]
+            for project_id, records in raw.get("contributions", {}).items():
+                self.contributions[project_id] = [
+                    Contribution.model_validate(item) for item in records
+                ]
+            for project_id, records in raw.get("connection_insights", {}).items():
+                self.connection_insights[project_id] = [
+                    ConnectionInsight.model_validate(item) for item in records
                 ]
 
     def _quarantine_corrupt_state(self) -> None:
@@ -185,6 +236,18 @@ class LocalJsonStore(AuthoringStore):
             "publications": {
                 project_id: [record.model_dump(mode="json") for record in records]
                 for project_id, records in self.publications.items()
+            },
+            "contributors": {
+                project_id: [item.model_dump(mode="json") for item in records]
+                for project_id, records in self.contributors.items()
+            },
+            "contributions": {
+                project_id: [item.model_dump(mode="json") for item in records]
+                for project_id, records in self.contributions.items()
+            },
+            "connection_insights": {
+                project_id: [item.model_dump(mode="json") for item in records]
+                for project_id, records in self.connection_insights.items()
             },
         }
 
@@ -217,6 +280,9 @@ class LocalJsonStore(AuthoringStore):
             self.projects[project.project_id] = project
             self.blueprints.setdefault(project.project_id, [])
             self.publications.setdefault(project.project_id, [])
+            self.contributors.setdefault(project.project_id, [])
+            self.contributions.setdefault(project.project_id, [])
+            self.connection_insights.setdefault(project.project_id, [])
             self._flush()
 
     # -- assets ------------------------------------------------------------
@@ -253,6 +319,36 @@ class LocalJsonStore(AuthoringStore):
         """
         with self._lock:
             self.publications.setdefault(record.project_id, []).append(record)
+            self._flush()
+
+    # -- contributors --------------------------------------------------------
+
+    def list_contributors(self, project_id: str) -> list[Contributor]:
+        return self.contributors.setdefault(project_id, [])
+
+    def append_contributor(self, contributor: Contributor) -> None:
+        with self._lock:
+            self.contributors.setdefault(contributor.project_id, []).append(contributor)
+            self._flush()
+
+    # -- contributions -------------------------------------------------------
+
+    def list_contributions(self, project_id: str) -> list[Contribution]:
+        return self.contributions.setdefault(project_id, [])
+
+    def append_contribution(self, contribution: Contribution) -> None:
+        with self._lock:
+            self.contributions.setdefault(contribution.project_id, []).append(contribution)
+            self._flush()
+
+    # -- connection insights ---------------------------------------------------
+
+    def list_connection_insights(self, project_id: str) -> list[ConnectionInsight]:
+        return self.connection_insights.setdefault(project_id, [])
+
+    def append_connection_insight(self, insight: ConnectionInsight) -> None:
+        with self._lock:
+            self.connection_insights.setdefault(insight.project_id, []).append(insight)
             self._flush()
 
     def persist_all(self) -> None:
@@ -424,6 +520,68 @@ class DynamoDbStore(AuthoringStore):
                     "pk": f"PROJECT#{record.project_id}",
                     "sk": self._seq_key("PUBLICATION", next_seq),
                     "document": record.model_dump_json(),
+                }
+            )
+
+    # -- contributors --------------------------------------------------------
+
+    def list_contributors(self, project_id: str) -> list[Contributor]:
+        Contributor, _, _ = _social_model_types()
+        return [
+            Contributor.model_validate_json(item["document"])
+            for item in self._query_children(project_id, "CONTRIBUTOR")
+        ]
+
+    def append_contributor(self, contributor: Contributor) -> None:
+        with self._lock:
+            self._require_table().put_item(
+                Item={
+                    "pk": f"PROJECT#{contributor.project_id}",
+                    "sk": f"CONTRIBUTOR#{contributor.contributor_id}",
+                    "document": contributor.model_dump_json(),
+                }
+            )
+
+    # -- contributions -------------------------------------------------------
+
+    def list_contributions(self, project_id: str) -> list[Contribution]:
+        _, Contribution, _ = _social_model_types()
+        return [
+            Contribution.model_validate_json(item["document"])
+            for item in self._query_children(project_id, "CONTRIBUTION")
+        ]
+
+    def append_contribution(self, contribution: Contribution) -> None:
+        with self._lock:
+            self._require_table().put_item(
+                Item={
+                    "pk": f"PROJECT#{contribution.project_id}",
+                    "sk": f"CONTRIBUTION#{contribution.contribution_id}",
+                    "document": contribution.model_dump_json(),
+                }
+            )
+
+    # -- connection insights ---------------------------------------------------
+
+    def list_connection_insights(self, project_id: str) -> list[ConnectionInsight]:
+        _, _, ConnectionInsight = _social_model_types()
+        return [
+            ConnectionInsight.model_validate_json(item["document"])
+            for item in self._query_children(project_id, "INSIGHT")
+        ]
+
+    def append_connection_insight(self, insight: ConnectionInsight) -> None:
+        """Append an insight revision, exactly like `append_blueprint`.
+
+        Insights are revisioned like blueprints, so republishing a new
+        composition pass appends a new item rather than overwriting history.
+        """
+        with self._lock:
+            self._require_table().put_item(
+                Item={
+                    "pk": f"PROJECT#{insight.project_id}",
+                    "sk": self._seq_key("INSIGHT", insight.revision),
+                    "document": insight.model_dump_json(),
                 }
             )
 

@@ -90,6 +90,10 @@ class ProjectRecord(BaseModel):
     asset_ids: list[str] = Field(default_factory=list)
     blueprint_revisions: list[int] = Field(default_factory=list)
     published_revision: int | None = None
+    contributor_ids: list[str] = Field(default_factory=list)
+    contribution_ids: list[str] = Field(default_factory=list)
+    min_contributors: int = Field(default=2, ge=2)
+    max_contributors: int = Field(default=6, ge=2)
 
 
 SubjectHintSource = Literal["user", "nemoclaw"]
@@ -152,6 +156,77 @@ class AddAssetViewRequest(BaseModel):
     """
 
     subject_hint: str | None = Field(default=None, max_length=100)
+
+
+class Contributor(BaseModel):
+    """One person participating in a Shared Room project.
+
+    A project holds a **list** of contributors — never a fixed pair of
+    fields. See docs/ARCHITECTURE.md's "Scaling Shared Room from two
+    contributors to N" before assuming there are exactly two.
+    """
+
+    contributor_id: str
+    project_id: str
+    display_name: str = Field(min_length=1, max_length=100)
+    joined_at: datetime
+
+
+class ContributorCreateRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=100)
+
+
+ContributionSourceType = Literal["photo", "sketch", "letter"]
+
+
+class Contribution(BaseModel):
+    """One person's contributed object plus why it matters.
+
+    A project holds a **list** of contributions; `connection/compose` may
+    only run once `len(contributions) >= ProjectRecord.min_contributors`.
+    """
+
+    contribution_id: str
+    project_id: str
+    contributor_id: str
+    asset_id: str
+    source_type: ContributionSourceType
+    memory_text: str = Field(default="", max_length=1000)
+    created_at: datetime
+
+
+class ContributionCreateRequest(BaseModel):
+    contributor_id: str
+    asset_id: str
+    source_type: ContributionSourceType
+    memory_text: str = Field(default="", max_length=1000)
+
+
+class PlacementRationale(BaseModel):
+    """Why one contributed object was placed where it was, in NemoClaw's layout."""
+
+    object_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
+    asset_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
+    rationale: str = Field(min_length=1, max_length=500)
+
+
+class ConnectionInsight(BaseModel):
+    """NemoClaw's social-reasoning output for a project's contributions.
+
+    Revisioned like `ExperienceBlueprint`, since a new composition pass
+    produces a new insight rather than overwriting the previous one. The
+    `placement_rationale` list must reference every contribution passed to
+    `connection/compose`, not just two.
+    """
+
+    project_id: str
+    revision: int
+    theme: str = Field(min_length=1, max_length=200)
+    explanation: str = Field(min_length=1, max_length=2000)
+    placement_rationale: list[PlacementRationale] = Field(default_factory=list, max_length=200)
+    backend: Literal["mock", "meta", "xai", "nebius"]
+    model: str = Field(min_length=1, max_length=120)
+    created_at: datetime
 
 
 class ExperienceSettings(BaseModel):
@@ -594,6 +669,8 @@ async def create_project(request: ProjectCreateRequest) -> ProjectRecord:
         description=request.description.strip(),
         created_at=now,
         updated_at=now,
+        min_contributors=int(os.environ.get("SKETCHSCAPE_MIN_CONTRIBUTORS", "2")),
+        max_contributors=int(os.environ.get("SKETCHSCAPE_MAX_CONTRIBUTORS", "6")),
     )
     store.save_project(project)
     return project
@@ -608,6 +685,64 @@ async def read_project(project_id: str) -> ProjectRecord:
 async def list_project_assets(project_id: str) -> list[ProjectAsset]:
     project = get_project(project_id)
     return [store.get_asset(asset_id) for asset_id in project.asset_ids if store.get_asset(asset_id)]
+
+
+@app.post("/v1/projects/{project_id}/contributors", response_model=Contributor, status_code=201)
+async def create_contributor(project_id: str, request: ContributorCreateRequest) -> Contributor:
+    project = get_project(project_id)
+    contributor = Contributor(
+        contributor_id=uuid.uuid4().hex,
+        project_id=project.project_id,
+        display_name=request.display_name.strip(),
+        joined_at=utc_now(),
+    )
+    store.append_contributor(contributor)
+    project.contributor_ids.append(contributor.contributor_id)
+    project.updated_at = utc_now()
+    store.save_project(project)
+    return contributor
+
+
+@app.get("/v1/projects/{project_id}/contributors", response_model=list[Contributor])
+async def list_contributors(project_id: str) -> list[Contributor]:
+    get_project(project_id)
+    return store.list_contributors(project_id)
+
+
+def validate_contribution_request(project: ProjectRecord, request: ContributionCreateRequest) -> None:
+    if request.contributor_id not in project.contributor_ids:
+        raise HTTPException(422, f"Unknown contributor for this project: {request.contributor_id}")
+    if request.asset_id not in project.asset_ids:
+        raise HTTPException(422, f"Blueprint references unknown project assets: {request.asset_id}")
+    asset = store.get_asset(request.asset_id)
+    if asset is None or asset.status != AssetStatus.READY:
+        raise HTTPException(409, f"Blueprint assets are not ready: {request.asset_id}")
+
+
+@app.post("/v1/projects/{project_id}/contributions", response_model=Contribution, status_code=201)
+async def create_contribution(project_id: str, request: ContributionCreateRequest) -> Contribution:
+    project = get_project(project_id)
+    validate_contribution_request(project, request)
+    contribution = Contribution(
+        contribution_id=uuid.uuid4().hex,
+        project_id=project.project_id,
+        contributor_id=request.contributor_id,
+        asset_id=request.asset_id,
+        source_type=request.source_type,
+        memory_text=request.memory_text.strip(),
+        created_at=utc_now(),
+    )
+    store.append_contribution(contribution)
+    project.contribution_ids.append(contribution.contribution_id)
+    project.updated_at = utc_now()
+    store.save_project(project)
+    return contribution
+
+
+@app.get("/v1/projects/{project_id}/contributions", response_model=list[Contribution])
+async def list_contributions(project_id: str) -> list[Contribution]:
+    get_project(project_id)
+    return store.list_contributions(project_id)
 
 
 @app.post("/v1/reconstructions", response_model=ReconstructionResponse, status_code=202)
