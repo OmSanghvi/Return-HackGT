@@ -39,6 +39,8 @@ from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from gaussian_ply_safety import sanitize_ply_opacity_file
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [worker] %(levelname)s %(message)s",
@@ -397,6 +399,9 @@ def _run_one_job(job_id: str, subject_hint: str) -> None:
 
         ply_path = output_dir / "fastsam3d_reconstruction.ply"
         gaussian.save_ply(ply_path)
+        fixed = sanitize_ply_opacity_file(ply_path)
+        if fixed:
+            log.warning("[%s] Repaired %d non-finite opacity value(s) in %s", job_id[:8], fixed, ply_path)
         del gaussian, slat
         gc.collect()
         torch.cuda.empty_cache()

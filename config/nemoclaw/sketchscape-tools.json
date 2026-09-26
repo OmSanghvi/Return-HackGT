@@ -98,7 +98,7 @@
       "path": "/v1/projects/{project_id}/tours",
       "purpose": "Guided tour bot: save the GuidedTour JSON that author_guided_tour wrote after place_objects_in_scene and stage_immersive_reveal (shared/guided-tour.schema.json). Stored as a draft only; the backend validates every id against the blueprint and every fact against the contributions. Authenticated with SKETCHSCAPE_NEMOCLAW_TOKEN (R14). Build Plan steps 30-31.",
       "approval_required": false,
-      "implementation_status": "target"
+      "implementation_status": "implemented; nemoclaw-tool-built-untested-step31 (see tour.author_guided_tour below) -- set to implemented (drop the step31 caveat) once verified against a live NemoClaw run per nemoclaw-tour-authoring's definition of done"
     },
     {
       "id": "tour.activate",
@@ -150,6 +150,14 @@
       "purpose": "Build Plan step 24: callable name propose_room_edit(project_id, base_revision, edits). Fetches the base_revision blueprint, applies the requested transforms, validates, and POSTs a new draft revision via base_revision=<live>. Never publishes. Raises/reports a stale-revision error with fresh room state on 409, per room-api-and-ownership.",
       "approval_required": false,
       "implementation_status": "built-untested-2026-09-26 (built ahead of the step 3 gate at the user's explicit request; no live NemoClaw runtime to verify tool-calling against yet)"
+    },
+    {
+      "id": "tour.author_guided_tour",
+      "method": "IN_PROCESS",
+      "path": "backend/tour_author.py author_guided_tour(project_id, model_call) -- imported directly by a live NemoClaw session (never shelled out to, unlike the scene/room tools above), since it needs to pass its own model_call for the one live reasoning call this tool makes. backend/tour_author_cli.py exists only for manual/CLI testing with a stub model_call.",
+      "purpose": "Build Plan step 31: callable name author_guided_tour(project_id). Reads compiled-scene, the latest ConnectionInsight, contributions, and contributors; writes the GuidedTour JSON in one model call through NemoClaw's configured provider; POSTs it as a draft (tour.draft above), retrying up to 2 times on a validator 422 with the rule message fed back. Never activates -- a person does that on the website.",
+      "approval_required": false,
+      "implementation_status": "built-untested-2026-09-26 (deterministic read/write/retry logic unit-tested in backend/test_tour_author.py with a stub model_call; no live NemoClaw runtime to verify tool-calling or the real model_call against yet, per nemoclaw-tour-authoring's definition of done)"
     }
   ],
   "unity_mcp_menu_tasks": [

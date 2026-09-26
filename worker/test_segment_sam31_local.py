@@ -125,6 +125,23 @@ class SegmentSelectionsTests(unittest.TestCase):
             self.assertAlmostEqual(outcomes["s1"]["score"], 0.9)
             np.testing.assert_array_equal(outcomes["s1"]["mask"], vase)
 
+    def test_splits_one_combined_result_by_prompt_class(self) -> None:
+        # The real SAM3SemanticPredictor returns ONE Results for a text batch,
+        # each mask tagged with its prompt index in boxes.cls (verified on the
+        # L40S host 2026-09-26: only the first prompt got masks before this).
+        with _TempImage() as path:
+            cat = _circle_mask(40, 40, 10, 10, 5)
+            remote = _circle_mask(40, 40, 30, 30, 5)
+            combined = _fake_result([cat, remote], [0.9, 0.8])
+            combined.boxes.cls = np.asarray([0.0, 1.0])
+            outcomes = sam31.segment_selections(
+                lambda text: [combined], path, [("s1", "cat"), ("s2", "remote")]
+            )
+            self.assertEqual(outcomes["s1"]["status"], "segmented")
+            self.assertEqual(outcomes["s2"]["status"], "segmented")
+            np.testing.assert_array_equal(outcomes["s2"]["mask"], remote)
+            self.assertEqual(outcomes["s1"]["alternatives"], [])
+
     def test_returns_alternatives_for_the_runner_up_instances(self) -> None:
         with _TempImage() as path:
             best = _circle_mask(40, 40, 10, 10, 6)

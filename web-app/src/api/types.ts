@@ -61,6 +61,8 @@ export interface UploadSelection {
   alternatives: Record<string, unknown>[];
   origin: SelectionOrigin;
   mask_preview_url: string | null;
+  /** Set by /generate: the ProjectAsset this selection became. */
+  asset_id?: string | null;
 }
 
 export interface UploadRecord {

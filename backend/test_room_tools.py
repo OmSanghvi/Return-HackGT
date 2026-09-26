@@ -80,7 +80,15 @@ _BLUEPRINT = {
     "created_at": "2026-01-01T00:00:00+00:00",
     "experience": _ROOM_STATE["experience"],
     "environment": _ROOM_STATE["environment"],
-    "objects": _ROOM_STATE["objects"],
+    # Blueprint objects (shared/experience-blueprint.schema.json) never carry
+    # room-state-view-only fields like owner_contributor_id/editable_by_me
+    # (those are added by RoomObjectView in main.py's /rooms/{id}/state
+    # route) -- reusing _ROOM_STATE["objects"] here would make this fixture
+    # schema-invalid in a way the real blueprint GET response never is.
+    "objects": [
+        {k: v for k, v in obj.items() if k not in ("owner_contributor_id", "editable_by_me")}
+        for obj in _ROOM_STATE["objects"]
+    ],
     "portals": [],
     "navigation": _ROOM_STATE["navigation"],
     "based_on_revision": 6,

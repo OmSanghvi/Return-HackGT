@@ -163,7 +163,10 @@ class GuideValidatorTests(unittest.TestCase):
         allowed = allowed_sets(
             self.tour, self.memory, {"type": "ask_about", "element_id": "e_teapot"}, self.live_object_ids
         )
-        self.assertEqual(set(allowed.fact_ids), {"f_teapot_owner", "f_teapot_memory"})
+        # allowed_sets always includes the theme's facts (f_theme) on top of
+        # the element's and current step's facts -- see muse-guide-runtime's
+        # "Allowed sets per turn" spec.
+        self.assertEqual(set(allowed.fact_ids), {"f_theme", "f_teapot_owner", "f_teapot_memory"})
 
     def test_invented_name_is_repaired_to_cited_fact(self) -> None:
         allowed = allowed_sets(self.tour, self.memory, {"type": "question"}, self.live_object_ids)

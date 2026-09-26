@@ -6,6 +6,9 @@ import { useRooms } from '../data/store';
 import { searchPeople, sceneFor } from '../data/directory';
 import { Stage } from '../world/Stage';
 import { Logo, reveal } from './shared';
+import { REAL_MODE } from '../config';
+import * as backend from '../real/rooms';
+import { ApiError } from '../api/client';
 
 export default function CreateRoom() {
   const navigate = useNavigate();
@@ -13,11 +16,19 @@ export default function CreateRoom() {
   const [error, setError] = useState('');
   const [q, setQ] = useState('');
   const [invited, setInvited] = useState<Invitee[]>([]);
+  const [busy, setBusy] = useState(false);
   const results = searchPeople(q);
   const scene = sceneFor(name) ?? 'home';
 
-  const create = (withInvites: boolean) => {
+  const create = async (withInvites: boolean) => {
     if (!name.trim()) return setError('Give the room a name, like the place or the day.');
+    if (REAL_MODE) {
+      setBusy(true);
+      try { navigate(`/rooms/${await backend.createRoom(name)}/add`); }
+      catch (e) { setError(e instanceof ApiError ? e.message : "Couldn't reach return. Try again."); }
+      finally { setBusy(false); }
+      return;
+    }
     const id = useRooms.getState().createRoom(name, withInvites ? invited.map((p) => p.email) : [], scene);
     navigate(`/rooms/${id}/add`);
   };
@@ -29,7 +40,7 @@ export default function CreateRoom() {
         <Button variant="ghost" icon="x" onClick={() => navigate('/rooms')}>Cancel</Button>
       </div>
       <div className="app-split">
-        <form className="app-form" onSubmit={(e) => { e.preventDefault(); create(true); }}>
+        <form className="app-form" onSubmit={(e) => { e.preventDefault(); void create(true); }}>
           <motion.div {...reveal(0)}><Stepper current={0} /></motion.div>
           <motion.h1 className="display-l" style={{ margin: 0 }} {...reveal(1)}>Start a new <em>room</em></motion.h1>
           <motion.p className="body-l" style={{ margin: 0, color: 'var(--ink-muted)' }} {...reveal(2)}>One place, one moment. Everyone you invite adds their own photos of it.</motion.p>
@@ -37,14 +48,16 @@ export default function CreateRoom() {
             <Field label="Name this room" placeholder="The lake house, summer 2019" value={name} error={error} autoFocus
               hint="Shown on the room's card and in the headset." onChange={(e) => { setName(e.target.value); setError(''); }} />
           </motion.div>
-          <motion.div {...reveal(4)}>
+          {REAL_MODE ? (
+            <motion.p className="rt-field-hint" style={{ margin: 0 }} {...reveal(4)}>The other account on this laptop gets an invitation as soon as the room exists.</motion.p>
+          ) : <motion.div {...reveal(4)}>
             <InviteSearch results={results} invited={invited} onQuery={setQ}
               onInvite={(p) => setInvited((v) => (v.some((x) => x.email === p.email) ? v : [...v, p]))}
               onRemove={(p) => setInvited((v) => v.filter((x) => x.email !== p.email))} />
-          </motion.div>
+          </motion.div>}
           <motion.div className="app-actions app-actions-start" {...reveal(5)}>
-            <Button variant="primary" size="lg" arrow type="submit">Next: add your photos</Button>
-            {invited.length === 0 && <Button variant="ghost" size="lg" onClick={() => create(false)}>Invite people later</Button>}
+            <Button variant="primary" size="lg" arrow type="submit" loading={busy}>Next: add your photos</Button>
+            {invited.length === 0 && !REAL_MODE && <Button variant="ghost" size="lg" onClick={() => void create(false)}>Invite people later</Button>}
           </motion.div>
         </form>
         <Stage scene={scene} fast scrim="bottom" className="app-side-stage" label="Better together">

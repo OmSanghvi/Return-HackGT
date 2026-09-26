@@ -8,6 +8,8 @@ import { useSession } from '../auth';
 import { SCENES } from '../world/scenes';
 import type { Room } from '../data/store';
 import lockupWhite from '../design-system/logos/return-lockup-white.svg';
+import { DEMO_ACCOUNTS, REAL_MODE } from '../config';
+import { accountLabel, useAccount } from '../api/account';
 
 export const coverOf = (r: Room) => r.cover || SCENES[r.scene].image;
 
@@ -48,6 +50,10 @@ function AccountMenu() {
         <div className="app-account-menu rt-glass-strong" role="menu">
           <p className="caption app-account-who">Signed in as <strong>{session.name}</strong></p>
           <button type="button" role="menuitem" onClick={() => { setOpen(false); navigate('/rooms'); }}><Icon name="home" size={16} />My rooms</button>
+          {REAL_MODE && DEMO_ACCOUNTS.filter((id) => accountLabel(id) !== session.name).map((id) => (
+            <button key={id} type="button" role="menuitem" onClick={() => { setOpen(false); useAccount.getState().setAccount(id); navigate('/rooms'); }}>
+              <Icon name="people" size={16} />Switch to {accountLabel(id)}</button>
+          ))}
           <button type="button" role="menuitem" onClick={() => { session.signOut(); navigate('/'); }}><Icon name="enter" size={16} />Sign out</button>
         </div>
       )}

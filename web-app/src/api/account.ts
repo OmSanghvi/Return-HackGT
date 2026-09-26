@@ -20,8 +20,8 @@ export const useAccount = create<AccountState>()(
   ),
 );
 
-/** Human label for an account id: "Account 1 (demo-alice)", never a hard-coded name. */
+/** Human name for an account id: "demo-alice" -> "Alice". Unknown/empty ids read as "Someone". */
 export function accountLabel(id: string): string {
-  const index = DEMO_ACCOUNTS.indexOf(id);
-  return index >= 0 ? `Account ${index + 1}` : id;
+  const name = id.replace(/^demo-/, '').replace(/[-_]+/g, ' ').trim();
+  return name ? name.replace(/\b\w/g, (c) => c.toUpperCase()) : 'Someone';
 }
