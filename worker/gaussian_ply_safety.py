@@ -20,6 +20,9 @@ worker venv.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import numpy as np
 
 # A saturated splat was already "very opaque" or "very transparent" before
@@ -54,11 +57,19 @@ def sanitize_ply_opacity_file(path) -> int:
     """
     from plyfile import PlyData  # noqa: PLC0415 - GPU-env-only dependency
 
-    plydata = PlyData.read(str(path))
+    path = Path(path)
+    # mmap=False: plyfile memory-maps binary PLYs by default, and rewriting
+    # the same file while it's mapped truncates the pages under the array --
+    # Linux then fails the write with EFAULT ("Bad address").
+    plydata = PlyData.read(str(path), mmap=False)
     element = plydata.elements[0]
     opacities = np.asarray(element["opacity"])
     fixed, bad_count = sanitize_opacity_array(opacities)
     if bad_count:
         element["opacity"][:] = fixed
-        plydata.write(str(path))
+        # Write beside the original and swap, so a failed write never leaves
+        # a truncated artifact behind.
+        tmp_path = path.with_name(path.name + ".tmp")
+        plydata.write(str(tmp_path))
+        os.replace(tmp_path, path)
     return bad_count

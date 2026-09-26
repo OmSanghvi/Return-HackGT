@@ -54,6 +54,8 @@ export FASTSAM3D_CHECKPOINT_DIR="$RUNTIME_DIR/fastsam3d/checkpoints/hf"
 export HF_HOME="$RUNTIME_DIR/fastsam3d/huggingface-cache"
 sudo -E -u "$APP_USER" bash "$APP_DIR/worker/bootstrap_fastsam3d.sh"
 install -o "$APP_USER" -g "$APP_USER" -m 0755 "$APP_DIR/worker/run_fastsam3d_staged.py" "$FASTSAM3D_REPO_DIR/run_fastsam3d_staged.py"
+# The staged runner imports this module, so it must sit next to the copy.
+install -o "$APP_USER" -g "$APP_USER" -m 0644 "$APP_DIR/worker/gaussian_ply_safety.py" "$FASTSAM3D_REPO_DIR/gaussian_ply_safety.py"
 
 export SAM31_PERSIST_ROOT="$RUNTIME_DIR/sam31"
 export SAM31_ENV_DIR="$RUNTIME_DIR/sam31/venv"
