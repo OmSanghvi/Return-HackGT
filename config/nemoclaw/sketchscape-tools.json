@@ -93,6 +93,32 @@
       "implementation_status": "target"
     }
   ],
+  "nemoclaw_agent_tools": [
+    {
+      "id": "scene.place_objects",
+      "method": "LOCAL_SCRIPT",
+      "path": "backend/scene_tools_cli.py place_objects_in_scene (installed in the NemoClaw sandbox as the sketchscape-scene-tools OpenClaw skill, config/nemoclaw/skills/sketchscape-scene-tools/SKILL.md)",
+      "purpose": "Build Plan step 4: callable name place_objects_in_scene(objects: list[{asset_id, label}], sketch_layout_hint). Deterministic interior-design layout reasoning (arc placement, depth variation, label-driven relative scale); returns a schema-valid ExperienceBlueprintInput. Never publishes.",
+      "approval_required": false,
+      "implementation_status": "implemented"
+    },
+    {
+      "id": "scene.read_sketch_layout",
+      "method": "LOCAL_SCRIPT",
+      "path": "backend/scene_tools_cli.py read_sketch_layout (same skill as scene.place_objects)",
+      "purpose": "Build Plan step 4: callable name read_sketch_layout(sketch_image). Optional. Mock backend returns no relations (honest, no real vision signal yet); nemoclaw backend raises until NemoClaw's vision model path (Build Plan step 3) is wired up.",
+      "approval_required": false,
+      "implementation_status": "implemented-mock-only"
+    },
+    {
+      "id": "scene.stage_immersive_reveal",
+      "method": "LOCAL_SCRIPT",
+      "path": "backend/scene_tools_cli.py stage_immersive_reveal (same skill as scene.place_objects)",
+      "purpose": "Build Plan step 6: callable name stage_immersive_reveal(connection_insight, objects). Reveal order, theme-keyed lighting/mood preset, connecting light-path motif, spoken-narration text, per-object haptic signature. Backend-side tool only (Part A); Unity-side toolkit integration (Part B) waits on Unity Editor being available.",
+      "approval_required": false,
+      "implementation_status": "implemented-backend-only"
+    }
+  ],
   "unity_mcp_menu_tasks": [
     {
       "id": "unity.configure-current-scene",

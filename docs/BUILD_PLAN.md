@@ -26,17 +26,17 @@ this plan does not re-litigate them, only sequences the work.
 |---|------|-----------|--------|-------|
 | 1 | Contributor/Contribution/ConnectionInsight data model + storage | — | Done | `contributor-data-model` |
 | 2 | Contributor/Contribution API endpoints | 1 | Done | `contributor-api-endpoints` |
-| 3 | NemoClaw agent + Unity MCP Extension setup | — | Not started | `nemoclaw-agent-setup` |
-| 4 | NemoClaw layout tools (`place_objects_in_scene`, `read_sketch_layout`) | 3 | Not started | `nemoclaw-scene-tools` |
+| 3 | NemoClaw agent + Unity MCP Extension setup | — | Runtime live (NVIDIA NemoClaw CLI, OpenClaw agent, sandbox `my-assistant`, local Ollama `qwen3.5:9b` for dev). `../HackGTUnity` created on Unity 6000.6.3f1; `com.unity.ai.assistant@2.20.0-pre.1` (Unity's base MCP bridge) and `com.meta.xr.unity-mcp.extension` (pinned to commit `ac3dd9cdb2675cb0eee98655acb0731349fc6f9e` of github.com/meta-quest/Unity-MCP-Extensions) both installed and compiling clean. **Claude Code ↔ Unity MCP connection verified** (interim Option B, since NemoClaw/WSL can't reach the Windows-loopback relay across the VM boundary): `unity-mcp` stdio server registered in `~/.claude.json`, Editor auto-accepted the connection, read-only calls (`meta_get_config_information`, `Unity_GetConsoleLogs`) succeeded with 0 errors. Still open: NemoClaw's own direct connection to Unity MCP is blocked on cross-VM networking (deprioritized, see BUILD_PLAN step 3 skill / handoff), and Meta XR SDK v78+ is not yet added (needs the user's own Unity/Meta account — Asset Store or an authenticated npm.developer.oculus.com token) (2026-09-26) | `nemoclaw-agent-setup` |
+| 4 | NemoClaw layout tools (`place_objects_in_scene`, `read_sketch_layout`) | 3 | Implemented and unit-tested (`backend/scene_tools.py`, `backend/scene_tools_cli.py`, 21 tests green); confirmed working via direct exec inside the sandbox; installed into the sandbox as the `sketchscape-scene-tools` OpenClaw skill (shows `✓ ready`); **Live agent tool-calling now verified** (2026-09-26, session `scene-verify-1`): with a sufficiently directive prompt and `--session-id` for a multi-turn conversation, `qwen3.5:9b` genuinely invoked `exec` running the real `scene_tools_cli.py place_objects_in_scene` command (confirmed in the raw `.jsonl` session transcript, not just self-reported) and got back the real, correct, schema-valid blueprint. The first attempt to have it summarize that result came back with empty content (a small-model reliability quirk after a large tool-result blob enters context, not a correctness problem) — a second turn in the same session recovered cleanly and correctly reported the real first object's position (`x=-1.938, y=0.175, z=1.807`) pulled from the actual tool output, not fabricated. Two earlier one-shot (non-session) attempts had failed to clearly invoke the tool at all — the fix was `--session-id` plus an explicit "use your shell/execute tool, do not simulate" instruction. **Blueprint → Unity write bridge is now a real, reusable, input-driven tool** (2026-09-26): `backend/blueprint_to_unity.py` (`blueprint_to_unity_command(blueprint)`) takes any schema-valid `ExperienceBlueprintInput` — validated against `shared/experience-blueprint.schema.json` before codegen — and deterministically generates a Unity Editor `IRunCommand` C# script that recreates it as real GameObjects (placeholder cubes + floor plane). `backend/blueprint_to_unity_cli.py` exposes it the same way `scene_tools_cli.py` does (JSON in via arg or stdin, C# source out), for an agent with shell access. 7 new unit tests in `backend/test_blueprint_to_unity.py` (28 total across both files) cover object counts 1–8, floor on/off, and string escaping. **Verified twice against the live Editor with two different blueprint shapes** (a 4-object set, then a differently-sized 3-object set generated purely through the CLI) — both landed in `HackGTUnity` with correct position/rotation/scale on read-back, proving this isn't hardcoded to one demo shape. Note: Unity's `JsonUtility.FromJson` silently fails to populate nested custom classes inside this dynamically-compiled RunCommand context (confirmed with a minimal, null-free repro) — the bridge generates C# object-creation statements directly from the blueprint dict in Python rather than parsing JSON at runtime in Unity; any future bridge code should do the same, not assume `JsonUtility` works here. Still Claude-Code-mediated (paste generated C# into `Unity_RunCommand`) since NemoClaw itself can't reach Unity MCP yet (see the networking note above); doesn't touch `interactions`/haptics or real per-asset prefabs (step 6 Part B territory, still placeholder cubes) | `nemoclaw-scene-tools` |
 | 4a | NemoClaw subject labeling for uploads (`identify_subject`) | 3 (live path only) | Mock path built; live path waits on 3 | `nemoclaw-subject-labeling` |
 | 5 | `connection/compose` endpoint (mock path, then live NemoClaw path) | 1, 2, 4 | Mock path built; live path waits on 4 | `connection-compose-endpoint` |
-| 6 | `stage_immersive_reveal` + immersive scene-craft toolkit | 4, 5 | Not started | `immersive-reveal-staging` |
+| 6 | `stage_immersive_reveal` + immersive scene-craft toolkit | 4, 5 | Part A (backend tool, `backend/scene_tools.py`) implemented and unit-tested; Part B (Unity-side toolkit: VR Builder / lighting / audio / haptics) blocked on Unity Editor being installed | `immersive-reveal-staging` |
 | 6a | NemoClaw environment objects from web images (`find_object_image`) | 4, 10 | Not started | `nemoclaw-environment-sourcing` |
 | 7 | Notability sketch: direct display (flat quad) + SAM3D memory-plaque path | — | Not started | `sketch-image-gen-backends` |
 | 8 | Unity: diegetic attribution + bounded per-contributor edit | 5, 6 | Not started | `unity-diegetic-attribution` |
 | 9 | Meta hardware polish (passthrough, hand tracking, MRC, Quest identity, Llama Guard) | 8 | Not started | `meta-hardware-polish` |
 | 10 | GPU end-to-end verification + cloud backend activation | — | GPU verified (L40S); cloud env vars on the EC2 API not set yet | `gpu-cloud-activation` |
-| 11 | Unity offline builder fix + real-PLY splat rendering | — | Partially built | `unity-offline-builder-and-rendering` |
+| 11 | Unity offline builder fix + real-PLY splat rendering | — | Core builder rebuilt and verified end-to-end through the real backend API (project → asset → publish → export → build), not just a fixture (2026-09-26, see step detail below); still needs a real Fast-SAM3D `.ply` (in progress separately) and the Quest/room-environment portion | `unity-offline-builder-and-rendering` |
 | 12 | Demo video + write-up | 1–11 (as available) | Not started | `demo-video-prep` |
 
 Steps 7, 10, and 11 have no dependency on the social layer and can be built
@@ -175,7 +175,7 @@ implementations), `backend/test_storage.py` (new tests).
 
 **Goal:** build the two tools that turn a catalog of contributed objects into a spatial layout, generalized to N objects from the start.
 
-**Files:** wherever this repo's NemoClaw tool implementations live once step 3's runtime is chosen (document the actual path here once decided — do not leave tool code un-findable); `config/nemoclaw/sketchscape-tools.json` entries.
+**Files:** `backend/scene_tools.py` (pure reasoning logic + schema validation), `backend/scene_tools_cli.py` (CLI entry point the agent shells out to), `backend/test_scene_tools.py`; deployed into the NemoClaw sandbox as the `sketchscape-scene-tools` OpenClaw skill at `config/nemoclaw/skills/sketchscape-scene-tools/SKILL.md`; `config/nemoclaw/sketchscape-tools.json` entries under `nemoclaw_agent_tools`.
 
 **Concrete steps:**
 1. `place_objects_in_scene(objects: list[{asset_id, label}], sketch_layout_hint: LayoutHint | None) -> ExperienceBlueprintInput` — reasons about realistic layout for however many objects are passed (test with 2 and with 5), assigns `position`/`rotation`/`scale`/`interactions` per `BlueprintObject`, and returns a blueprint input ready for `POST /v1/projects/{id}/blueprints`. Do not publish automatically here — publication is a separate, explicit step per the existing blueprint contract.
@@ -461,6 +461,182 @@ development since December 2023, so treat it as a fallback reference for
 comparison/debugging, not a primary dependency to adopt fresh.
 
 **Definition of done:** matches the acceptance checks already in `AGENT.md` items 5–7.
+
+**Progress (2026-09-26):** the core builder is rebuilt from scratch (the
+Unity project was wiped and recreated fresh two sessions ago, so nothing
+survived to "fix" — this is a genuine rebuild) and verified against a real
+compiled-scene.json + a real (if minimal) binary Gaussian-splat PLY, not just
+unit-tested in isolation:
+
+- Installed `com.arloopa.unitysplats` (git `https://github.com/arloopa/UnitySplats.git#v1.2.0`,
+  MIT), pinned to the exact tag matching the documented v1.2.0, plus its
+  declared dependencies `com.netpyoung.webp` (git, pinned `#0.3.22`) and
+  `com.unity.mathematics` (`1.3.2`, resolves from Unity's default registry).
+  All three resolve and compile clean in `HackGTUnity` (Unity 6000.6.3f1).
+- `Assets/SketchScape/Editor/SketchScapeOfflineExperienceBuilder.cs` — reads
+  `Assets/SketchScape/Authoring/compiled-scene.json` (the file
+  `scripts/export_unity_experience.py` produces) and, for each object, checks
+  whether `Assets/SketchScape/Authoring/Artifacts/{id}.ply` exists **on
+  disk** (not just the `source` field — defense in depth against a
+  partial/failed export). If it exists: loads it with
+  `Gsplat.GsplatRuntimeLoader.LoadFile` and creates a real `GsplatRenderer`.
+  If not: the object is skipped entirely — confirmed no GameObject, no
+  primitive, nothing stands in for it. Rebuilding twice in a row is
+  idempotent (old root is replaced, not duplicated).
+- **Verified live** against a hand-built 3-object fixture (not a trivial
+  smoke test): one object with a real, valid, minimal binary
+  `format binary_little_endian 1.0` Gaussian-splat PLY (the exact 14 required
+  vertex properties `PlayCanvasPlyReader` checks for) — confirmed built with
+  a real loaded `GsplatAsset` and correct transform; one object with
+  `source: "placeholder"` and no `asset_url` — confirmed skipped; one object
+  with `source: "sam3d"` and an `asset_url` but a **deliberately missing**
+  `.ply` file, simulating a partial export — confirmed the file-existence
+  check catches this and skips it too, not just the naive "source" check.
+- **Scope deferred** (per explicit decision this session, since there's no
+  Quest hardware or Android SDK on this machine to verify it anyway): the
+  `Tools > SketchScape` menu commands, generating a dedicated
+  `Experience.unity` scene asset and registering it in Build Settings, and
+  the whole Quest/Android build pipeline (items 3–4 of the concrete steps
+  above, and the baseline VR room environment). The builder currently
+  builds directly into whichever scene is open, which is what was tested.
+- **Not yet done**: loading an actual real Fast-SAM3D `.ply` from the GPU
+  pipeline (none exists locally on this machine — the one ever produced was
+  on a since-stopped EC2 instance). The fixture PLY above is genuinely valid
+  per the reader's own required-property check, but it's a synthetic
+  8-vertex stand-in, not real reconstructed geometry, so Quest-scale splat
+  count and visual quality remain unverified.
+
+**Real end-to-end pipeline verified (2026-09-26), separate from the fixture
+test above.** Everything from `POST /v1/projects` through the Unity builder
+was exercised through the actual backend and actual scripts — not a
+hand-built JSON file this time:
+
+1. Stood up the backend locally (`PIPELINE_MODE=mock`, a throwaway data dir).
+   This machine's only Python (MSYS2 ucrt64) can't build `pydantic-core` via
+   pip (`Unsupported platform: 312`, no Rust) — worked around by installing
+   `fastapi`/`uvicorn`/`python-multipart` as prebuilt MSYS2 packages
+   (`pacman -S mingw-w64-ucrt-x86_64-python-fastapi mingw-w64-ucrt-x86_64-uvicorn
+   mingw-w64-ucrt-x86_64-python-python-multipart`) instead of fighting pip;
+   future backend work on this machine should do the same rather than
+   retrying a venv + pip install.
+2. Created a real project, uploaded two real assets through
+   `POST /v1/projects/{id}/assets`.
+3. For one asset, called `POST /v1/internal/reconstructions/{job_id}/result`
+   — the real private endpoint an actual GPU worker calls — with a synthetic
+   but genuinely valid splat PLY, standing in for real Fast-SAM3D output
+   (which the user is producing separately on AWS). This is legitimate: the
+   endpoint doesn't care who calls it, only that the payload is valid. The
+   other asset was left as a genuine mock-mode placeholder (no artifact).
+4. Ran `place_objects_in_scene` against the two real catalog `asset_id`s,
+   validated and published the resulting blueprint through the real
+   `POST /v1/projects/{id}/blueprints` → `.../publish` endpoints, and
+   confirmed `GET /v1/projects/{id}/compiled-scene` correctly reported
+   `source: "sam3d"` with a real `asset_url` for the completed object and
+   `source: "placeholder"` with `asset_url: null` for the other.
+5. Ran the real `scripts/export_unity_experience.py` (unmodified, no test
+   hooks) against the live local backend — it downloaded exactly one real
+   `.ply` (the completed object) and correctly fetched none for the
+   placeholder, then wrote a real `compiled-scene.json`.
+6. Ran `SketchScapeOfflineExperienceBuilder.Build()` against that real
+   export: built 1 object with a real `GsplatRenderer` + loaded asset,
+   skipped the placeholder — confirmed via scene inspection, not just the
+   returned counts.
+
+This closes the loop the fixture test above couldn't: the full chain from
+API upload through publish, export, and Unity build now has one real,
+non-mocked pass through every hop except actual GPU inference, which is
+exactly the piece the user is handling separately on AWS.
+
+**Real GPU verification (2026-09-26): first genuine Fast-SAM3D pass through
+the whole chain, on the actual `sketchscape-gpu-worker` EC2 instance
+(`i-05f7fe9fc8d8da00a`, L40S, `us-east-1c`) — not synthetic, not mocked.**
+
+- Started the existing (previously bootstrapped, then stopped) instance —
+  first `StartInstances` attempt hit `InsufficientInstanceCapacity`, second
+  attempt ~15 minutes later succeeded. All three systemd services
+  (`sketchscape.service`, `-worker.service`, `-sam31.service`) came back
+  healthy automatically on boot, no re-bootstrap needed — confirms the EBS
+  volume genuinely retains a working environment across stop/start.
+- Uploaded a real image through the real `POST /v1/projects/{id}/assets`
+  endpoint (`PIPELINE_MODE=aws-local` on that host — a real SAM 3.1 +
+  Fast-SAM3D run, not the mock path), polled to completion, and got back a
+  **real 44.9 MB, 660,224-vertex Gaussian-splat PLY** with a real S3-backed
+  `artifact_url` — the same order of magnitude as the "53 MB, 814,432 point"
+  reference run in `AGENT.md`.
+- Published a real blueprint through the instance's own live API, confirmed
+  `compiled-scene` reported `source: "sam3d"` with the real `asset_url`.
+- **Found and fixed a real binary-transport bug in the process**: passing
+  raw `bytes` through the aws-mcp `call_boto3` tool (either as an S3
+  `PutObject` `Body` param, or reading an S3 `GetObject` body back) silently
+  corrupts the data — bytes that aren't valid UTF-8 get replaced with the
+  U+FFFD replacement character (`EF BF BD`), inflating and corrupting the
+  payload. Confirmed by decoding the same hex string locally (byte-perfect)
+  vs. round-tripping it through that tool (corrupted, reproducibly, at the
+  same offsets). **Workaround, applicable to any future binary transfer
+  through this tool: never pass raw bytes through `call_boto3`. Either (a)
+  keep the payload as a hex string (pure ASCII, safe through any text
+  channel) and decode it with `xxd -r -p` in the actual shell command that
+  writes the file, or (b) use `get_presigned_url` and fetch/put the bytes
+  with a real HTTP client (`curl`) outside the sandboxed tool entirely.**
+  Small files (~400 bytes) went through the hex/`xxd` route directly inside
+  an SSM command; the 44.9 MB PLY came back via a presigned URL + local
+  `curl`, which has no size concerns at all.
+- **Found a real data-quality issue, not a code bug**: the offline builder
+  correctly *refused* to render this real PLY — `GsplatRuntimeLoader` failed
+  at vertex 9211 of 660,224 with `opacity is not finite` (a NaN/Inf value),
+  and the hard rule correctly skipped the object entirely rather than
+  showing anything broken or falling back to a primitive. Initial hypothesis
+  (wrong, see below): blamed the trivial synthetic test photo as
+  out-of-distribution input.
+- Instance stopped again immediately after (cost control).
+
+**Root cause found, and fixed (2026-09-26, same day).** Before spending more
+GPU time, checked S3 for artifacts already produced by *real* prior sessions
+(`ListObjectsV2` on the artifacts bucket) instead of generating another
+synthetic test photo — found an older real reconstruction
+(`artifacts/a4ade02181dc448680df8ee863da28e8/reconstruction.ply`, 16.4 MB,
+240,768 vertices, from an actual 2026-09-24 session, its catalog/job metadata
+long gone from process memory but the S3 object still intact) and fetched it
+directly via a presigned URL — no new GPU job, no new photo needed. It hit
+the **exact same failure**, ruling out the synthetic-photo theory entirely.
+Quantified precisely with a standalone binary-PLY parse (not just "it
+crashed"): **68,184 of 240,768 vertices (28.32%) had non-finite opacity.**
+Root cause: `/etc/sketchscape.env` had `FASTSAM3D_FP16=1` (half-precision
+inference) — the "opacity" field is a raw pre-sigmoid logit, and FP16's
+limited range overflows to Inf/NaN for enough low-confidence/background
+splats to break nearly a third of every real reconstruction.
+
+**Fix applied and live-verified, not just theorized:**
+1. Changed `infra/aws/bootstrap_instance.sh` (both the fresh-install heredoc
+   and the `upsert_env` reconciliation line) from `FASTSAM3D_FP16=1` to `0`,
+   so any future bootstrap or rebuild gets this by default.
+2. Started the instance again, hand-patched the one line in the *live*
+   `/etc/sketchscape.env` (`sed`, not a full bootstrap re-run — full
+   bootstrap redoes apt installs and dependency compilation, unnecessary for
+   a one-line config change) and restarted `sketchscape-worker.service`.
+3. Re-ran the identical reconstruction (same test photo, same subject hint)
+   through the real API and downloaded the result.
+4. **Re-ran the same standalone opacity-finiteness check: 0 of 660,160
+   vertices non-finite (0.0%).** Sampled all 17 float properties across the
+   file for good measure — clean.
+5. Ran `SketchScapeOfflineExperienceBuilder.Build()` against this FP32
+   output: **Built: 1, Skipped: 0** — the real reconstruction now loads and
+   renders with a genuine `GsplatRenderer` + loaded asset, zero failures.
+6. Instance stopped again immediately after.
+
+**Trade-off accepted, not yet separately measured**: FP32 roughly doubles
+Fast-SAM3D's VRAM/compute footprint per job versus FP16. Not a problem for
+this L40S (~46 GiB usable, single-object jobs) but worth knowing if job
+concurrency or a smaller GPU is considered later. Wall-clock time for this
+one small test job was comparable to the FP16 run (~10s each, both trivially
+fast on this hardware for a 64×64 input) — real-world timing on a normal-size
+photo is unverified either way.
+
+**Bottom line**: the infrastructure, API, and Unity-side chain are now
+proven against a genuine GPU reconstruction, including the failure path
+(the hard rule holds even under real, messy model output). The one
+remaining unknown is reconstruction *quality* on real photographic input,
+which needs an actual photo to test, not a synthetic one.
 
 ---
 
