@@ -24,8 +24,8 @@ namespace Return.UI.XR
         {
             var root = FindWorldRoot(room);
             if (root == null) return; // stub worlds have nothing authored worth making interactable
-            foreach (var r in root.GetComponentsInChildren<MeshRenderer>(true))
-                Setup(r);
+            // one decision per placed prop (a direct child of the world root), so a multi-mesh prop moves as one piece
+            foreach (Transform prop in root) Setup(prop);
         }
 
         /// <summary>WorldSceneRoot for scene-based worlds, or StubWorldLoader's "World:&lt;title&gt;" GameObject for the
@@ -39,36 +39,45 @@ namespace Return.UI.XR
             return stub != null ? stub.transform : null;
         }
 
-        static void Setup(MeshRenderer r)
+        /// <summary>Runtime helpers the world passes add under the root (shadows, edge disc, sun, home portal, hub
+        /// environment) are not props.</summary>
+        static readonly string[] NotProps = { "contactshadow", "ground", "floor", "sky", "dome", "lake", "sun", "homeportal", "environment", "dust", "halo" };
+
+        static void Setup(Transform prop)
         {
-            if (r == null || r.GetComponent<Rigidbody>() != null) return; // already handled (e.g. a Lantern under here, unlikely but cheap to check)
-            if (r.GetComponentInParent<HubEnvironment>() != null) return; // sky dome / panorama / floor / water / lanterns: not props
-            var n = r.gameObject.name.ToLowerInvariant();
-            if (n.Contains("floor") || n.Contains("sky") || n.Contains("dome")) return; // belt-and-suspenders name check
+            var n = prop.name.ToLowerInvariant();
+            foreach (var word in NotProps) if (n.Contains(word)) return;
+            if (prop.GetComponentInParent<HubEnvironment>() != null || prop.GetComponentInChildren<Rigidbody>() != null) return;
+            var renderers = prop.GetComponentsInChildren<MeshRenderer>(true);
+            if (renderers.Length == 0) return;
+            var bounds = renderers[0].bounds;
+            foreach (var r in renderers) bounds.Encapsulate(r.bounds);
 
-            var mesh = r.GetComponent<MeshFilter>()?.sharedMesh;
-            if (mesh == null) return;
-            var go = r.gameObject;
-
-            if (WorldSession.IsHoldable(r.bounds.size))
+            if (WorldSession.IsHoldable(bounds.size))
             {
-                var col = go.GetComponent<Collider>();
-                if (col == null) { var mc = go.AddComponent<MeshCollider>(); mc.convex = true; col = mc; }
+                foreach (var r in renderers)
+                {
+                    if (r.GetComponent<Collider>() != null || r.GetComponent<MeshFilter>()?.sharedMesh == null) continue;
+                    r.gameObject.AddComponent<MeshCollider>().convex = true;
+                }
+                var go = prop.gameObject;
                 var rb = go.AddComponent<Rigidbody>();
-                var grab = go.AddComponent<XRGrabInteractable>();
-                grab.colliders.Add(col);
+                rb.isKinematic = true; // rests where it was placed until first grabbed, so overlapping colliders can't launch it on load
+                var grab = go.AddComponent<XRGrabInteractable>(); // gathers the child colliders itself in Awake
                 grab.throwOnDetach = true;
                 grab.hoverEntered.AddListener(a => Haptic(a.interactorObject, 0.08f, 0.02f));
                 grab.selectEntered.AddListener(a => Haptic(a.interactorObject, 0.4f, 0.08f));
+                grab.selectExited.AddListener(_ => rb.isKinematic = false); // once handled it is a real physics object
                 go.AddComponent<HeldCollisionHaptics>().grab = grab;
             }
             else
             {
-                if (go.GetComponent<Collider>() == null)
+                foreach (var r in renderers)
                 {
-                    var box = go.AddComponent<BoxCollider>();
-                    box.center = go.transform.InverseTransformPoint(r.bounds.center);
-                    box.size = Vector3.Scale(r.bounds.size, Invert(go.transform.lossyScale));
+                    if (r.GetComponent<Collider>() != null) continue;
+                    var box = r.gameObject.AddComponent<BoxCollider>();
+                    box.center = r.transform.InverseTransformPoint(r.bounds.center);
+                    box.size = Vector3.Scale(r.bounds.size, Invert(r.transform.lossyScale));
                 }
                 // ponytail: full physics hands (tracked hands stopping at the table edge instead of clipping through)
                 // are skipped here; this pass only gives props colliders for XRGrabInteractable + Rigidbody to rest on.

@@ -8,6 +8,7 @@
 - **Worlds**: arrival card ("Lake House, with Maya"), a small Hub portal behind you and hold B/Y (H in the editor) to go home, props under 0.5 m are grabbable with haptics and everything else is solid, plus runtime presence: ambient bed and reverb, contact shadows, dust, sway and flicker, and fog with a ground fade instead of a hard edge.
 - **Perf**: Android defaults to the Medium quality tier, shorter shadows, late latching, ASTC textures, and a `Return > Bake World Lighting` menu for world scenes.
 - **Fixes**: fireflies and motes no longer render as black squares on device (`Return/ParticleGlow` bakes the blend state instead of relying on stripped URP keywords).
+- **Play-test fixes**: skybox actually draws (URP skipped a LightMode-tagged skybox pass) and is right side up; world ground no longer painted over by the edge disc; contact shadows capped at 1.2 m (and no longer re-shadowed in a loop that hung the editor); grabbables are whole props that rest until first grabbed; portal collider registered once; larger arrival card type.
 - Meta XR Audio SDK was tried and removed: v85 does not compile on Unity 6000.6. Sounds use Unity's built-in 3D panning.
 
 ## 0.3.0

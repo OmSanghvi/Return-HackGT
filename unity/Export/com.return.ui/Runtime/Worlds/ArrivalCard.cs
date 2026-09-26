@@ -20,16 +20,16 @@ namespace Return.UI
 
         public static GameObject Show(Room room, string viewerAccountId, Transform head)
         {
-            var panel = SpatialPanel.Create("ArrivalCard", 640, 200);
+            var panel = SpatialPanel.Create("ArrivalCard", 900, 280);
             if (head != null) panel.PlaceInFront(head, 2f, 0f);
 
             var col = UI.V(panel.rect, "Col", 6, UI.Pad(30, 22), TextAnchor.MiddleCenter); UI.Stretch(col);
             UI.Bg(col, ColorRole.Glass, 36); UI.Border(col, ColorRole.GlassEdge, 36, 2);
-            UI.Text(col, room.title, TextStyle.Title, ColorRole.OnGlass, TextAlignmentOptions.Center);
+            UI.Text(col, room.title, TextStyle.Hero, ColorRole.OnGlass, TextAlignmentOptions.Center);
 
             var others = room.members.Where(m => m.id != viewerAccountId).Select(m => m.name.Split(' ')[0]).ToList();
             if (others.Count > 0)
-                UI.Text(col, "with " + string.Join(", ", others), TextStyle.Caption, ColorRole.OnGlass, TextAlignmentOptions.Center);
+                UI.Text(col, "with " + string.Join(", ", others), TextStyle.H1, ColorRole.OnGlass, TextAlignmentOptions.Center);
 
             var cg = panel.gameObject.AddComponent<CanvasGroup>(); cg.alpha = 0f;
             var card = panel.gameObject.AddComponent<ArrivalCard>(); card._cg = cg;

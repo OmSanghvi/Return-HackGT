@@ -36,6 +36,7 @@ infra/aws/terraform.tfvars
 # Generated reconstruction files can be large and are never source assets.
 data/
 *.ply
+*.ply.meta
 infra/aws/.terraform.tfstate.lock.info
 !web-app/src/data/
 !unity/Export/com.return.ui/Runtime/Data/

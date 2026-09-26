@@ -40,7 +40,7 @@ namespace Return.UI.XR
         {
             var col = portal.GetComponent<Collider>();
             var it = portal.gameObject.AddComponent<XRSimpleInteractable>();
-            it.colliders.Add(col);
+            if (col != null && !it.colliders.Contains(col)) it.colliders.Add(col); // AddComponent already gathered it in Awake; adding it twice double-registers the collider
             it.hoverEntered.AddListener(a =>
             {
                 portal.Touch(TouchPoint(a.interactorObject, it));
