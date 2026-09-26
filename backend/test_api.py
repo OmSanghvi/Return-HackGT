@@ -590,6 +590,60 @@ class ConnectionComposeApiTests(unittest.TestCase):
             for name in ["Alice", "Bo", "Cass", "Dev"]:
                 self.assertIn(name, body["insight"]["explanation"])
 
+    def test_three_contributor_room_is_attributed_and_edits_are_owner_only(self) -> None:
+        """Step 8: the published scene says who owns each object, and a
+        contributor session may only edit its own objects."""
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            contributions = [
+                self._contribute(client, pid, "Alice", "mug", "Tea at grandma's"),
+                self._contribute(client, pid, "Bo", "guitar", "First song I learned"),
+                self._contribute(client, pid, "Cass", "kite", ""),
+            ]
+            composed = self._assert_composes(client, pid, contributions)
+            revision = client.post(f"/v1/projects/{pid}/blueprints", json=composed["blueprint"]).json()["revision"]
+            published = client.post(f"/v1/projects/{pid}/blueprints/{revision}/publish")
+            self.assertEqual(published.status_code, 200, published.text)
+            scene = published.json()["scene"]
+
+            social = scene["meta"]["social"]
+            self.assertEqual(social["version"], 1)
+            self.assertEqual(len(social["objects"]), 3)
+            by_contribution = {item["contribution_id"]: item for item in contributions}
+            object_ids = {item["id"] for item in scene["objects"]}
+            for entry in social["objects"]:
+                self.assertIn(entry["object_id"], object_ids)
+                self.assertEqual(
+                    entry["contributor_id"], by_contribution[entry["contribution_id"]]["contributor_id"]
+                )
+            self.assertEqual(
+                {entry["contributor_display_name"] for entry in social["objects"]}, {"Alice", "Bo", "Cass"}
+            )
+            self.assertEqual(len({entry["attribution_color"] for entry in social["objects"]}), 3)
+
+            alice, bo = social["objects"][0], social["objects"][1]
+            edit = {"target_id": alice["object_id"], "action": "rotate_by", "value": [0.0, 15.0, 0.0]}
+            rejected = client.post("/v1/scene/actions", json={**edit, "contributor_id": bo["contributor_id"]})
+            self.assertEqual(rejected.status_code, 403)
+            accepted = client.post("/v1/scene/actions", json={**edit, "contributor_id": alice["contributor_id"]})
+            self.assertEqual(accepted.status_code, 200, accepted.text)
+            # Authoring (MCP/editor) callers without a contributor keep working.
+            authoring = client.post("/v1/scene/actions", json=edit)
+            self.assertEqual(authoring.status_code, 200, authoring.text)
+
+    def test_blueprint_with_mismatched_contribution_is_rejected(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            contributions = [
+                self._contribute(client, pid, "Alice", "mug", ""),
+                self._contribute(client, pid, "Bo", "guitar", ""),
+            ]
+            blueprint = self._assert_composes(client, pid, contributions)["blueprint"]
+            first, second = blueprint["objects"][0], blueprint["objects"][1]
+            first["contribution_id"], second["contribution_id"] = second["contribution_id"], first["contribution_id"]
+            r = client.post(f"/v1/projects/{pid}/blueprints", json=blueprint)
+            self.assertEqual(r.status_code, 422)
+
     def test_compose_below_min_contributors_is_409(self) -> None:
         with TestClient(app) as client:
             pid = self._make_project(client)

@@ -254,6 +254,9 @@ class BlueprintObject(BaseModel):
     interactions: list[Literal["highlight", "inspect", "scale", "translate", "rotate", "activate"]] = Field(
         default_factory=list
     )
+    # The contribution this object stands for; compile_blueprint turns it into
+    # the social manifest. None for unattributed objects (e.g. set dressing).
+    contribution_id: str | None = Field(default=None, max_length=80)
 
 
 class PortalSettings(BaseModel):
@@ -338,6 +341,11 @@ class SceneActionRequest(BaseModel):
     target_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
     action: Literal["scale_by", "translate_by", "rotate_by"]
     value: list[float] = Field(min_length=3, max_length=3)
+    # Set by a session tied to one contributor; it may then edit only objects
+    # the social manifest attributes to them. Empty/None keeps the authoring
+    # (MCP/editor) behavior. Self-asserted until the room API (step 21)
+    # replaces it with room tokens.
+    contributor_id: str | None = Field(default=None, max_length=80)
 
 
 class InteractiveObject(BaseModel):
@@ -506,6 +514,41 @@ def sync_project_asset(job: ReconstructionJob) -> None:
         store.save_project(project)
 
 
+# Distinct, colorblind-friendly attribution tints, assigned in join order.
+ATTRIBUTION_COLORS = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999"]
+
+
+def compile_social_manifest(blueprint: ExperienceBlueprint) -> dict[str, Any]:
+    """Sidecar manifest (shared/social-manifest.schema.json): who each object belongs to."""
+    project = get_project(blueprint.project_id)
+    contributions = {item.contribution_id: item for item in store.list_contributions(project.project_id)}
+    contributors = {item.contributor_id: item for item in store.list_contributors(project.project_id)}
+    entries = []
+    for item in blueprint.objects:
+        contribution = contributions.get(item.contribution_id or "")
+        if contribution is None:
+            continue
+        contributor = contributors.get(contribution.contributor_id)
+        order = (
+            project.contributor_ids.index(contribution.contributor_id)
+            if contribution.contributor_id in project.contributor_ids
+            else len(project.contributor_ids)
+        )
+        entries.append(
+            {
+                "object_id": item.id,
+                "contribution_id": contribution.contribution_id,
+                "contributor_id": contribution.contributor_id,
+                "contributor_display_name": contributor.display_name if contributor else "",
+                "source_type": contribution.source_type,
+                "attribution_color": ATTRIBUTION_COLORS[order % len(ATTRIBUTION_COLORS)],
+                # Filled by stage_immersive_reveal (step 6).
+                "staging_cue_id": None,
+            }
+        )
+    return {"version": 1, "objects": entries}
+
+
 def compile_blueprint(blueprint: ExperienceBlueprint) -> SceneDocument:
     scene_objects: list[SceneObject] = []
     for item in blueprint.objects:
@@ -539,6 +582,7 @@ def compile_blueprint(blueprint: ExperienceBlueprint) -> SceneDocument:
             "environment": blueprint.environment.model_dump(),
             "navigation": blueprint.navigation.model_dump(),
             "portals": [portal.model_dump() for portal in blueprint.portals],
+            "social": compile_social_manifest(blueprint),
         },
     )
 
@@ -990,6 +1034,19 @@ def validate_blueprint_assets(project: ProjectRecord, request: ExperienceBluepri
     )
     if unavailable:
         raise HTTPException(409, f"Blueprint assets are not ready: {', '.join(unavailable)}")
+    attributed = [item for item in request.objects if item.contribution_id is not None]
+    if attributed:
+        contributions = {item.contribution_id: item for item in store.list_contributions(project.project_id)}
+        mismatched = sorted(
+            item.id
+            for item in attributed
+            if item.contribution_id not in contributions
+            or contributions[item.contribution_id].asset_id != item.asset_id
+        )
+        if mismatched:
+            raise HTTPException(
+                422, f"Blueprint objects reference unknown or mismatched contributions: {', '.join(mismatched)}"
+            )
 
 
 @app.post("/v1/projects/{project_id}/blueprints/validate", response_model=ExperienceBlueprintInput)
@@ -1399,6 +1456,7 @@ def compose_connection_mock(
                 rotation=[0.0, facing, 0.0],
                 scale=list(asset.suggested_scale),
                 interactions=list(_MOCK_OBJECT_INTERACTIONS),
+                contribution_id=contribution.contribution_id,
             )
         )
         name = contributors[contribution.contributor_id].display_name if contribution.contributor_id in contributors else "A contributor"
@@ -1515,6 +1573,13 @@ async def get_interactives() -> InteractiveRegistryResponse:
 async def apply_scene_action(request: SceneActionRequest) -> SceneResponse:
     """Apply an allowlisted, bounded transform action to one named object."""
     target = find_scene_object(request.target_id)
+    if request.contributor_id:
+        owners = {
+            entry["object_id"]: entry["contributor_id"]
+            for entry in current_scene.meta.get("social", {}).get("objects", [])
+        }
+        if owners.get(request.target_id) != request.contributor_id:
+            raise HTTPException(403, f"{request.target_id} was not contributed by this contributor.")
     if request.action not in target.actions:
         raise HTTPException(403, f"{request.action} is not enabled for {request.target_id}.")
     if request.action == "scale_by":

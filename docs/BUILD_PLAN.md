@@ -33,7 +33,7 @@ this plan does not re-litigate them, only sequences the work.
 | 6 | `stage_immersive_reveal` + immersive scene-craft toolkit | 4, 5 | Not started | `immersive-reveal-staging` |
 | 6a | NemoClaw environment objects from web images (`find_object_image`) | 4, 10 | Not started | `nemoclaw-environment-sourcing` |
 | 7 | Notability sketch: direct display (flat quad) + SAM3D memory-plaque path | — | Not started | `sketch-image-gen-backends` |
-| 8 | Unity: diegetic attribution + bounded per-contributor edit | 5, 6 | Not started | `unity-diegetic-attribution` |
+| 8 | Unity: diegetic attribution + bounded per-contributor edit | 5, 6 | Built (manifest, owner-only edits, base ring); not yet checked in Unity; staging cues wait on 6 | `unity-diegetic-attribution` |
 | 9 | Meta hardware polish (passthrough, hand tracking, MRC, Quest identity, Llama Guard) | 8 | Not started | `meta-hardware-polish` |
 | 10 | GPU end-to-end verification + cloud backend activation | — | GPU verified (L40S); cloud env vars on the EC2 API not set yet | `gpu-cloud-activation` |
 | 11 | Unity offline builder fix + real-PLY splat rendering | — | Partially built | `unity-offline-builder-and-rendering` |
