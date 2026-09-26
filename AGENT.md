@@ -478,7 +478,7 @@ All .ply files in catalog
    place of failed objects.
 
 8. **Run `bash scripts/verify_local.sh` after every backend change** and
-   confirm all tests pass before reporting done. Currently 102 tests (2 are
+   confirm all tests pass before reporting done. Currently 106 tests (2 are
    skipped either way, depending on whether `boto3` is installed).
 
 9. **Collaborative VR + web accounts steps (13–29) are gated.** Before writing any code or
@@ -557,8 +557,9 @@ its current contents before relying on any of them.
 
 | Area | Status |
 |---|---|
-| Backend API (upload, poll, mock pipeline, safe edits) | ✅ done, 102 tests passing (2 skipped) |
+| Backend API (upload, poll, mock pipeline, safe edits) | ✅ done, 106 tests passing (2 skipped) |
 | Identity (`SKETCHSCAPE_AUTH_MODE=mock\|clerk`, authors on revisions) | ✅ done — Meta room tokens wait on Build Plan step 18 |
+| Membership, invites, ownership, `room_prompt` | ✅ done — Build Plan step 17 |
 | `identify_subject` mock labeler (`SKETCHSCAPE_SUBJECT_LABELER=mock`) | ✅ done — live NemoClaw path waits on Build Plan step 3 |
 | GPU pipeline (SAM 3.1 → Fast-SAM3D, `worker_server.py`) | ✅ verified end-to-end on an L40S (g6e.xlarge): 70 s, 53 MB PLY; instance stopped |
 | Notability sketch direct display / SAM3D memory plaque | ⬜ not started — see Build Plan step 7 |
@@ -964,7 +965,7 @@ step 7 for what replaces this.
 
 ```bash
 # After any backend Python change:
-bash scripts/verify_local.sh          # must pass, currently 102 tests (2 skipped)
+bash scripts/verify_local.sh          # must pass, currently 106 tests (2 skipped)
 
 # After any Terraform change:
 cd infra/aws

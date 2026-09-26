@@ -5,7 +5,7 @@ authority for project state, blueprints, and safe scene edits. It works
 without a GPU in `mock` mode, so upload, polling, scene loading, and safe
 edits are demoable without AWS. Identity is selected by
 `SKETCHSCAPE_AUTH_MODE` (`mock` default, or `clerk` for real deployments —
-see Auth below). Planned additions (`connection/compose`, the room API,
+see Auth and Membership below). Planned additions (the room API,
 durable jobs) are in `docs/BUILD_PLAN.md`.
 
 ## Run locally
@@ -42,6 +42,23 @@ room tokens for Quest headsets arrive in step 18.
 `clerk-backend-api` is an optional cloud dependency
 (`pip install -r requirements-cloud.txt`); the base install never needs it.
 
+## Membership and ownership (step 17)
+
+Projects carry an `invite_code` (≥16 URL-safe chars) and optional
+`room_prompt` (max 300). Creating a project auto-registers the caller as
+the first contributor (bound via `clerk_user_id`). Others join with
+`POST /v1/projects/{id}/contributors` + a valid invite code. Members can
+`PATCH /v1/projects/{id}` to set `room_prompt` and
+`POST .../invite/rotate` to rotate the code. Only members see the invite
+code in project responses.
+
+In `clerk` mode every project-scoped route enforces membership (403 if
+not a member). NemoClaw (`kind=service`) may read and draft blueprints /
+`connection/compose`, but cannot upload, publish, or register as a
+contributor. Ownership of scene objects is **derived**
+(`owned_object_ids`) from contributions — not stored twice. Mock mode
+skips membership enforcement so local demos keep working.
+
 ## Contract test
 
 ```bash
@@ -50,7 +67,7 @@ cd backend
 .venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py test_auth.py
 ```
 
-102 tests (2 are skipped either way, depending on whether `boto3` is
+106 tests (2 are skipped either way, depending on whether `boto3` is
 installed). They exercise only `PIPELINE_MODE=mock`; they don't contact AWS
 or load a model. From the repo root, `bash scripts/verify_local.sh` runs
 these plus the syntax, JSON, and secret checks.

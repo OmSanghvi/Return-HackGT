@@ -76,6 +76,7 @@ Meta App ID, web origin URLs.
 
 - Step 15 — backend revision safety
 - Step 16 — backend auth core (Clerk web + M2M, mock mode)
+- Step 17 — membership, invites, ownership, `room_prompt`
 - Steps 1–2 — contributor data model + API
 - Unity Cloud project linked
 - Scope for Collaborative VR track approved
@@ -88,7 +89,6 @@ These do **not** need your dashboard work first:
 
 | Step | What | Needs |
 | --- | --- | --- |
-| 17 | Membership, invites, ownership, `room_prompt` | 2, 16 (ready) |
 | 26 | Durable jobs, shared uploads, multi-object upload API | 15 (ready) |
 | 7 | Notability flat card + memory plaque | — |
 

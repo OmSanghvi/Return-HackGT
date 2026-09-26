@@ -32,7 +32,7 @@ Status meanings:
 | N2 | Whole-blob `ProjectRecord` saves let the live room go backwards | Compare-and-set `LIVE` pointer item | Step 15 | Planned |
 | N3 | An unapproved NemoClaw draft could get published by a room edit | Edits copy the live revision; publish is compare-and-set on `based_on_revision` | Steps 15, 21 | Planned |
 | 2.4 | One process-wide `current_scene` for all projects | Rooms read per-project live state only; room routes never touch `current_scene` | Steps 15, 21 | Planned |
-| 2.5 | No ownership: "edit only your own object" is unenforced (Netcode check is client-side) | Contributors bound to Clerk users; ownership derived from contributions; server returns 403 | Steps 17, 21; `room-api-and-ownership` | Planned |
+| 2.5 | No ownership: "edit only your own object" is unenforced (Netcode check is client-side) | Contributors bound to Clerk users; ownership derived from contributions; server returns 403 | Steps 17, 21; `room-api-and-ownership` | Done (ownership helper + membership, step 17) / Planned (room `/edits`, step 21) |
 | 2.6 | No partial updates; every save is a full blueprint | Debounced save on release; bounded, idempotent `/v1/rooms/*/edits` builds the revision server-side | Steps 21, 23 | Planned |
 | 2.7 | No push channel to live rooms | Session owner polls `/v1/rooms/{id}/state?since_revision=` with ETag/304 | Step 23, DATA_ARCHITECTURE polling contract | Planned |
 | 2.8 | No author on revisions | `author` on revisions and publications (Clerk user, `nemoclaw:<id>`) | Steps 15, 16 | Done |

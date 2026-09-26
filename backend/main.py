@@ -91,6 +91,14 @@ class SceneResponse(BaseModel):
 class ProjectCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=500)
+    # Display name for the auto-registered creator contributor (step 17).
+    creator_display_name: str = Field(default="Creator", min_length=1, max_length=100)
+
+
+class ProjectUpdateRequest(BaseModel):
+    """Partial update for project fields contributors may set (step 17)."""
+
+    room_prompt: str | None = Field(default=None, max_length=300)
 
 
 class ProjectRecord(BaseModel):
@@ -106,6 +114,11 @@ class ProjectRecord(BaseModel):
     contribution_ids: list[str] = Field(default_factory=list)
     min_contributors: int = Field(default=2, ge=2)
     max_contributors: int = Field(default=6, ge=2)
+    # Step 17: membership. Empty string only appears on records loaded from
+    # pre-step-17 snapshots; get_project() backfills a real code on read.
+    invite_code: str = ""
+    room_prompt: str | None = Field(default=None, max_length=300)
+    created_by: str | None = None
 
 
 SubjectHintSource = Literal["user", "nemoclaw"]
@@ -182,10 +195,17 @@ class Contributor(BaseModel):
     project_id: str
     display_name: str = Field(min_length=1, max_length=100)
     joined_at: datetime
+    # Bound to the caller's verified identity when they join (Clerk `sub` in
+    # clerk mode, or the mock `X-SketchScape-Dev-User` value). None for
+    # unbound demo personas created in mock mode after the creator.
+    clerk_user_id: str | None = None
 
 
 class ContributorCreateRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=100)
+    # Required in clerk mode; optional in mock so existing local/demo flows
+    # keep working (Hard Rule 2).
+    invite_code: str | None = Field(default=None, max_length=128)
 
 
 ContributionSourceType = Literal["photo", "sketch", "letter"]
@@ -471,11 +491,144 @@ def job_url(job_id: str) -> str:
     return f"/v1/reconstructions/{job_id}"
 
 
+def _auth_mode() -> str:
+    return os.environ.get("SKETCHSCAPE_AUTH_MODE", "mock").strip().lower()
+
+
+def new_invite_code() -> str:
+    """URL-safe invite code with at least 16 characters (step 17)."""
+    return secrets.token_urlsafe(16)
+
+
 def get_project(project_id: str) -> ProjectRecord:
     project = store.get_project(project_id)
     if project is None:
         raise HTTPException(404, "Unknown project.")
+    # Pre-step-17 snapshots have an empty invite_code; backfill once on read
+    # so membership joins always have something to check against.
+    if not project.invite_code:
+        project.invite_code = new_invite_code()
+        project.updated_at = utc_now()
+        store.save_project(project)
     return project
+
+
+def find_contributor_by_clerk_user(project_id: str, clerk_user_id: str) -> Contributor | None:
+    for contributor in store.list_contributors(project_id):
+        if contributor.clerk_user_id == clerk_user_id:
+            return contributor
+    return None
+
+
+def is_project_member(project_id: str, identity: Identity) -> bool:
+    if identity.kind == "service":
+        return False
+    return find_contributor_by_clerk_user(project_id, identity.user_id) is not None
+
+
+def visible_project(project: ProjectRecord, identity: Identity) -> ProjectRecord:
+    """Return a project view; only members see the invite code."""
+    if is_project_member(project.project_id, identity):
+        return project
+    # Service callers (and anyone else allowed to read) get the project
+    # without the invite code.
+    return project.model_copy(update={"invite_code": ""})
+
+
+def enforce_project_access(
+    project_id: str,
+    identity: Identity,
+    *,
+    capability: Literal["read", "write", "draft"],
+) -> None:
+    """Membership gate for project-scoped routes (step 17).
+
+    In ``mock`` mode this is a no-op so local/demo flows and existing tests
+    keep working (Hard Rule 2). In ``clerk`` mode:
+
+    - ``read`` / ``draft``: a project member, or a service (NemoClaw).
+    - ``write``: a project member only (never a service) — uploads,
+      contributions, invite rotation, room_prompt, publish.
+    """
+    if _auth_mode() != "clerk":
+        return
+    get_project(project_id)  # 404 if unknown
+    if identity.kind == "service":
+        if capability == "write":
+            raise HTTPException(
+                403,
+                "Service identities may read and draft, but cannot upload, "
+                "publish, or change membership.",
+            )
+        return
+    if not is_project_member(project_id, identity):
+        raise HTTPException(403, "Not a member of this project.")
+
+
+def require_project_read(
+    project_id: str, identity: Identity = Depends(require_identity)
+) -> Identity:
+    enforce_project_access(project_id, identity, capability="read")
+    return identity
+
+
+def require_project_write(
+    project_id: str, identity: Identity = Depends(require_identity)
+) -> Identity:
+    enforce_project_access(project_id, identity, capability="write")
+    return identity
+
+
+def require_project_draft(
+    project_id: str, identity: Identity = Depends(require_identity)
+) -> Identity:
+    enforce_project_access(project_id, identity, capability="draft")
+    return identity
+
+
+def owned_object_ids(project_id: str, clerk_user_id: str, blueprint: ExperienceBlueprint) -> set[str]:
+    """Object ids in ``blueprint`` this person contributed (derived, not stored).
+
+    Ownership is ``object.asset_id`` ∈ the caller's contribution asset ids.
+    Objects with no matching contribution (e.g. NemoClaw environment set-
+    dressing) are not owned by anyone and can't be edited from a headset.
+    """
+    contributor = find_contributor_by_clerk_user(project_id, clerk_user_id)
+    if contributor is None:
+        return set()
+    owned_assets = {
+        item.asset_id
+        for item in store.list_contributions(project_id)
+        if item.contributor_id == contributor.contributor_id
+    }
+    return {obj.id for obj in blueprint.objects if obj.asset_id in owned_assets}
+
+
+def register_creator_contributor(
+    project: ProjectRecord, identity: Identity, display_name: str
+) -> Contributor:
+    """Bind the project creator as the first contributor (step 17)."""
+    contributor = Contributor(
+        contributor_id=uuid.uuid4().hex,
+        project_id=project.project_id,
+        display_name=display_name.strip() or "Creator",
+        joined_at=utc_now(),
+        clerk_user_id=identity.user_id,
+    )
+    store.append_contributor(contributor)
+    project.contributor_ids.append(contributor.contributor_id)
+    project.updated_at = utc_now()
+    store.save_project(project)
+    return contributor
+
+
+def invite_codes_match(provided: str | None, expected: str) -> bool:
+    if provided is None or not expected:
+        return False
+    # secrets.compare_digest requires equal-length strings.
+    if len(provided) != len(expected):
+        return False
+    return secrets.compare_digest(provided, expected)
 
 
 def sync_project_asset(job: ReconstructionJob) -> None:
@@ -704,10 +857,10 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok", "pipeline_mode": os.environ.get("PIPELINE_MODE", "mock")}
 
 
-@app.post(
-    "/v1/projects", response_model=ProjectRecord, status_code=201, dependencies=[Depends(require_identity)]
-)
-async def create_project(request: ProjectCreateRequest) -> ProjectRecord:
+@app.post("/v1/projects", response_model=ProjectRecord, status_code=201)
+async def create_project(
+    request: ProjectCreateRequest, identity: Identity = Depends(require_identity)
+) -> ProjectRecord:
     now = utc_now()
     project_id = uuid.uuid4().hex
     project = ProjectRecord(
@@ -718,20 +871,52 @@ async def create_project(request: ProjectCreateRequest) -> ProjectRecord:
         updated_at=now,
         min_contributors=int(os.environ.get("SKETCHSCAPE_MIN_CONTRIBUTORS", "2")),
         max_contributors=int(os.environ.get("SKETCHSCAPE_MAX_CONTRIBUTORS", "6")),
+        invite_code=new_invite_code(),
+        created_by=identity.user_id,
     )
     store.save_project(project)
-    return project
+    # Creator is the first member; invite_code is only visible to members.
+    register_creator_contributor(project, identity, request.creator_display_name)
+    return visible_project(project, identity)
 
 
-@app.get("/v1/projects/{project_id}", response_model=ProjectRecord, dependencies=[Depends(require_identity)])
-async def read_project(project_id: str) -> ProjectRecord:
-    return get_project(project_id)
+@app.get("/v1/projects/{project_id}", response_model=ProjectRecord)
+async def read_project(
+    project_id: str, identity: Identity = Depends(require_project_read)
+) -> ProjectRecord:
+    return visible_project(get_project(project_id), identity)
+
+
+@app.patch("/v1/projects/{project_id}", response_model=ProjectRecord)
+async def update_project(
+    project_id: str,
+    request: ProjectUpdateRequest,
+    identity: Identity = Depends(require_project_write),
+) -> ProjectRecord:
+    project = get_project(project_id)
+    if request.room_prompt is not None:
+        cleaned = request.room_prompt.strip()
+        project.room_prompt = cleaned or None
+        project.updated_at = utc_now()
+        store.save_project(project)
+    return visible_project(project, identity)
+
+
+@app.post("/v1/projects/{project_id}/invite/rotate", response_model=ProjectRecord)
+async def rotate_project_invite(
+    project_id: str, identity: Identity = Depends(require_project_write)
+) -> ProjectRecord:
+    project = get_project(project_id)
+    project.invite_code = new_invite_code()
+    project.updated_at = utc_now()
+    store.save_project(project)
+    return visible_project(project, identity)
 
 
 @app.get(
     "/v1/projects/{project_id}/assets",
     response_model=list[ProjectAsset],
-    dependencies=[Depends(require_identity)],
+    dependencies=[Depends(require_project_read)],
 )
 async def list_project_assets(project_id: str) -> list[ProjectAsset]:
     project = get_project(project_id)
@@ -742,15 +927,42 @@ async def list_project_assets(project_id: str) -> list[ProjectAsset]:
     "/v1/projects/{project_id}/contributors",
     response_model=Contributor,
     status_code=201,
-    dependencies=[Depends(require_identity)],
 )
-async def create_contributor(project_id: str, request: ContributorCreateRequest) -> Contributor:
+async def create_contributor(
+    project_id: str,
+    request: ContributorCreateRequest,
+    identity: Identity = Depends(require_identity),
+) -> Contributor:
     project = get_project(project_id)
+    if identity.kind == "service":
+        raise HTTPException(403, "Service identities cannot register as contributors.")
+    if len(project.contributor_ids) >= project.max_contributors:
+        raise HTTPException(409, "This project already has the maximum number of contributors.")
+
+    mode = _auth_mode()
+    existing = find_contributor_by_clerk_user(project_id, identity.user_id)
+    if mode == "clerk":
+        if not invite_codes_match(request.invite_code, project.invite_code):
+            raise HTTPException(403, "Invalid invite code.")
+        if existing is not None:
+            raise HTTPException(409, "Already a contributor of this project.")
+        clerk_user_id: str | None = identity.user_id
+    else:
+        # Mock: invite optional (must match when provided). The creator is
+        # already bound to the default dev user; further demo personas join
+        # unbound so local multi-contributor flows keep working.
+        if request.invite_code is not None and not invite_codes_match(
+            request.invite_code, project.invite_code
+        ):
+            raise HTTPException(403, "Invalid invite code.")
+        clerk_user_id = None if existing is not None else identity.user_id
+
     contributor = Contributor(
         contributor_id=uuid.uuid4().hex,
         project_id=project.project_id,
         display_name=request.display_name.strip(),
         joined_at=utc_now(),
+        clerk_user_id=clerk_user_id,
     )
     store.append_contributor(contributor)
     project.contributor_ids.append(contributor.contributor_id)
@@ -762,7 +974,7 @@ async def create_contributor(project_id: str, request: ContributorCreateRequest)
 @app.get(
     "/v1/projects/{project_id}/contributors",
     response_model=list[Contributor],
-    dependencies=[Depends(require_identity)],
+    dependencies=[Depends(require_project_read)],
 )
 async def list_contributors(project_id: str) -> list[Contributor]:
     get_project(project_id)
@@ -783,7 +995,7 @@ def validate_contribution_request(project: ProjectRecord, request: ContributionC
     "/v1/projects/{project_id}/contributions",
     response_model=Contribution,
     status_code=201,
-    dependencies=[Depends(require_identity)],
+    dependencies=[Depends(require_project_write)],
 )
 async def create_contribution(project_id: str, request: ContributionCreateRequest) -> Contribution:
     project = get_project(project_id)
@@ -807,7 +1019,7 @@ async def create_contribution(project_id: str, request: ContributionCreateReques
 @app.get(
     "/v1/projects/{project_id}/contributions",
     response_model=list[Contribution],
-    dependencies=[Depends(require_identity)],
+    dependencies=[Depends(require_project_read)],
 )
 async def list_contributions(project_id: str) -> list[Contribution]:
     get_project(project_id)
@@ -818,7 +1030,6 @@ async def list_contributions(project_id: str) -> list[Contribution]:
     "/v1/reconstructions",
     response_model=ReconstructionResponse,
     status_code=202,
-    dependencies=[Depends(require_identity)],
 )
 async def create_reconstruction(
     background_tasks: BackgroundTasks,
@@ -826,8 +1037,11 @@ async def create_reconstruction(
     mask: Annotated[UploadFile | None, File(description="Optional aligned white-on-black mask")] = None,
     subject_hint: Annotated[str | None, Form(max_length=100)] = None,
     project_id: Annotated[str | None, Form(max_length=80)] = None,
+    identity: Identity = Depends(require_identity),
 ) -> ReconstructionResponse:
     """Queue a reconstruction and optionally register it in a project catalog."""
+    if project_id:
+        enforce_project_access(project_id, identity, capability="write")
     project = get_project(project_id) if project_id else None
     job_id = uuid.uuid4().hex
     image_path = UPLOAD_ROOT / f"{job_id}-image{image_extension(image)}"
@@ -899,7 +1113,6 @@ async def create_reconstruction(
     "/v1/projects/{project_id}/assets",
     response_model=ProjectAsset,
     status_code=202,
-    dependencies=[Depends(require_identity)],
 )
 async def create_project_asset(
     project_id: str,
@@ -907,6 +1120,7 @@ async def create_project_asset(
     image: Annotated[UploadFile, File(description="Photo with one prominent object")],
     mask: Annotated[UploadFile | None, File(description="Optional aligned white-on-black mask")] = None,
     subject_hint: Annotated[str | None, Form(max_length=100)] = None,
+    identity: Identity = Depends(require_project_write),
 ) -> ProjectAsset:
     response = await create_reconstruction(
         background_tasks=background_tasks,
@@ -914,6 +1128,7 @@ async def create_project_asset(
         mask=mask,
         subject_hint=subject_hint,
         project_id=project_id,
+        identity=identity,
     )
     job = jobs[response.job_id]
     asset = store.get_asset(job.asset_id or "")
@@ -1080,7 +1295,7 @@ def validate_blueprint_assets(project: ProjectRecord, request: ExperienceBluepri
 @app.post(
     "/v1/projects/{project_id}/blueprints/validate",
     response_model=ExperienceBlueprintInput,
-    dependencies=[Depends(require_identity)],
+    dependencies=[Depends(require_project_draft)],
 )
 async def validate_blueprint(project_id: str, request: ExperienceBlueprintInput) -> ExperienceBlueprintInput:
     project = get_project(project_id)
@@ -1108,7 +1323,7 @@ async def create_blueprint(
             ),
         ),
     ] = None,
-    identity: Identity = Depends(require_identity),
+    identity: Identity = Depends(require_project_draft),
 ) -> ExperienceBlueprint:
     project = get_project(project_id)
     validate_blueprint_assets(project, request)
@@ -1159,7 +1374,7 @@ async def create_blueprint(
 @app.get(
     "/v1/projects/{project_id}/blueprints/{revision}",
     response_model=ExperienceBlueprint,
-    dependencies=[Depends(require_identity)],
+    dependencies=[Depends(require_project_read)],
 )
 async def get_blueprint(project_id: str, revision: int) -> ExperienceBlueprint:
     get_project(project_id)
@@ -1174,7 +1389,7 @@ _MAX_LIVE_POINTER_ATTEMPTS = 5
 
 @app.post("/v1/projects/{project_id}/blueprints/{revision}/publish", response_model=SceneResponse)
 async def publish_blueprint(
-    project_id: str, revision: int, identity: Identity = Depends(require_identity)
+    project_id: str, revision: int, identity: Identity = Depends(require_project_write)
 ) -> SceneResponse:
     global current_scene
     project = get_project(project_id)
@@ -1252,7 +1467,7 @@ async def publish_blueprint(
 @app.get(
     "/v1/projects/{project_id}/compiled-scene",
     response_model=SceneResponse,
-    dependencies=[Depends(require_identity)],
+    dependencies=[Depends(require_project_read)],
 )
 async def get_compiled_project_scene(project_id: str) -> SceneResponse:
     project = get_project(project_id)
@@ -1272,7 +1487,7 @@ async def get_compiled_project_scene(project_id: str) -> SceneResponse:
 @app.get(
     "/v1/projects/{project_id}/publications",
     response_model=list[PublicationRecord],
-    dependencies=[Depends(require_identity)],
+    dependencies=[Depends(require_project_read)],
 )
 async def list_project_publications(project_id: str) -> list[PublicationRecord]:
     """Return the append-only publication history for a project."""
@@ -1283,7 +1498,7 @@ async def list_project_publications(project_id: str) -> list[PublicationRecord]:
 @app.get(
     "/v1/projects/{project_id}/assets/{asset_id}",
     response_model=ProjectAsset,
-    dependencies=[Depends(require_identity)],
+    dependencies=[Depends(require_project_read)],
 )
 async def get_project_asset(project_id: str, asset_id: str) -> ProjectAsset:
     """Return a single catalog asset with its full view provenance."""
@@ -1299,7 +1514,7 @@ async def get_project_asset(project_id: str, asset_id: str) -> ProjectAsset:
 @app.get(
     "/v1/projects/{project_id}/assets/{asset_id}/views",
     response_model=list[AssetView],
-    dependencies=[Depends(require_identity)],
+    dependencies=[Depends(require_project_read)],
 )
 async def list_asset_views(project_id: str, asset_id: str) -> list[AssetView]:
     """Return per-view reconstruction provenance for one catalog asset."""
@@ -1311,7 +1526,7 @@ async def list_asset_views(project_id: str, asset_id: str) -> list[AssetView]:
     "/v1/projects/{project_id}/assets/{asset_id}/views",
     response_model=AssetView,
     status_code=202,
-    dependencies=[Depends(require_identity)],
+    dependencies=[Depends(require_project_write)],
 )
 async def add_asset_view(
     project_id: str,
@@ -1560,7 +1775,7 @@ def compose_connection_mock(
     "/v1/projects/{project_id}/connection/compose",
     response_model=ConnectionComposeResponse,
     status_code=201,
-    dependencies=[Depends(require_identity)],
+    dependencies=[Depends(require_project_draft)],
 )
 async def compose_connection(project_id: str) -> ConnectionComposeResponse:
     project = get_project(project_id)

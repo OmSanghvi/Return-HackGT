@@ -364,7 +364,7 @@ removed.
   structured commands; no raw code is ever accepted.
 - Private worker endpoint — the GPU posts its result back through a
   token-protected route; Unity never sees credentials.
-- **102 automated tests, all passing** (2 are skipped either way, depending
+- **106 automated tests, all passing** (2 are skipped either way, depending
   on whether `boto3` is installed).
 - Automatic subject labeling for uploads (`identify_subject`, mock path):
   a photo with no typed subject still gets a label for SAM 3.1. The live
