@@ -11,8 +11,12 @@ object is the subject and hands SAM 3.1 a short noun phrase.
 ## Rules
 
 - **User-typed `subject_hint` always wins.** Only label when it is empty.
-- **One subject per upload** (the most prominent). Keep internal output a
-  list so a capped "all objects" mode is a flag later, not a rewrite.
+- **Several subjects per upload** (updated 2026-09-25). Return a list of
+  noun-phrase labels, most prominent first, capped by
+  `SKETCHSCAPE_MAX_OBJECTS_PER_UPLOAD` (default 8). They become SAM 3.1
+  multi-concept prompts, and the person picks which found objects to
+  reconstruct (Build Plan steps 26–27). The single-object legacy path uses
+  the first label.
 - **Labels are SAM 3.1 concept prompts:** a noun plus one or two
   distinguishing attributes ("wicker armchair", "blue ceramic mug"). Never a
   relational sentence ("the chair left of the table") — SAM 3.1 does not
@@ -25,7 +29,7 @@ object is the subject and hands SAM 3.1 a short noun phrase.
   and the label's `backend` is `"mock"` or the NemoClaw runtime name.
 - **Mock is default** (`SKETCHSCAPE_SUBJECT_LABELER=mock`): deterministic,
   offline, labelled `mock`. Never break it (AGENT.md Hard Rule 2).
-- **Live path runs inside NemoClaw** on its Llama vision runtime — never a
+- **Live path runs inside NemoClaw** on the configured vision model (`NEMOCLAW_VISION_MODEL`; Muse Spark on the default `meta` provider, see `nemoclaw-model-providers`) — never a
   standalone model API call from `main.py`. Tests mock it; no live call
   without explicit user approval (Hard Rule 3).
 

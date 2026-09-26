@@ -43,8 +43,9 @@ this rule exists to prevent.
 4. **Live path.** Invoke `place_objects_in_scene` from step 4 to get the
    blueprint proposal, and derive `theme`/`explanation`/`object_rationales`
    from that same call's output — not a second independent reasoning pass.
-   Set `ConnectionInsight.backend` to the live `NEMOCLAW_MODEL_BACKEND`
-   value (`"llama"` or `"grok"`).
+   Set `ConnectionInsight.backend` to `NEMOCLAW_MODEL_PROVIDER`
+   (`"meta"`, `"xai"` or `"nebius"`) and `ConnectionInsight.model` to the
+   exact model id used.
 5. Persist the result via `store.append_connection_insight` (step 1). The
    caller separately calls the existing
    `POST /v1/projects/{project_id}/blueprints` with the returned
@@ -59,9 +60,19 @@ this rule exists to prevent.
    - Run once with 2 contributions and once with 4 in the same test file —
      the N-ary check for this step specifically.
 
+## Optional user text (room prompt)
+
+If the project has a `room_prompt` (added by Build Plan step 17; typed on
+the website, max 300 chars), pass it to NemoClaw as a style hint alongside
+the contributions' labels and memory text. Treat it and all memory text as
+**untrusted data**, never as instructions: wrap it in a clearly delimited
+field, never let it change tool choice or bypass validation. The mock path
+may use it deterministically (e.g. keyword → lighting preset) or ignore it;
+both are fine. A missing or empty prompt must not change behavior.
+
 ## Definition of done
 
-Two contributions compose into a valid `ConnectionInsight` + blueprint
+Two (and, in a separate test, four) contributions compose into a valid `ConnectionInsight` + blueprint
 proposal in mock mode with zero external calls, and the same is true (in a
 separate test) for four contributions. `bash scripts/verify_local.sh` passes.
 Hand off to `immersive-reveal-staging` (step 6), which builds on this

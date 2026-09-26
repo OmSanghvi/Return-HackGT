@@ -1,0 +1,66 @@
+{
+  "description": "Manual gates for the Collaborative VR + web accounts track (docs/BUILD_PLAN.md steps 13-29). These are facts no script can detect (dashboard setup, on-device tests). scripts/check_collab_gates.py reads this file.",
+  "rules": [
+    "An agent may set a gate to true ONLY after the user explicitly confirms it in the conversation. Never flip a gate to unblock yourself.",
+    "When setting a gate to true, fill confirmed_by (the person's role, e.g. 'user') and confirmed_on (YYYY-MM-DD).",
+    "No secrets in this file. App IDs, publishable keys and URLs are public values and belong in the config described in the collab-vr-accounts-and-gates skill."
+  ],
+  "gates": {
+    "scope_approved": {
+      "value": true,
+      "step": 13,
+      "meaning": "The team approved the Collaborative VR + web accounts track. AGENT.md and ARCHITECTURE.md allow it as a gated, post-MVP track.",
+      "confirmed_by": "user",
+      "confirmed_on": "2026-09-25"
+    },
+    "clerk_app_ready": {
+      "value": false,
+      "step": 13,
+      "meaning": "A Clerk dev instance exists for the web app; the publishable key is known; the web app's dev origin (http://localhost:5173) works; an M2M machine for NemoClaw can be created. The secret key is stored only in the backend environment.",
+      "confirmed_by": null,
+      "confirmed_on": null
+    },
+    "meta_app_ready": {
+      "value": false,
+      "step": 13,
+      "meaning": "A Meta Horizon developer app exists for the Quest build; App ID noted; App Secret stored only in the backend environment and the Unity dashboard; every tester is added as a test user (needed until the Data Use Checkup is approved).",
+      "confirmed_by": null,
+      "confirmed_on": null
+    },
+    "unity_meta_provider_configured": {
+      "value": false,
+      "step": 13,
+      "meaning": "Unity Dashboard > Authentication > ID Providers has the Meta Quest (Oculus) provider configured with the Meta App ID and App Secret.",
+      "confirmed_by": null,
+      "confirmed_on": null
+    },
+    "quest_meta_identity_spike_passed": {
+      "value": false,
+      "step": 14,
+      "meaning": "On a real Quest with a test user: entitlement check passed, GetLoggedInUser returned an ID, two GetUserProof nonces were obtained, SignInWithOculusAsync succeeded with one, and the other validated with is_valid:true at graph.oculus.com/user_nonce_validate (run by the user from a shell with the secret in an env var).",
+      "confirmed_by": null,
+      "confirmed_on": null
+    },
+    "nemoclaw_agent_ready": {
+      "value": false,
+      "step": 3,
+      "meaning": "Build Plan step 3 is done: NemoClaw runtime running, a read-only scene inspection works, and one tool-calling round trip succeeded on NEMOCLAW_MODEL_PROVIDER=meta (Muse Spark) and on xai (Grok) by changing only the env var.",
+      "confirmed_by": null,
+      "confirmed_on": null
+    },
+    "two_headset_verified": {
+      "value": false,
+      "step": 25,
+      "meaning": "Step 25 checklist passed on two real headsets plus the web app, including multi-object uploads and a recipient opening a letter live.",
+      "confirmed_by": null,
+      "confirmed_on": null
+    },
+    "gpu_multi_object_verified": {
+      "value": false,
+      "step": 27,
+      "meaning": "After an approved GPU run: one photo with 3 objects produced 3 PLYs, two uploads submitted together both completed, and the SKETCHSCAPE_GPU_CONCURRENCY benchmark result (or 'kept at 1') is recorded in docs/BUILD_PLAN.md step 27.",
+      "confirmed_by": null,
+      "confirmed_on": null
+    }
+  }
+}

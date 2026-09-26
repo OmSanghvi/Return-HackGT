@@ -40,7 +40,8 @@ integrated, originality, strength of the demo.
    - Linger on this moment in the video — it is the single strongest proof
      that AI, not a human, made the connection.
    - State plainly which model powered NemoClaw's reasoning for it
-     (Llama-backed by default, Grok kept as a configured fallback runtime,
+     (Muse Spark on the Meta Model API by default; Grok API or Nebius Token
+     Factory as configured alternatives,
      or "mock" if recording in mock mode) — never imply a live model ran
      when it didn't.
 

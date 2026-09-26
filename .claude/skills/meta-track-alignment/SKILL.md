@@ -7,8 +7,9 @@ description: Use whenever doing product, feature, backend, or Unity work on Sket
 
 This repository's primary competition target is Meta's "Bringing People
 Closer Together with AI" challenge, with the product framed as **Shared
-Room**: two people each contribute one meaningful object; AI infers a shared
-theme and explanation between the two contributions; Unity turns that into
+Room**: two or more people (no fixed limit; the demo shows two) each
+contribute meaningful objects or letters; AI infers a shared theme and
+explanation across all the contributions; Unity turns that into
 one explorable VR room. `docs/PROJECT_STATUS.md` is the authoritative,
 judge-facing description of this track. `AGENT.md`'s "Primary competition
 track" section is the short agent-facing summary. `docs/BUILD_PLAN.md` is
@@ -46,21 +47,23 @@ the judgment calls that cut across all of them.
    resort) a physically-modeled in-world text object like an engraved prop.
    See AGENT.md's "The connection must be felt, not read."
 3. **Does this expand the MVP into accounts, chat, real-time multiplayer,
-   or notifications?** These are explicitly out of scope — this is
-   sequential co-creation between two named contributors, not a social
-   network. Flag it rather than building it.
+   or notifications?** These are explicitly out of scope for the MVP — this
+   is sequential co-creation between two or more named contributors, not a social
+   network. Flag it rather than building it. The only exception is the
+   gated Collaborative VR track (Build Plan steps 13–29): work there is
+   allowed, but only after `python3 scripts/check_collab_gates.py <step>`
+   says READY, and never at the expense of MVP steps 1–12.
 4. **Is NemoClaw the thing that owns scene understanding, and is its model
    runtime switchable?** Two separate things get this wrong if conflated:
    - The composition step (`connection/compose`) must invoke **NemoClaw's
      own tools** (`place_objects_in_scene`, `stage_immersive_reveal`, etc.)
      — never a standalone model-API call that bypasses NemoClaw. NemoClaw's
      tools are the scene-authoring mechanism; don't build a parallel one.
-   - NemoClaw's *underlying reasoning model* defaults to Llama for this
-     track (served via a hosting provider — Together AI, Groq, or AWS
-     Bedrock — or self-hosted, since Meta retired its own public-preview
-     Llama API in July 2026), with Grok kept as a switchable fallback
-     runtime (`NEMOCLAW_MODEL_BACKEND=llama|grok`) for the alternate
-     Resilience Commons framing — a config choice, not a second API path.
+   - NemoClaw's *underlying model* defaults to **Muse Spark on the Meta
+     Model API** for this track (`NEMOCLAW_MODEL_PROVIDER=meta`). The Grok
+     API (`xai`, Resilience Commons framing) and Nebius Token Factory
+     (`nebius`, open models including Llama) stay switchable. It's a config
+     choice, not a second API path. See `nemoclaw-model-providers`.
    - Separately, the old **sketch → photorealistic image** step (a
      different pipeline stage from NemoClaw's reasoning) is **gone** —
      `POST /v1/sketches`, `backend/image_gen.py`, and its `mock`/`azure`/`hf`
@@ -76,8 +79,10 @@ the judgment calls that cut across all of them.
      physically part of it, which doubles as a diegetic answer to item 2
      above. See `docs/BUILD_PLAN.md` step 7 and `sketch-image-gen-backends`
      — neither path is built yet. Don't mix any of this up with NemoClaw's
-     own model runtime (`NEMOCLAW_MODEL_BACKEND=llama|grok`); that's an
-     independently configurable, still-current setting.
+     own model provider (`NEMOCLAW_MODEL_PROVIDER`); that's an independently
+     configurable, still-current setting. **Muse Spark (a reasoning model)
+     is not "Meta Muse Image"**; only the image-generation backend is
+     rejected.
 5. **If this touches Unity MCP, is it Meta's official Unity MCP Extension for
    Horizon** (https://developers.meta.com/horizon/documentation/unity/unity-mcp-extension/)
    **— not a generic/third-party Unity MCP server?** This is a hard

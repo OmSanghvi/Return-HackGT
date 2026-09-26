@@ -39,8 +39,9 @@ don't re-derive the design, it's already decided.
 
 1. `backend/main.py`: add `Contributor`, `Contribution` (with
    `ContributionSourceType`), and `ConnectionInsight` (with a
-   per-object `placement_rationale` list and `backend: Literal["mock",
-   "llama", "grok"]`) as `BaseModel` subclasses. Match the field style of
+   per-object `placement_rationale` list, `backend: Literal["mock",
+   "meta", "xai", "nebius"]` and `model: str`) as `BaseModel` subclasses.
+   `ContributionSourceType` is `Literal["photo", "sketch", "letter"]`. Match the field style of
    `ProjectAsset`/`AssetView` exactly — read those two classes first.
 2. Extend `ProjectRecord` with `contributor_ids`, `contribution_ids`,
    `min_contributors`, `max_contributors`.

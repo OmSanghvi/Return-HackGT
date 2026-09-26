@@ -44,6 +44,43 @@ in parallel with steps 1–6 by a different session. Everything funnels into
 12. `meta-track-alignment` is the standing skill that governs *every* step
 above — load it whenever judgment calls come up mid-step.
 
+### Collaborative VR + web accounts track (steps 13–29) — gated
+
+The web app with Clerk accounts (uploads, Notability sketches, optional
+text), Meta-account sign-in on Quest linked to Clerk, and live
+multi-headset rooms. Approved 2026-09-25 as a **post-MVP, gated** track:
+it must never break or delay the MVP (steps 1–12), and every step is
+blocked until its prerequisites are verifiably done. See "Collaborative VR
++ web accounts track" below and AGENT.md Hard Rule 9.
+
+| # | Step | Depends on | Status | Skill |
+|---|------|-----------|--------|-------|
+| 13 | Accounts: Clerk app, Meta Horizon app + test users, Unity Meta Quest provider | — | Unity Cloud linked; rest not confirmed | `collab-vr-accounts-and-gates` |
+| 14 | Quest Meta identity spike on a real headset | 13 | Not started | `meta-quest-identity` |
+| 15 | Backend revision safety (`based_on_revision` 409, conditional DynamoDB writes, LIVE pointer) | — | Not started — **can start now** | `backend-revision-concurrency` |
+| 16 | Backend auth core: Clerk web sessions + NemoClaw M2M, mock mode, fail-fast config | 15 | Not started | `backend-auth-clerk` |
+| 17 | Membership, invite codes, Contributor ↔ Clerk user, ownership, `room_prompt` | 2, 16 | Not started | `room-api-and-ownership` |
+| 18 | Meta identity exchange + Quest ↔ Clerk linking (backend, room tokens) | 14, 16 | Not started | `meta-quest-identity` |
+| 19 | Web app foundation: `app/` React + Vite + `@clerk/react`, API client, mock mode | 13, 16 | Not started | `web-app-foundation` |
+| 20 | Web uploads: person selects each object on a canvas (click/box/name) → SAM 3.1 masks → refine → generate PLYs; several photos at once; Notability sketches; optional text; invites; Link Quest page | 7, 17, 18, 19, 26 | Not started | `web-uploads-and-linking` |
+| 21 | Public room API `/v1/rooms/{project_id}/state` + `/edits` | 15, 17, 18 | Not started | `room-api-and-ownership` |
+| 22 | Unity networking: Meta sign-in, Multiplayer Services, NGO 2.x, Distributed Authority | 13, 14 | Not started | `unity-cloud-collaborative-vr` |
+| 23 | Unity backprop client: room token, save on settle, session-owner polling | 21, 22 | Not started | `vr-edit-cloud-backprop-sync` |
+| 24 | NemoClaw room tools (`get_room_state`, `propose_room_edit`; publish approved on the web) | 3, 15, 16, 21 | Not started | `top-tier-nemoclaw-tool-design` |
+| 25 | End-to-end verification: web + two or more headsets | 20, 23, 29 | Not started | `collab-vr-device-verification` |
+| 26 | Durable jobs (no in-memory dict), uploads in shared storage, upload → selections → refine → generate API, batch job polling | 15 | Not started | `durable-jobs-and-multi-object-upload` |
+| 27 | GPU worker: SAM 3.1 masks from the person's selections (interactive points/box, semantic text), per-object Fast-SAM3D, dispatcher with leases, benchmarked concurrency | 26 | Not started | `gpu-multi-object-worker` |
+| 28 | Letters: upload + recipients, sealed access, recipient-only open, scene schema, web form | 17, 19, 21, 26 | Not started | `letters-backend-and-web` |
+| 29 | Letters in VR: envelope, networked open animation, textured 3D paper page | 22, 28 | Not started | `letters-vr-envelope` |
+
+Every known issue these steps fix, with status, is in
+`docs/KNOWN_ISSUES.md`.
+
+**Gate command (mandatory before starting steps 13–29):**
+`python3 scripts/check_collab_gates.py <step>`. BLOCKED means stop. Done
+means `python3 scripts/check_collab_gates.py --done <step>` **and**
+`bash scripts/verify_local.sh` both pass.
+
 ---
 
 ## Step 1 — Contributor / Contribution / ConnectionInsight data model + storage
@@ -57,7 +94,7 @@ fixed pair.
 implementations), `backend/test_storage.py` (new tests).
 
 **Concrete steps:**
-1. In `main.py`, add `Contributor`, `Contribution` (with `ContributionSourceType = Literal["photo", "sketch"]`), and `ConnectionInsight` (with a per-object `placement_rationale` list and a `backend: Literal["mock", "llama", "grok"]` field) as `BaseModel` subclasses, following the exact field style of `ProjectAsset`/`AssetView` (typed, `Field(min_length=..., max_length=...)`, `datetime` timestamps via `utc_now()`).
+1. In `main.py`, add `Contributor`, `Contribution` (with `ContributionSourceType = Literal["photo", "sketch", "letter"]`), and `ConnectionInsight` (with a per-object `placement_rationale` list, a `backend: Literal["mock", "meta", "xai", "nebius"]` field and a `model: str` field — see the `nemoclaw-model-providers` skill) as `BaseModel` subclasses, following the exact field style of `ProjectAsset`/`AssetView` (typed, `Field(min_length=..., max_length=...)`, `datetime` timestamps via `utc_now()`).
 2. Extend `ProjectRecord` with `contributor_ids: list[str]`, `contribution_ids: list[str]`, `min_contributors: int = Field(default=2, ge=2)`, `max_contributors: int = Field(default=6, ge=2)` — read the defaults from `SKETCHSCAPE_MIN_CONTRIBUTORS` / `SKETCHSCAPE_MAX_CONTRIBUTORS` at project-creation time, matching how other env-configured defaults are read in `main.py`.
 3. Add to `AuthoringStore` (abstract): `list_contributors`, `append_contributor`, `list_contributions`, `append_contribution`, `list_connection_insights`, `append_connection_insight` — mirroring the existing `list_blueprints`/`append_blueprint` naming exactly.
 4. Implement in `LocalJsonStore`: same JSON-file, atomic-write pattern already used for blueprints — store each list under the project's JSON record.
@@ -102,12 +139,24 @@ implementations), `backend/test_storage.py` (new tests).
    per that page's *current* instructions. **Requires Unity Editor
    6000.0.66f2 or later.** Register it as NemoClaw's Unity MCP target —
    never a generic/third-party Unity MCP server for this track.
-3. Set `NEMOCLAW_MODEL_BACKEND=llama` as the default agent reasoning
-   runtime, served through a hosting provider (Together AI, Groq, AWS
-   Bedrock) or self-hosted — Meta retired its own public-preview Llama API
-   in July 2026, so there is no first-party Meta-hosted endpoint to point
-   at. Confirm `grok` is a valid, tested alternate value before relying on
-   it for the Resilience Commons framing.
+3. Configure NemoClaw's model provider per the `nemoclaw-model-providers`
+   skill and `config/nemoclaw/model-providers.example.json`. All three are
+   OpenAI-SDK compatible, so one adapter serves them all:
+   - `NEMOCLAW_MODEL_PROVIDER=meta` (default for the Meta track): Meta
+     Model API, `https://api.meta.ai/v1`, model `muse-spark-1.3` (tool
+     calling and image input), key in `META_MODEL_API_KEY`. It's in public
+     preview for US developers.
+   - `xai`: Grok API, `https://api.x.ai/v1`, `grok-4.7`, `XAI_API_KEY`.
+     Use it for the Resilience Commons framing.
+   - `nebius`: Nebius Token Factory,
+     `https://api.tokenfactory.nebius.com/v1/`, open models such as Llama,
+     `NEBIUS_API_KEY`. Choose exact model ids from its catalog.
+
+   `NEMOCLAW_MODEL_BACKEND` is replaced by `NEMOCLAW_MODEL_PROVIDER`,
+   `NEMOCLAW_MODEL` and `NEMOCLAW_VISION_MODEL`. Muse Spark is a reasoning
+   model and has nothing to do with the rejected "Meta Muse Image"
+   image-generation backend. Keys live only in the runtime's credential
+   provider.
 4. Update `config/nemoclaw/sketchscape-tools.json`: flip `implementation_status`
    from `target` to `implemented` for `gpu.start`-adjacent entries only once
    actually verified; add new `http_operations` entries for
@@ -145,8 +194,13 @@ looks at it, decides which object is the subject, and passes a short,
 specific noun phrase to SAM 3.1 as `subject_hint`.
 
 **Decisions already made (do not re-litigate):**
-- One subject per upload (the most prominent object). Keep the tool's output
-  a list internally so "all objects, capped" is a later flag, not a rewrite.
+- **Several subjects per upload** (updated 2026-09-25). `identify_subject`
+  returns a list of labels, capped by `SKETCHSCAPE_MAX_OBJECTS_PER_UPLOAD`
+  (default 8). They're used only for the optional "Suggest objects"
+  helper and for naming. The person chooses which objects to mask and
+  generate by clicking, boxing, or naming them on the website (steps 20,
+  26–27). The single-object
+  path still works for existing callers.
 - A contributor-typed `subject_hint` always wins; NemoClaw only labels when
   it is empty.
 - The worker's `mask_review` stays: if SAM 3.1 finds no clear match for
@@ -167,8 +221,9 @@ e.g. `backend/storage.py`'s `create_store`), `backend/main.py` (hook in
    `SKETCHSCAPE_SUBJECT_LABELER=mock|nemoclaw`, default `mock`.
 2. Mock path: deterministic, offline, no model call; labelled `backend="mock"`.
 3. Record provenance on the job: `subject_hint_source: "user" | "nemoclaw"`.
-4. Live path (after step 3): the tool runs inside NemoClaw on its Llama
-   vision runtime — never a standalone model call bypassing NemoClaw. Tests
+4. Live path (after step 3): the tool runs inside NemoClaw on the
+   configured vision model (`NEMOCLAW_VISION_MODEL`; Muse Spark on the
+   default `meta` provider) — never a standalone model call bypassing NemoClaw. Tests
    mock it; no live call without explicit user approval (Hard Rule 3).
 
 **Definition of done:** an upload with no `subject_hint` produces a labelled
@@ -187,7 +242,7 @@ green.
 1. `POST /v1/projects/{project_id}/connection/compose` (`response_model` — define a `ConnectionComposeResponse` wrapping `ConnectionInsight` + `ExperienceBlueprintInput`).
 2. Guard clause: `len(store.list_contributions(project_id)) >= project.min_contributors`, else `409`. This is the concrete enforcement point for `SKETCHSCAPE_MIN_CONTRIBUTORS`.
 3. **Mock path** (`PIPELINE_MODE=mock`, build this first): a deterministic function over the contributions' labels/memory text — no network call, no NemoClaw runtime required. Reuse a simple deterministic technique already proven in this codebase's mock philosophy (e.g. keyword-overlap or a fixed small lookup table keyed by label pairs/sets) so the same inputs always produce the same theme. Label the result `backend="mock"` on the `ConnectionInsight`.
-4. **Live path**: invoke NemoClaw's `place_objects_in_scene` (step 4) to get the blueprint, and derive `ConnectionInsight.theme`/`explanation`/`object_rationales` from the same reasoning pass — do not make two independent calls that could disagree. Label the result `backend=NEMOCLAW_MODEL_BACKEND` (`"llama"` or `"grok"`).
+4. **Live path**: invoke NemoClaw's `place_objects_in_scene` (step 4) to get the blueprint, and derive `ConnectionInsight.theme`/`explanation`/`object_rationales` from the same reasoning pass — do not make two independent calls that could disagree. Record `backend=NEMOCLAW_MODEL_PROVIDER` (`"meta"`, `"xai"` or `"nebius"`) and `model` = the exact model id used.
 5. Persist via `store.append_connection_insight`; the caller separately calls the existing `POST /v1/projects/{project_id}/blueprints` with the returned `ExperienceBlueprintInput` to save it as a revision (reuse, don't duplicate, the existing blueprint creation path).
 6. Tests: one asserting the mock path is deterministic (call twice, same theme), one asserting `409` below `min_contributors`, one asserting the response references only `READY` assets (reuse `validate_blueprint_assets`' checking pattern).
 
@@ -265,8 +320,14 @@ real object, they photograph it. **Do not reintroduce `image_gen.py`, the
 Image reference turns up anywhere, that's doubly stale — it was already
 rejected before this pipeline was removed entirely.
 
-**What a Notability sketch is for now:** the two ideas below, not a stand-in
+**What a Notability sketch is for now:** the ideas below, not a stand-in
 photo.
+- **Drawings:** Path 1, a flat card.
+- **Letters** (a handwritten Notability page addressed to someone): the
+  textured 3D paper page inside an envelope, built in steps 28–29.
+  Recipient-only opening with a live animation, no GPU, handwriting stays
+  legible. This replaces Path 2 for letters.
+- **Path 2** (SAM3D memory plaque) stays optional for non-letter pages.
 
 **Files:** `backend/main.py` (new endpoint(s)), Unity project for the
 render/mesh side, `shared/scene.schema.json` only if a genuinely new runtime
@@ -359,7 +420,10 @@ GPU or paid API. No `image_gen.py`, no `azure`/`hf`/`grok` image backends, no
 3. Contributor identity from the logged-in Quest account via the Meta
    Platform SDK — `Oculus.Platform.Users.GetLoggedInUser().OnComplete(...)`
    returns a `User` with `.DisplayName` — falling back to the typed display
-   name from step 2's endpoint.
+   name from step 2's endpoint. This is display-only. For **verified**
+   identity (accounts, permissions), use the Meta user-proof flow and
+   Clerk linking from steps 14 and 18 (`meta-quest-identity`), never the
+   client-reported user id alone.
 4. [Llama Guard](https://github.com/meta-llama/PurpleLlama) moderation (Meta's
    open-source PurpleLlama project, Llama Guard 3 in 1B/8B variants): in
    `POST /v1/projects/{project_id}/contributions` (step 2), pass
@@ -408,6 +472,186 @@ comparison/debugging, not a primary dependency to adopt fresh.
 
 ---
 
+## Collaborative VR + web accounts track (steps 13–29)
+
+**Goal:** people sign up on the SketchScape website and upload their photos,
+Notability sketches, and optional text there. In their Quest headsets they
+share one live Shared Room: one person's move/rotate/scale shows on every
+headset immediately and is saved, so the room looks the same after
+everyone leaves.
+
+**Architecture (decided 2026-09-25, don't re-litigate):**
+
+- **Accounts: Clerk.** Every person is a Clerk user, created on the
+  website.
+  - The website (`app/`, React + Vite + `@clerk/react`, replacing the old
+    Electron plan) sends Clerk session tokens.
+  - The backend verifies them with `clerk-backend-api`
+    (`session_token`, `authorized_parties` = web origins).
+- **Headset identity: the Meta account.** Clerk has no Meta Quest login
+  provider, so the headset never holds a Clerk token.
+  - The Quest proves the user with Meta Platform SDK `GetUserProof()`
+    nonces.
+  - Unity Cloud signs in with `SignInWithOculusAsync(nonce, userId)`.
+  - The backend validates a second nonce at
+    `graph.oculus.com/user_nonce_validate`, looks up the Clerk user linked
+    to that Meta ID, and issues a 1-hour **room token**.
+  - Linking happens once: the headset shows a code, and the person enters
+    it on the website's Link Quest page.
+  - `GetUserProof` needs Meta's Data Use Checkup. Until it's approved,
+    only Meta test users work.
+- **NemoClaw identity:** a Clerk M2M token (`kind="service"`).
+- **Live layer:** Unity Multiplayer Services **Distributed Authority** +
+  Netcode for GameObjects 2.x. Client-hosted Relay can't migrate the host,
+  so the room would close when the host left.
+- **Durable layer:** blueprint revisions stay the source of truth (Hard
+  Rule 6).
+  - Headsets save through the **public** room API (`/v1/rooms/*`, Hard
+    Rule 4), which checks ownership, allowed interactions, bounds, and
+    revision, then publishes server-side in one request.
+  - No Unity Cloud Save.
+- **NemoClaw** changes a live room only by drafting a revision; a person
+  approves the publish on the website. It never changes a live room
+  through the Editor-only Unity MCP Extension.
+- **Uploads:** photos and sketches go through the existing asset routes
+  and step 7 sketch routes.
+  - Optional text: object label / `subject_hint` (NemoClaw labels the
+    photo if it's blank), memory text per contribution, and a project
+    `room_prompt`, all treated as untrusted data.
+  - **Cost decision (user): no per-user upload limits.** Every cloud
+    upload may start a GPU job, which means uncapped spend.
+
+**Rejected alternatives (documented so nobody rebuilds them):**
+- Clerk OAuth + PKCE browser login on the headset federated via Unity
+  OIDC. The browser redirect back into an immersive app was the riskiest
+  step, and it's unnecessary with Meta sign-in.
+- Electron desktop app, because Clerk's Electron support is unofficial.
+- Next.js, because AGENT.md rules it out and it would add a Node server.
+- Unity Cloud Save, because its shared data is server-write-only and would
+  be a second source of truth.
+
+**Gate system:**
+- `scripts/check_collab_gates.py` checks evidence in code and config for
+  each step and all its prerequisites.
+- Facts no script can see are manual gates in
+  `config/collab-vr/gates.json`, which only the user may confirm.
+- Every run also scans the repo, `app/.env*`, and the Unity project for
+  leaked secrets:
+  - Clerk `sk_` keys
+  - Meta `OC|app_id|app_secret` tokens
+  - `VITE_*SECRET*` variables, which Vite would ship in the public bundle
+- `verify_local.sh` runs the status check, so a leak fails verification.
+
+**Config and secrets:** one matrix for local, dev, and prod lives in the
+`collab-vr-accounts-and-gates` skill. Secrets (`CLERK_SECRET_KEY`,
+`SKETCHSCAPE_META_APP_SECRET`, `SKETCHSCAPE_ROOM_TOKEN_SECRET`) live only
+in backend secret storage (and the Meta secret in the Unity dashboard).
+The backend refuses to start when misconfigured:
+- `clerk` mode without a secret key, or with `*` origins.
+- `mock` mode against DynamoDB or a non-mock pipeline.
+- Meta enabled without its secrets.
+
+**Per-step detail lives in the skills** (table above). What each step
+delivers:
+
+- **13** — Clerk app, Meta app with test users, Unity Meta provider; the
+  config matrix.
+- **14** — proves Meta identity on a real Quest first: entitlement check,
+  two nonces, `SignInWithOculusAsync`, server validation.
+  *Results (fill in):* sign-in OK: ___ · nonce is_valid: ___ · test users
+  set up: ___
+- **15** — fixes three concurrency bugs:
+  - silent lost edits (no base-revision check)
+  - the DynamoDB overwrite race (unconditional `put_item`, per-process
+    lock)
+  - the live room going backwards (publish compare-and-set on a `LIVE`
+    pointer)
+- **16** — Clerk session/M2M verification, authors on revisions, CORS
+  locked to web origins, fail-fast startup.
+- **17** — invite codes, membership checks on every project route, Clerk
+  binding for contributors, ownership, `room_prompt`.
+- **18** — `/v1/auth/meta/session`, `/link-code`, `/link`: nonce
+  validation, unique Meta↔Clerk links, hashed single-use codes with
+  attempt limits, room tokens.
+- **19** — the web app shell with Clerk, an authenticated API client, and
+  a mock mode that works offline.
+- **20** — photo upload with progress; Notability flat card or 3D plaque
+  (PDF → PNG in the browser if needed; HEIC converted or rejected);
+  optional label, memory text, and room prompt; invites; Link Quest page.
+- **21** — `/v1/rooms/*` with idempotent, owner-checked, bounded,
+  revision-checked edits built on the live revision.
+- **22** — Meta sign-in plus Distributed Authority networking from the VR
+  Multiplayer Template 2.1, ported with matching package versions; an
+  in-headset link-code screen.
+- **23** — save on release (debounced); 409 → rebase; retries with the
+  same `client_edit_id`; room-token refresh; session-owner polling.
+- **24** — NemoClaw drafts room edits; a person approves the publish on
+  the website.
+- **25** — end-to-end verification on real hardware.
+  *Results (fill in):* fps with N people: ___ · session survives owner
+  leaving: ___ · DUC status: ___ · quotas checked: ___
+
+**Added 2026-09-25:**
+
+- **Any number of people.** Rooms, invites, uploads, letters (many
+  recipients), and live sessions all take lists. The Unity session's
+  `MaxPlayers` comes from the project's `max_contributors`
+  (`SKETCHSCAPE_MAX_CONTRIBUTORS`, default 6). Tests use 3+ people, never
+  just 2. The demo can still show two.
+- **Data architecture:** `docs/DATA_ARCHITECTURE.md` is the single
+  reference. It covers every DynamoDB item and index, the S3 layout for
+  uploads, masks, PLYs and letters, the optional user text fields and
+  limits, the accounts data, and the job lifecycle. Adding GSI1, GSI2 and
+  TTL is a Terraform change that needs approval.
+- **Polling contract** (in DATA_ARCHITECTURE.md): one project-level jobs
+  endpoint with ETag/304 for the web app, `since_revision` for the
+  headset, and a nonce-free link-status poll. Backoff, jitter, polling
+  pauses when the tab is hidden, and a separate rate-limit bucket.
+- **26** — fixes three bugs that break multi-object and multi-user
+  uploads: in-memory jobs, uploads on one API host's disk, and
+  `asset_ids` appended inside the whole-project blob. Adds the
+  **person-chosen** flow:
+  1. Upload.
+  2. On the website, mark every wanted object: click (include/exclude),
+     box, or typed name.
+  3. SAM 3.1 masks exactly those objects.
+  4. Refine any one.
+  5. Generate one PLY per object.
+
+  Also adds batch polling. Auto-detect only suggests selections.
+- **27** — SAM 3.1 turns the person's selections into masks in one pass
+  per photo: points and boxes use the interactive predictor (one mask
+  each), and typed names use the semantic predictor (best instance plus
+  alternatives). Then one Fast-SAM3D job runs per chosen object through a
+  leased queue.
+  `SKETCHSCAPE_GPU_CONCURRENCY` defaults to 1 and is raised only after an
+  approved VRAM benchmark (a T4 stays at 1).
+  *Results (fill in):* instance: ___ · peak VRAM 1 job: ___ · 2 jobs: ___
+  · concurrency chosen: ___
+- **28–29** — letters. The Notability page becomes a textured 3D paper
+  mesh (legible, no GPU) sealed in an envelope. Only the addressed
+  recipients can open it; everyone in the room sees the open animation
+  live, and the opened state is saved. A sealed page is never served to
+  non-recipients.
+- **NemoClaw models:** Meta Model API (Muse Spark, the default), Grok API,
+  or Nebius Token Factory through one OpenAI-compatible adapter (step 3,
+  `nemoclaw-model-providers`).
+
+**Never do in this track:**
+- Put a secret in the repo, `app/`, or the Unity project.
+- Let a headset call authoring routes.
+- Publish a NemoClaw draft without a person's approval.
+- Use anonymous Unity sign-in outside the offline fallback.
+- Start a step whose gate is BLOCKED.
+- Serve a sealed letter's page to anyone other than its author and
+  recipients.
+- Raise GPU concurrency without a recorded benchmark.
+- Hard-code two people anywhere.
+
+---
+
 ## If time runs out
 
-Priority order if the full plan can't land before the deadline: **5 (compose endpoint, mock path only) → 1–2 (data model/API it depends on) → 8 (diegetic attribution, even a minimal version) → 11 (real splat rendering) → 12 (video)**. Steps 3–4 and 6 (NemoClaw agent + immersive staging) are what make the story *strong*, but 5's mock path alone is enough to demo the connection insight without a live agent — the mock output is judging-safe by design. Steps 7, 9, 10 are genuinely optional polish; skip them first.
+Priority order if the full plan can't land before the deadline: **5 (compose endpoint, mock path only) → 1–2 (data model/API it depends on) → 8 (diegetic attribution, even a minimal version) → 11 (real splat rendering) → 12 (video)**. Steps 3–4 and 6 (NemoClaw agent + immersive staging) are what make the story *strong*, but 5's mock path alone is enough to demo the connection insight without a live agent — the mock output is judging-safe by design. Steps 7, 9, 10 are genuinely optional polish; skip them first. The
+Collaborative VR + web accounts track (13–29) is post-MVP: never pull time from steps
+1–12 for it before the demo is safe.
