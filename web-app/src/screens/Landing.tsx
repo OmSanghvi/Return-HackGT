@@ -101,7 +101,7 @@ export default function Landing() {
                 <Button variant="primary" size="sm" icon="plus" onClick={start}>Create a room</Button></>} />
           </div>
           <AnimatePresence mode="wait" onExitComplete={() => setShown(latest.current)}>
-            <motion.div key={chapter} className={'rt-hero-body rt-on-image' + (chapter !== 0 ? ' rt-hero-split' : '')} exit={{ opacity: 0, y: -8, transition: { duration: 0.45, ease: [0.4, 0, 1, 1] } }}>
+            <motion.div key={chapter} className={'rt-hero-body rt-on-image' + (chapter !== 0 ? ' rt-hero-split' : '')} exit={{ opacity: 0, transform: 'translateY(-8px)', transition: { duration: 0.45, ease: [0.4, 0, 1, 1] } }}>
               {chapter === 0 ? (
                 <>
                   <motion.div {...reveal(0)}><Eyebrow badge="New">Shared rooms are live on Quest 3</Eyebrow></motion.div>

@@ -16,10 +16,10 @@ export const coverOf = (r: Room) => r.cover || SCENES[r.scene].image;
 /** Shared motion feel: same ease and durations everywhere so pages don't disagree on pace. */
 export const MOTION = { ease: [0.16, 1, 0.3, 1] as const, fast: 0.16, base: 0.32, reveal: 0.7 };
 
-/** Quick rise, fade in. Staggered by index. */
+/** Quick rise, fade in. Staggered by index. A full `transform` string (not `y`) so it runs on the compositor instead of repainting. */
 export const reveal = (i = 0) => ({
-  initial: { opacity: 0, y: 10 },
-  animate: { opacity: 1, y: 0, transitionEnd: { transform: 'none' } },
+  initial: { opacity: 0, transform: 'translateY(10px)' },
+  animate: { opacity: 1, transform: 'translateY(0px)', transitionEnd: { transform: 'none' } },
   transition: { duration: MOTION.reveal, ease: MOTION.ease, delay: i * 0.1 },
 });
 
@@ -89,7 +89,7 @@ export function useStepIn() {
 export function Bloom() {
   const at = useBloom((s) => s.at);
   useEffect(() => { if (at) { const t = setTimeout(() => useBloom.setState({ at: null }), 2800); return () => clearTimeout(t); } }, [at]);
-  return at ? <div key={at.k} className="app-bloom" style={{ '--bx': at.x + 'px', '--by': at.y + 'px' } as React.CSSProperties} aria-hidden /> : null;
+  return at ? <div key={at.k} className="app-bloom" style={{ '--bx': at.x + 'px', '--by': at.y + 'px', '--br': Math.hypot(Math.max(at.x, innerWidth - at.x), Math.max(at.y, innerHeight - at.y)) + 'px' } as React.CSSProperties} aria-hidden /> : null;
 }
 
 /** A floating sheet over a soft backdrop. Escape or backdrop click closes it. */
@@ -108,8 +108,8 @@ export function Sheet({ open, onClose, children, label }: { open: boolean; onClo
         <motion.div className="app-sheet-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.28 }}>
           <motion.div ref={ref} className="app-sheet rt-glass-strong" role="dialog" aria-modal aria-label={label}
-            initial={{ opacity: 0, y: 12, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 6, transition: { duration: 0.2, ease: MOTION.ease } }}
+            initial={{ opacity: 0, transform: 'translateY(12px) scale(0.98)' }} animate={{ opacity: 1, transform: 'translateY(0px) scale(1)' }}
+            exit={{ opacity: 0, transform: 'translateY(6px) scale(1)', transition: { duration: 0.2, ease: MOTION.ease } }}
             transition={{ duration: 0.35, ease: MOTION.ease }}>
             {children}
           </motion.div>

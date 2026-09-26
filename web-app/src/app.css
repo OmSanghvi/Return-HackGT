@@ -2,7 +2,7 @@
 @font-face { font-family: "Bemirs"; src: url("./design-system/fonts/Bemirs-Regular.otf") format("opentype"); font-weight: 400; font-style: normal; font-display: swap; } /* ponytail: demo license, personal use only (see design-system/fonts/LICENSE-Bemirs.txt); convert to woff2 once brotli is available */
 :root { --font-display: "Bemirs", "Role Model", Georgia, serif; } /* Bemirs is caps-only with no digits; Role Model catches numerals */
 /* The sky canvas redraws every frame, so a heavy backdrop-filter is a full re-blur per frame; keep it light. */
-:root { --glass-blur: blur(10px); --glass-blur-strong: blur(14px); }
+:root { --glass-blur: blur(8px); --glass-blur-strong: blur(10px); }
 html[data-theme="dusk"] { --glass: rgba(10, 14, 30, .5); }
 html { transition: background-color var(--duration-reveal) var(--ease-out); background: var(--canvas); }
 body { transition: background-color var(--duration-reveal) var(--ease-out), color var(--duration-reveal) var(--ease-out); overflow-x: hidden; }
@@ -109,12 +109,14 @@ a { color: var(--sky); }
 @media (max-width: 960px) { .app-ready { grid-template-columns: 1fr; } .app-ready-side { padding: 0 var(--space-5) var(--space-6); } }
 
 /* Stepping in: bloom from the card, then fade through deep blue */
-.app-bloom { position: fixed; inset: 0; z-index: 50; pointer-events: none; background: radial-gradient(circle at var(--bx) var(--by), var(--canvas) 0%, var(--canvas) 40%, transparent 70%); background-size: 100% 100%; animation: app-bloom var(--duration-enter) var(--ease-out) forwards; }
+/* A circle of radius --br (the distance to the farthest corner) centred on the click, grown with transform
+   so the compositor runs it; animating clip-path repainted the whole screen every frame. */
+.app-bloom { position: fixed; z-index: 50; pointer-events: none; left: calc(var(--bx) - var(--br)); top: calc(var(--by) - var(--br)); width: calc(2 * var(--br)); height: calc(2 * var(--br)); border-radius: 50%; background: radial-gradient(closest-side, var(--canvas) 0%, var(--canvas) 40%, transparent 70%); will-change: transform, opacity; animation: app-bloom var(--duration-enter) var(--ease-out) forwards; }
 @keyframes app-bloom {
-  0% { opacity: 0; clip-path: circle(0 at var(--bx) var(--by)); }
-  25% { opacity: 1; clip-path: circle(150% at var(--bx) var(--by)); }
-  45% { opacity: 1; clip-path: circle(150% at var(--bx) var(--by)); }
-  100% { opacity: 0; clip-path: circle(150% at var(--bx) var(--by)); }
+  0% { opacity: 0; transform: scale(0); }
+  25% { opacity: 1; transform: scale(1); }
+  45% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
 }
 
 /* Sheets */

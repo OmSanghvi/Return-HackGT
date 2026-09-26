@@ -16,6 +16,26 @@ type TexPair = { img: THREE.Texture; dep: THREE.Texture };
 const rectOf = (el: HTMLElement): Rect => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; };
 const idle = (fn: () => void) => ('requestIdleCallback' in window ? requestIdleCallback(fn) : setTimeout(fn, 0));
 
+// Paintings decode off the main thread (ImageBitmap) and upload to the GPU in idle time, so a flight
+// never stalls on its first frame. Scene textures are shared by URL between the main window and the portal.
+const cache = new Map<string, Promise<THREE.Texture>>();
+const sceneUrls = new Set(KEYS.flatMap((k) => [SCENES[k].image, SCENES[k].depth]));
+const depthUrls = new Set(KEYS.map((k) => SCENES[k].depth));
+function loadTex(gl: THREE.WebGLRenderer, url: string): Promise<THREE.Texture> {
+  const hit = cache.get(url);
+  if (hit) return hit;
+  const p = fetch(url).then((r) => r.blob()).then((b) => createImageBitmap(b, { imageOrientation: 'flipY', premultiplyAlpha: 'none' })).then(
+    (bmp) => new Promise<THREE.Texture>((res) => {
+      const t = new THREE.Texture(bmp as unknown as HTMLImageElement);
+      t.flipY = false;
+      if (depthUrls.has(url)) { t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; }   // depth is sampled without mip bias
+      t.needsUpdate = true;
+      idle(() => { gl.initTexture(t); res(t); });
+    }));
+  if (sceneUrls.has(url)) cache.set(url, p);
+  return p;
+}
+
 function useMaterial(arch: boolean) {
   return useMemo(() => new THREE.ShaderMaterial({
     vertexShader: vertex, fragmentShader: fragment, transparent: true, depthTest: false, depthWrite: false,
@@ -35,6 +55,7 @@ function MainWindow() {
   const initial = useMemo(() => useWorld.getState().scene, []);
   const [initImg, initDep] = useLoader(THREE.TextureLoader, [SCENES[initial].image, SCENES[initial].depth]);
   const tex = useRef<Partial<Record<SceneKey, TexPair>>>({ [initial]: { img: initImg, dep: initDep } } as Partial<Record<SceneKey, TexPair>>);
+  useMemo(() => { cache.set(SCENES[initial].image, Promise.resolve(initImg)); cache.set(SCENES[initial].depth, Promise.resolve(initDep)); }, [initial, initImg, initDep]);
   const mat = useMaterial(false);
   const { gl, size } = useThree();
   const s = useRef({ scene: null as SceneKey | null, t: 1, dur: 2.8, el: null as HTMLElement | null, radius: 0, from: null as Rect | null, shown: [0, 0, 0, 0] as Rect, mt: 1, mist: 1, zoom: 0 });
@@ -44,14 +65,13 @@ function MainWindow() {
     let cancelled = false;
     idle(() => {
       if (cancelled) return;
-      const loader = new THREE.TextureLoader();
       KEYS.filter((k) => k !== initial).forEach((k) => {
-        loader.load(SCENES[k].image, (img) => { if (!cancelled) tex.current[k] = { ...(tex.current[k] as TexPair), img }; });
-        loader.load(SCENES[k].depth, (dep) => { if (!cancelled) tex.current[k] = { ...(tex.current[k] as TexPair), dep }; });
+        void loadTex(gl, SCENES[k].image).then((img) => { if (!cancelled) tex.current[k] = { ...(tex.current[k] as TexPair), img }; });
+        void loadTex(gl, SCENES[k].depth).then((dep) => { if (!cancelled) tex.current[k] = { ...(tex.current[k] as TexPair), dep }; });
       });
     });
     return () => { cancelled = true; };
-  }, [initial]);
+  }, [initial, gl]);
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -126,26 +146,29 @@ function MainWindow() {
 function PortalWindow() {
   const portal = useWorld((w) => w.portal);
   const mat = useMaterial(true);
+  const h = useRef(false);   // pointer over the portal, tracked by events instead of a per-frame :hover query
   const { gl, size } = useThree();
   useEffect(() => {
     if (!portal) return;
     let stale = false;
     const loaded: THREE.Texture[] = [];
-    const loader = new THREE.TextureLoader();
+    // Scene paintings are shared with the main window (already on the GPU); only one-off covers are ours to dispose.
+    const own = (url: string, t: THREE.Texture) => { if (!sceneUrls.has(url)) { if (stale) t.dispose(); else loaded.push(t); } };
     mat.uniforms.uTexA.value = mat.uniforms.uTexB.value = flat;   // don't flash the previous room
-    loader.load(portal.src, (t) => {
-      if (stale) { t.dispose(); return; }
-      mat.uniforms.uTexA.value = mat.uniforms.uTexB.value = t; mat.uniforms.uAspA.value = mat.uniforms.uAspB.value = t.image.width / t.image.height;
-      loaded.push(t);
-    });
-    if (portal.depth) loader.load(portal.depth, (t) => {
-      if (stale) { t.dispose(); return; }
+    loadTex(gl, portal.src).then((t) => {
+      own(portal.src, t); if (stale) return;
+      mat.uniforms.uTexA.value = mat.uniforms.uTexB.value = t; mat.uniforms.uAspA.value = mat.uniforms.uAspB.value = (t.image as ImageBitmap).width / (t.image as ImageBitmap).height;
+    }).catch(() => {});
+    if (portal.depth) loadTex(gl, portal.depth).then((t) => {
+      own(portal.depth!, t); if (stale) return;
       mat.uniforms.uDepA.value = mat.uniforms.uDepB.value = t;
-      loaded.push(t);
-    });
+    }).catch(() => {});
     else mat.uniforms.uDepA.value = mat.uniforms.uDepB.value = flat;
-    return () => { stale = true; loaded.forEach((t) => t.dispose()); };
-  }, [portal, mat]);
+    const el = portal.el;
+    const on = () => { h.current = true; }, off = () => { h.current = false; };
+    el.addEventListener('pointerenter', on); el.addEventListener('pointerleave', off);
+    return () => { stale = true; loaded.forEach((t) => t.dispose()); h.current = false; el.removeEventListener('pointerenter', on); el.removeEventListener('pointerleave', off); };
+  }, [portal, mat, gl]);
   useFrame((state, dt) => {
     const u = mat.uniforms, el = portal?.el;
     const on = !!el && u.uTexB.value !== flat;
@@ -154,7 +177,7 @@ function PortalWindow() {
     if (!el) { u.uHalo.value = 0; u.uAlpha.value = 0; return; }
     const r = el.getBoundingClientRect();
     u.uRect.value.set(r.left, r.top, r.width, r.height);
-    const hover = el.matches(':hover') || el.dataset.state === 'entering';
+    const hover = h.current || el.dataset.state === 'entering';
     u.uHalo.value += ((hover ? 0.75 : 0.35) * u.uAlpha.value - u.uHalo.value) * Math.min(1, dt * 4);
     u.uZoom.value += ((el.dataset.state === 'entering' ? 2.5 : hover ? 0.25 : 0) - u.uZoom.value) * Math.min(1, dt * 2);
     u.uTime.value = state.clock.elapsedTime;
@@ -177,7 +200,7 @@ export default function SkyWorld() {
     return () => removeEventListener('pointermove', move);
   }, []);
   return (
-    <Canvas className="app-world" flat linear dpr={[1, 1.5]} gl={{ alpha: true, antialias: false, powerPreference: 'high-performance' }} style={{ position: 'fixed' }}>
+    <Canvas className="app-world" flat linear dpr={1} gl={{ alpha: true, antialias: false, powerPreference: 'high-performance' }} style={{ position: 'fixed' }}>
       <Suspense fallback={null}><MainWindow /><PortalWindow /></Suspense>
     </Canvas>
   );

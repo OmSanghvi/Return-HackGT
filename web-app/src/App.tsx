@@ -64,7 +64,7 @@ export default function App() {
       {immersive && <Suspense fallback={null}><SkyWorld /></Suspense>}
       <AnimatePresence mode="wait" onExitComplete={() => window.scrollTo(0, 0)}>
         <motion.div key={loc.pathname.startsWith('/sign-in') ? '/sign-in' : loc.pathname} className="app-page"
-          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+          initial={{ opacity: 0, transform: 'translateY(8px)' }} animate={{ opacity: 1, transform: 'translateY(0px)', transitionEnd: { transform: 'none' } }} exit={{ opacity: 0 }}
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}>
           <Routes location={loc}>
             <Route path="/" element={<Landing />} />

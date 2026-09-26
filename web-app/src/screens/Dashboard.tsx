@@ -63,7 +63,7 @@ function Tilt({ children, i, scene }: { children: React.ReactNode; i: number; sc
     if (took.current) { useWorld.setState({ scene: 'painted', fast: true }); took.current = false; }
   };
   return (
-    <motion.div className="app-tilt-wrap" layout {...reveal(i)} exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] } }}>
+    <motion.div className="app-tilt-wrap" layout {...reveal(i)} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] } }}>
       <div className="app-tilt" onPointerMove={lean} onPointerEnter={enter} onPointerLeave={leave}>{children}</div>
     </motion.div>
   );

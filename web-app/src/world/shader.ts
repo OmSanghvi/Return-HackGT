@@ -1,7 +1,16 @@
 // A painted window drawn straight into screen space. It fills a DOM rect (rounded frame or arch),
 // fakes a camera inside the painting using its depth map, and can dissolve into mist.
+// The quad covers only the DOM rect (plus room for the portal's halo), so no fragments run outside it.
 export const vertex = /* glsl */ `
-  void main() { gl_Position = vec4(position.xy * 2.0, 0.0, 1.0); }
+  uniform vec4 uRect;
+  uniform vec2 uRes;
+  uniform float uDpr, uArch;
+  void main() {
+    float m = uArch > 0.5 ? 96.0 : 2.0;
+    vec2 px = uRect.xy - m + vec2(position.x + 0.5, 0.5 - position.y) * (uRect.zw + 2.0 * m);   // keep the winding (y flips below)
+    vec2 ndc = px * uDpr / uRes * 2.0 - 1.0;
+    gl_Position = vec4(ndc.x, -ndc.y, 0.0, 1.0);
+  }
 `;
 
 export const fragment = /* glsl */ `
@@ -17,7 +26,7 @@ export const fragment = /* glsl */ `
     vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
     return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
   }
-  float fbm(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += a * noise(p); p *= 2.03; a *= 0.5; } return v; }
+  float fbm(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 3; i++) { v += a * noise(p); p *= 2.03; a *= 0.5; } return v; }
 
   float sdBox(vec2 p, vec2 b, float r) { vec2 q = abs(p) - b + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }
   float sdArch(vec2 p, vec2 b) {
@@ -36,7 +45,7 @@ export const fragment = /* glsl */ `
     vec2 focus = vec2(0.5, 0.55);
     vec2 p = uv;
     float d = 0.0;
-    for (int i = 0; i < 3; i++) {                           // refine: offset by the depth at the displaced point
+    for (int i = 0; i < 2; i++) {                           // refine: offset by the depth at the displaced point
       d = texture2D(dep, p).r;
       vec2 q = focus + (uv - focus) / (1.0 + zoom * (0.12 + 0.9 * d));
       q -= uPointer * vec2(1.0, -1.0) * (d - 0.25) * 0.065;
