@@ -1,0 +1,7 @@
+{
+  "name": "Return.UI.Editor",
+  "rootNamespace": "Return.UI.Editor",
+  "references": ["Return.UI", "Unity.TextMeshPro"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

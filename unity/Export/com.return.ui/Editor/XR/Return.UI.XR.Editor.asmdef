@@ -1,0 +1,11 @@
+{
+  "name": "Return.UI.XR.Editor",
+  "rootNamespace": "Return.UI.XR.Editor",
+  "references": ["Return.UI", "Return.UI.XR", "Unity.XR.Interaction.Toolkit", "Unity.XR.CoreUtils"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true,
+  "defineConstraints": ["RETURN_XRI"],
+  "versionDefines": [
+    { "name": "com.unity.xr.interaction.toolkit", "expression": "3.0.0", "define": "RETURN_XRI" }
+  ]
+}

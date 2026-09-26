@@ -1,0 +1,6 @@
+{
+  "name": "Return.UI",
+  "rootNamespace": "Return.UI",
+  "references": ["Unity.TextMeshPro", "Unity.InputSystem", "UnityEngine.UI"],
+  "autoReferenced": true
+}
