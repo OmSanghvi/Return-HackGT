@@ -1,20 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "SketchScape GPU worker result",
-  "description": "The cloud GPU worker writes this after automatic segmentation and SAM 3D inference.",
+  "description": "The JSON sent in the `result` form field of POST /v1/internal/reconstructions/{job_id}/result (backend/main.py WorkerResult). The request is multipart/form-data: `result` (this JSON), `worker_token`, optional `worker_id` (required when the job was claimed through the lease queue), and file parts `ply` (Gaussian-splat PLY) and `mask` (aligned binary PNG, white is the object) — both required when status is complete — and `preview` (mask-preview PNG). The job id is in the URL path, not in this payload.",
   "type": "object",
-  "required": ["status", "input_job_id"],
+  "required": ["status"],
   "properties": {
     "status": { "enum": ["complete", "mask_review", "failed"] },
-    "input_job_id": { "type": "string" },
-    "mask_path": { "type": "string", "description": "Aligned binary PNG; white is the object." },
-    "mask_preview_path": { "type": "string" },
-    "ply_path": { "type": "string", "description": "Gaussian-splat PLY output." },
-    "object_label": { "type": "string" },
-    "error": { "type": "string" }
-  },
-  "allOf": [{
-    "if": { "properties": { "status": { "const": "complete" } } },
-    "then": { "required": ["ply_path", "mask_path"] }
-  }]
+    "object_label": { "type": "string", "maxLength": 80, "default": "gaussian_splat" },
+    "error": { "type": ["string", "null"], "maxLength": 500 }
+  }
 }

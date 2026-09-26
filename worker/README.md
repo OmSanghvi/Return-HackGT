@@ -33,10 +33,12 @@ For each job the API posts `{job_id, subject_hint}` to
    `POST /v1/internal/reconstructions/{job_id}/result`.
 
 Within a job, SAM 3.1 and Fast-SAM3D never hold GPU memory at the same time
-(Hard Rule 5). `worker_server.py` takes one job at a time; a second gets
-429. Several objects per photo, a durable job queue, a GPU-host dispatcher,
-and benchmarked concurrency are Build Plan steps 26–27
-(`gpu-multi-object-worker` skill).
+(Hard Rule 5). `worker_server.py` runs one job at a time and holds one
+more in its queue; a third concurrent submit gets 429. The durable job
+queue exists in the backend (Build Plan step 26), but the worker is still
+push-based: it doesn't claim from that queue yet. Several objects per
+photo, the GPU-host claim/lease dispatcher, and benchmarked concurrency
+are step 27 (`gpu-multi-object-worker` skill).
 
 ## One-time bootstrap
 

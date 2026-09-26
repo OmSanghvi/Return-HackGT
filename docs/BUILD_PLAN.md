@@ -46,49 +46,89 @@ above — load it whenever judgment calls come up mid-step.
 
 ### Collaborative VR + web accounts track (steps 13–29) — gated
 
-The web app with Clerk accounts (uploads, Notability sketches, optional
-text), Meta-account sign-in on Quest linked to Clerk, and live
-multi-headset rooms. Approved 2026-09-25 as a **post-MVP, gated** track:
+The web app (uploads, Notability sketches, optional text) and live
+multi-headset rooms, all under **two hardcoded accounts** — no Clerk, no
+Meta account linking. Approved 2026-09-25 as a **post-MVP, gated** track:
 it must never break or delay the MVP (steps 1–12), and every step is
 blocked until its prerequisites are verifiably done. See "Collaborative VR
 + web accounts track" below and AGENT.md Hard Rule 9.
 
+**Identity decision (revised 2026-09-26, supersedes the 2026-09-25 Clerk/Meta
+plan):** the two hardcoded accounts (`SKETCHSCAPE_AUTH_MODE=demo`,
+`SKETCHSCAPE_DEMO_USERS`) are the **real, permanent identity model** for
+this track, not a temporary stand-in. There is no Clerk sign-in, no Meta
+account linking, and no room-token exchange anywhere in this plan. See
+`collab-vr-accounts-and-gates` for the full identity model and rationale,
+and `docs/KNOWN_ISSUES.md` R13 for what this changed and why.
+
 | # | Step | Depends on | Status | Skill |
 |---|------|-----------|--------|-------|
-| 13 | Accounts: Clerk app, Meta Horizon app + test users, Unity Meta Quest provider | — | Unity Cloud linked; rest not confirmed | `collab-vr-accounts-and-gates` |
-| 14 | Quest Meta identity spike on a real headset | 13 | Not started | `meta-quest-identity` |
+| 13 | Scope approval for this track | — | Done | `collab-vr-accounts-and-gates` |
 | 15 | Backend revision safety (`based_on_revision` 409, conditional DynamoDB writes, LIVE pointer) | — | Done | `backend-revision-concurrency` |
-| 16 | Backend auth core: Clerk web sessions + NemoClaw M2M, mock mode, `demo` mode (two hardcoded accounts, added 2026-09-26), fail-fast config | 15 | Done | `backend-auth-clerk` |
-| 17 | Membership, invite codes, Contributor ↔ Clerk user, ownership, `room_prompt` | 2, 16 | Done | `room-api-and-ownership` |
-| 18 | Meta identity exchange + Quest ↔ Clerk linking (backend, room tokens) | 14, 16 | Not started | `meta-quest-identity` |
-| 19 | Web app foundation: `app/` React + Vite + `@clerk/react`, API client, mock mode | 13, 16 | Not started | `web-app-foundation` |
-| 20 | Web uploads: person selects each object on a canvas (click/box/name) → SAM 3.1 masks → refine → generate PLYs; several photos at once; Notability sketches; optional text; invites; Link Quest page | 7, 17, 18, 19, 26 | Not started | `web-uploads-and-linking` |
-| 21 | Public room API `/v1/rooms/{project_id}/state` + `/edits` | 15, 17, 18 | Not started | `room-api-and-ownership` |
-| 22 | Unity networking: Meta sign-in, Multiplayer Services, NGO 2.x, Distributed Authority | 13, 14 | Not started | `unity-cloud-collaborative-vr` |
-| 23 | Unity backprop client: room token, save on settle, session-owner polling | 21, 22 | Not started | `vr-edit-cloud-backprop-sync` |
+| 16 | Backend auth core: hardcoded demo accounts, mock mode, fail-fast config | 15 | Done | `backend-auth-clerk` |
+| 17 | Membership, invite codes, Contributor ↔ account binding, ownership, `room_prompt` | 2, 16 | Done | `room-api-and-ownership` |
+| 19 | Web app foundation: `app/` React + Vite, hardcoded-account picker, API client, mock mode | 16 | Not started | `web-app-foundation` |
+| 20 | Web uploads: person types a name for each object → SAM 3.1 semantic masks → refine → generate PLYs; several photos at once; Notability sketches; optional text; invites | 7, 17, 19, 26 | Not started | `web-uploads-and-linking` |
+| 21 | Public room API `/v1/rooms/{project_id}/state` + `/edits`, and the Quest account switcher's backend half | 15, 17 | Not started | `room-api-and-ownership` |
+| 22 | Unity networking: anonymous Unity sign-in + account switcher, Multiplayer Services, NGO 2.x, Distributed Authority | — | Not started | `unity-cloud-collaborative-vr` |
+| 23 | Unity backprop client: save on settle, session-owner polling | 21, 22 | Not started | `vr-edit-cloud-backprop-sync` |
 | 24 | NemoClaw room tools (`get_room_state`, `propose_room_edit`; publish approved on the web) | 3, 15, 16, 21 | Not started | `top-tier-nemoclaw-tool-design` |
 | 25 | End-to-end verification: web + two or more headsets | 20, 23, 29 | Not started | `collab-vr-device-verification` |
 | 26 | Durable jobs (no in-memory dict), uploads in shared storage, upload → selections → refine → generate API, batch job polling | 15 | Done | `durable-jobs-and-multi-object-upload` |
-| 27 | GPU worker: SAM 3.1 masks from the person's selections (interactive points/box, semantic text), per-object Fast-SAM3D, dispatcher with leases, benchmarked concurrency | 26 | Not started | `gpu-multi-object-worker` |
-| 28 | Letters: upload + recipients, sealed access, recipient-only open, scene schema, web form | 17, 19, 21, 26 | Not started | `letters-backend-and-web` |
+| 27 | GPU worker: SAM 3.1 semantic masks from the person's typed names, per-object Fast-SAM3D, dispatcher with leases, benchmarked concurrency | 26 | Not started | `gpu-multi-object-worker` |
+| 28 | Letters: upload + recipients, sealed access (author + recipients, cross-visible between the two accounts), recipient-only open, scene schema, web form | 17, 19, 21, 26 | Not started | `letters-backend-and-web` |
 | 29 | Letters in VR: envelope, networked open animation, textured 3D paper page | 22, 28 | Not started | `letters-vr-envelope` |
 
-Every known issue these steps fix, with status, is in
-`docs/KNOWN_ISSUES.md`.
+Steps 14 and 18 (the Quest Meta-identity spike, and the backend Meta
+identity exchange + Quest↔Clerk linking) are **retired** — see below. Every
+known issue these steps fix, with status, is in `docs/KNOWN_ISSUES.md`.
 
-**Demo auth mode (added 2026-09-26):** `SKETCHSCAPE_AUTH_MODE=demo`
-(`backend/auth.py`) is a temporary stand-in for step 13's account setup —
-exactly two hardcoded accounts, selected with the same
-`X-SketchScape-Dev-User` header `mock` mode uses, but with real per-project
-membership/ownership enforcement (unlike `mock`, which no-ops those checks).
-It exists so a two-person collaboration demo can run **today**, without a
-Clerk dashboard or Meta Horizon app. It does not change the plan below or
-any gate: step 13's manual gates (`clerk_app_ready`, `meta_app_ready`,
-`unity_meta_provider_configured`) are still required before steps 18-22
-start, and the Clerk code path is untouched and dormant — switching
-`SKETCHSCAPE_AUTH_MODE` back to `clerk` once those accounts exist needs no
-code changes. See `backend/README.md`'s Auth section and the
-`backend-auth-clerk` skill.
+**No Clerk, no Meta account, no room tokens (decided 2026-09-26).** Every
+person is one of the two hardcoded accounts
+(`SKETCHSCAPE_AUTH_MODE=demo`, `SKETCHSCAPE_DEMO_USERS`, default
+`demo-alice,demo-bob`), selected with the `X-SketchScape-Dev-User` header
+(`mock` mode's header, reused). This has **real per-project
+membership/ownership enforcement** (unlike `mock`, which no-ops those
+checks) — it is not a lightweight stand-in.
+
+- **Website:** no sign-in screen. An account picker (which of the two
+  hardcoded accounts is "you" right now) sets the header on every API
+  call. Step 19.
+- **Quest:** the same idea, as an in-headset "Account 1 / Account 2"
+  switcher — one headset, one shared Meta account for the hardware, but
+  the app-level identity is the chosen hardcoded account, sent the same
+  way the website sends it. Both accounts view the **same** shared
+  project/room (one published blueprint, step 15's LIVE pointer); only
+  the *view* changes per account — which objects are `editable_by_me`
+  (step 17 ownership) and which letters can be opened (step 28's
+  author-or-recipient rule, which is what lets one account read a letter
+  the other wrote them). Step 21/22.
+- **Unity Multiplayer Services session identity:** anonymous Unity
+  sign-in (`SignInAnonymouslyAsync`), tagged with a player property
+  holding the chosen hardcoded account id. This needs no Meta account and
+  no Clerk token; Distributed Authority and NGO 2.x don't care which
+  identity provider signed the player in. Step 22.
+- **NemoClaw's service identity** (`kind="service"`, used by step 24) is
+  the one open gap this leaves: today it only exists via Clerk M2M tokens
+  (step 16, built and tested against Clerk). Since Clerk is off this
+  plan, step 24 needs a small step-16 follow-up first: a shared bearer
+  token (`SKETCHSCAPE_NEMOCLAW_TOKEN`), matching the existing
+  `SKETCHSCAPE_WORKER_TOKEN` pattern, added to `auth.py`. Not built yet —
+  NemoClaw itself (step 3) hasn't started. See
+  `docs/KNOWN_ISSUES.md` R14.
+- The `clerk` value of `SKETCHSCAPE_AUTH_MODE` and its code in
+  `backend/auth.py` are **left in place but off this plan** — nothing
+  here depends on it, tests still cover it, and it costs nothing to keep
+  as a possible future upgrade if this ever needs real accounts. Don't
+  build new work against it.
+
+**Retired: step 13's old scope (Clerk/Meta dashboards), step 14 (Quest Meta
+identity spike), step 18 (Meta identity exchange + Quest↔Clerk linking).**
+None of these are needed by anything else in this plan any more. Their
+research (Meta `GetUserProof`/`user_nonce_validate`, `SignInWithOculusAsync`,
+Clerk `authenticate_request`) stays recorded in `meta-quest-identity` and
+`backend-auth-clerk` for reference, in case a real multi-user product is
+built later, but it is not on the critical path and no step depends on it.
 
 **Gate command (mandatory before starting steps 13–29):**
 `python3 scripts/check_collab_gates.py <step>`. BLOCKED means stop. Done
@@ -212,8 +252,8 @@ specific noun phrase to SAM 3.1 as `subject_hint`.
   returns a list of labels, capped by `SKETCHSCAPE_MAX_OBJECTS_PER_UPLOAD`
   (default 8). They're used only for the optional "Suggest objects"
   helper and for naming. The person chooses which objects to mask and
-  generate by clicking, boxing, or naming them on the website (steps 20,
-  26–27). The single-object
+  generate by typing (or accepting the suggested) name for them on the
+  website (steps 20, 26–27). The single-object
   path still works for existing callers.
 - A contributor-typed `subject_hint` always wins; NemoClaw only labels when
   it is empty.
@@ -490,46 +530,45 @@ comparison/debugging, not a primary dependency to adopt fresh.
 
 ## Collaborative VR + web accounts track (steps 13–29)
 
-**Goal:** people sign up on the SketchScape website and upload their photos,
+**Goal:** people use the SketchScape website and upload their photos,
 Notability sketches, and optional text there. In their Quest headsets they
 share one live Shared Room: one person's move/rotate/scale shows on every
 headset immediately and is saved, so the room looks the same after
 everyone leaves.
 
-**Architecture (decided 2026-09-25, don't re-litigate):**
+**Architecture (revised 2026-09-26 — replaces the 2026-09-25 Clerk/Meta
+plan below; don't re-litigate the revision without a new decision):**
 
-*Still the plan for the real deployment.* For the demo right now, backend
-auth runs in `SKETCHSCAPE_AUTH_MODE=demo` (two hardcoded accounts) instead
-of live Clerk sign-in — see "Demo auth mode" above. The web app's own
-Clerk sign-in (step 19) still waits on step 13.
-
-- **Accounts: Clerk.** Every person is a Clerk user, created on the
-  website.
-  - The website (`app/`, React + Vite + `@clerk/react`, replacing the old
-    Electron plan) sends Clerk session tokens.
-  - The backend verifies them with `clerk-backend-api`
-    (`session_token`, `authorized_parties` = web origins).
-- **Headset identity: the Meta account.** Clerk has no Meta Quest login
-  provider, so the headset never holds a Clerk token.
-  - The Quest proves the user with Meta Platform SDK `GetUserProof()`
-    nonces.
-  - Unity Cloud signs in with `SignInWithOculusAsync(nonce, userId)`.
-  - The backend validates a second nonce at
-    `graph.oculus.com/user_nonce_validate`, looks up the Clerk user linked
-    to that Meta ID, and issues a 1-hour **room token**.
-  - Linking happens once: the headset shows a code, and the person enters
-    it on the website's Link Quest page.
-  - `GetUserProof` needs Meta's Data Use Checkup. Until it's approved,
-    only Meta test users work.
-- **NemoClaw identity:** a Clerk M2M token (`kind="service"`).
+- **Accounts: two hardcoded accounts, not Clerk.** Every person is one of
+  the accounts named in `SKETCHSCAPE_DEMO_USERS` (default
+  `demo-alice,demo-bob`), verified server-side by
+  `SKETCHSCAPE_AUTH_MODE=demo` (`backend/auth.py`) with real per-project
+  membership/ownership enforcement.
+  - The website (`app/`, React + Vite, no `@clerk/react`) has an account
+    picker instead of a sign-in screen; it sends
+    `X-SketchScape-Dev-User` on every API call.
+- **Headset identity: the same hardcoded accounts, no Meta account
+  linking.** One headset, one shared Meta account for the hardware — the
+  app-level identity is an in-headset "Account 1 / Account 2" switcher
+  sending the same header, and Unity's Multiplayer Services session uses
+  **anonymous Unity sign-in** (`SignInAnonymouslyAsync`) tagged with a
+  player property holding the chosen account id. No `GetUserProof`, no
+  Data Use Checkup, no linking flow, no room token.
+- **NemoClaw identity:** a shared bearer token
+  (`SKETCHSCAPE_NEMOCLAW_TOKEN`), matching the existing
+  `SKETCHSCAPE_WORKER_TOKEN` pattern — not yet added to `auth.py` (small
+  step-16 follow-up, needed before step 24; NemoClaw/step 3 hasn't
+  started). See `docs/KNOWN_ISSUES.md` R14.
 - **Live layer:** Unity Multiplayer Services **Distributed Authority** +
   Netcode for GameObjects 2.x. Client-hosted Relay can't migrate the host,
-  so the room would close when the host left.
+  so the room would close when the host left. Unaffected by the identity
+  change above — DA doesn't care which auth provider signed a player in.
 - **Durable layer:** blueprint revisions stay the source of truth (Hard
   Rule 6).
   - Headsets save through the **public** room API (`/v1/rooms/*`, Hard
-    Rule 4), which checks ownership, allowed interactions, bounds, and
-    revision, then publishes server-side in one request.
+    Rule 4), authenticated with the hardcoded-account header, which
+    checks ownership, allowed interactions, bounds, and revision, then
+    publishes server-side in one request.
   - No Unity Cloud Save.
 - **NemoClaw** changes a live room only by drafting a revision; a person
   approves the publish on the website. It never changes a live room
@@ -542,11 +581,26 @@ Clerk sign-in (step 19) still waits on step 13.
   - **Cost decision (user): no per-user upload limits.** Every cloud
     upload may start a GPU job, which means uncapped spend.
 
+**Superseded 2026-09-25 plan (kept for reference only — not built, not on
+the critical path; see `meta-quest-identity` and `backend-auth-clerk`):**
+Clerk as the account system, Meta Platform SDK `GetUserProof()` +
+`SignInWithOculusAsync` + a backend-issued room token for Quest identity,
+linked once to a Clerk user via a website code. Retired because the
+project is using two hardcoded accounts as the real identity model instead
+of standing up Clerk and a Meta Horizon app. `SKETCHSCAPE_AUTH_MODE=clerk`
+and its code in `backend/auth.py` still exist and are still tested, in
+case a real multi-user product is built later — nothing in this plan
+depends on them.
+
 **Rejected alternatives (documented so nobody rebuilds them):**
 - Clerk OAuth + PKCE browser login on the headset federated via Unity
   OIDC. The browser redirect back into an immersive app was the riskiest
-  step, and it's unnecessary with Meta sign-in.
-- Electron desktop app, because Clerk's Electron support is unofficial.
+  step.
+- Meta account sign-in + linking (see "Superseded" above) — more setup
+  (Meta Horizon app, test users, Data Use Checkup) than two hardcoded
+  accounts need.
+- Electron desktop app, because Clerk's Electron support is unofficial
+  (moot now, but keeps this app/ a plain web app either way).
 - Next.js, because AGENT.md rules it out and it would add a Node server.
 - Unity Cloud Save, because its shared data is server-write-only and would
   be a second source of truth.
@@ -557,60 +611,49 @@ Clerk sign-in (step 19) still waits on step 13.
 - Facts no script can see are manual gates in
   `config/collab-vr/gates.json`, which only the user may confirm.
 - Every run also scans the repo, `app/.env*`, and the Unity project for
-  leaked secrets:
-  - Clerk `sk_` keys
-  - Meta `OC|app_id|app_secret` tokens
-  - `VITE_*SECRET*` variables, which Vite would ship in the public bundle
+  leaked secrets (Clerk `sk_` keys and `VITE_*SECRET*` variables are still
+  scanned for, since the `clerk` code path still exists).
 - `verify_local.sh` runs the status check, so a leak fails verification.
 
 **Config and secrets:** one matrix for local, dev, and prod lives in the
-`collab-vr-accounts-and-gates` skill. Secrets (`CLERK_SECRET_KEY`,
-`SKETCHSCAPE_META_APP_SECRET`, `SKETCHSCAPE_ROOM_TOKEN_SECRET`) live only
-in backend secret storage (and the Meta secret in the Unity dashboard).
-The backend refuses to start when misconfigured:
-- `clerk` mode without a secret key, or with `*` origins.
+`collab-vr-accounts-and-gates` skill. The backend refuses to start when
+misconfigured:
+- `demo` mode without `SKETCHSCAPE_WEB_ORIGINS`, or without exactly two
+  `SKETCHSCAPE_DEMO_USERS`.
 - `mock` mode against DynamoDB or a non-mock pipeline.
-- Meta enabled without its secrets.
 
 **Per-step detail lives in the skills** (table above). What each step
 delivers:
 
-- **13** — Clerk app, Meta app with test users, Unity Meta provider; the
-  config matrix.
-- **14** — proves Meta identity on a real Quest first: entitlement check,
-  two nonces, `SignInWithOculusAsync`, server validation.
-  *Results (fill in):* sign-in OK: ___ · nonce is_valid: ___ · test users
-  set up: ___
+- **13** — scope approval only (recorded, done).
 - **15** — fixes three concurrency bugs:
   - silent lost edits (no base-revision check)
   - the DynamoDB overwrite race (unconditional `put_item`, per-process
     lock)
   - the live room going backwards (publish compare-and-set on a `LIVE`
     pointer)
-- **16** — Clerk session/M2M verification, authors on revisions, CORS
+- **16** — hardcoded-account verification, authors on revisions, CORS
   locked to web origins, fail-fast startup.
-- **17** — invite codes, membership checks on every project route, Clerk
-  binding for contributors, ownership, `room_prompt`.
-- **18** — `/v1/auth/meta/session`, `/link-code`, `/link`: nonce
-  validation, unique Meta↔Clerk links, hashed single-use codes with
-  attempt limits, room tokens.
-- **19** — the web app shell with Clerk, an authenticated API client, and
-  a mock mode that works offline.
+- **17** — invite codes, membership checks on every project route,
+  account binding for contributors, ownership, `room_prompt`.
+- **19** — the web app shell with an account picker, an authenticated API
+  client, and a mock mode that works offline.
 - **20** — photo upload with progress; Notability flat card or 3D plaque
   (PDF → PNG in the browser if needed; HEIC converted or rejected);
-  optional label, memory text, and room prompt; invites; Link Quest page.
+  optional label, memory text, and room prompt; invites.
 - **21** — `/v1/rooms/*` with idempotent, owner-checked, bounded,
-  revision-checked edits built on the live revision.
-- **22** — Meta sign-in plus Distributed Authority networking from the VR
-  Multiplayer Template 2.1, ported with matching package versions; an
-  in-headset link-code screen.
+  revision-checked edits built on the live revision, authenticated with
+  the hardcoded-account header.
+- **22** — anonymous Unity sign-in, the account switcher, and Distributed
+  Authority networking from the VR Multiplayer Template 2.1, ported with
+  matching package versions.
 - **23** — save on release (debounced); 409 → rebase; retries with the
-  same `client_edit_id`; room-token refresh; session-owner polling.
+  same `client_edit_id`; session-owner polling.
 - **24** — NemoClaw drafts room edits; a person approves the publish on
   the website.
 - **25** — end-to-end verification on real hardware.
   *Results (fill in):* fps with N people: ___ · session survives owner
-  leaving: ___ · DUC status: ___ · quotas checked: ___
+  leaving: ___ · quotas checked: ___
 
 **Added 2026-09-25:**
 
@@ -626,25 +669,23 @@ delivers:
   TTL is a Terraform change that needs approval.
 - **Polling contract** (in DATA_ARCHITECTURE.md): one project-level jobs
   endpoint with ETag/304 for the web app, `since_revision` for the
-  headset, and a nonce-free link-status poll. Backoff, jitter, polling
-  pauses when the tab is hidden, and a separate rate-limit bucket.
+  headset. Backoff, jitter, polling pauses when the tab is hidden, and a
+  separate rate-limit bucket.
 - **26** — fixes three bugs that break multi-object and multi-user
   uploads: in-memory jobs, uploads on one API host's disk, and
   `asset_ids` appended inside the whole-project blob. Adds the
   **person-chosen** flow:
   1. Upload.
-  2. On the website, mark every wanted object: click (include/exclude),
-     box, or typed name.
+  2. On the website, type a name for every wanted object (a SAM 3.1
+     semantic text prompt).
   3. SAM 3.1 masks exactly those objects.
   4. Refine any one.
   5. Generate one PLY per object.
 
   Also adds batch polling. Auto-detect only suggests selections.
-- **27** — SAM 3.1 turns the person's selections into masks in one pass
-  per photo: points and boxes use the interactive predictor (one mask
-  each), and typed names use the semantic predictor (best instance plus
-  alternatives). Then one Fast-SAM3D job runs per chosen object through a
-  leased queue.
+- **27** — SAM 3.1's semantic predictor turns the person's typed names
+  into masks in one pass per photo (best instance plus alternatives).
+  Then one Fast-SAM3D job runs per chosen object through a leased queue.
   `SKETCHSCAPE_GPU_CONCURRENCY` defaults to 1 and is raised only after an
   approved VRAM benchmark (a T4 stays at 1).
   *Results (fill in):* instance: ___ · peak VRAM 1 job: ___ · 2 jobs: ___
@@ -653,7 +694,8 @@ delivers:
   mesh (legible, no GPU) sealed in an envelope. Only the addressed
   recipients can open it; everyone in the room sees the open animation
   live, and the opened state is saved. A sealed page is never served to
-  non-recipients.
+  non-recipients. This is also what lets one hardcoded account read a
+  letter the other wrote them.
 - **NemoClaw models:** Meta Model API (Muse Spark, the default), Grok API,
   or Nebius Token Factory through one OpenAI-compatible adapter (step 3,
   `nemoclaw-model-providers`).

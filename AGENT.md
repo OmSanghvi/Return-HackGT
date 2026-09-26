@@ -145,8 +145,9 @@ scene-authoring tools) is essential.
 **Do not scope-creep this MVP** into accounts, chat, real-time multiplayer,
 or notifications — those are explicitly post-hackathon. The one approved
 exception is the **Collaborative VR track** (live multi-headset rooms with
-Clerk accounts, `docs/BUILD_PLAN.md` steps 13–29). It is separate from the
-MVP, must never break or delay steps 1–12, and is gated by Hard Rule 9.
+two hardcoded accounts, `docs/BUILD_PLAN.md` steps 13–29). It is separate
+from the MVP, must never break or delay steps 1–12, and is gated by Hard
+Rule 9.
 
 ## Secondary / alternate competition track: Resilience Commons with Grok
 
@@ -191,9 +192,10 @@ there is no real-time networking anywhere in the shipped build. Do not expand
 the MVP into accounts, chat, real-time multiplayer, notifications, or a new
 social network. Those features are post-hackathon work. Real-time shared
 presence is now planned as the gated Collaborative VR track (Unity
-Multiplayer Services with Distributed Authority, Clerk identity) — see
-`docs/ARCHITECTURE.md` and `docs/BUILD_PLAN.md` steps 13–29. It does not
-change the MVP's sequential flow.
+Multiplayer Services with Distributed Authority, two hardcoded accounts —
+no Clerk, no Meta account linking) — see `docs/ARCHITECTURE.md` and
+`docs/BUILD_PLAN.md` steps 13–29. It does not change the MVP's sequential
+flow.
 
 ## Competition track: Resilience Commons with Grok
 
@@ -292,10 +294,10 @@ strengthens connection, and why AI is essential.
 ## Frontend app — the user's control surface
 
 The user interacts with SketchScape through a **web app** (decided
-2026-09-25, replacing the earlier Electron desktop-app plan because Clerk
-supports React web apps officially and Electron only unofficially). The app
+2026-09-25, replacing the earlier Electron desktop-app plan). The app
 is clean, dark, and minimal — the same aesthetic as Obsidian / logseq_new.
-Accounts are Clerk; building it is Build Plan steps 19–20 (skills
+Accounts are two hardcoded accounts picked from an in-app switcher, not
+Clerk (decision 2026-09-26); building it is Build Plan steps 19–20 (skills
 `web-app-foundation`, `web-uploads-and-linking`), gated like the rest of the
 Collaborative VR + web accounts track.
 
@@ -305,8 +307,8 @@ It communicates only with the SketchScape backend API at
 
 ### Stack
 - **Vite + React + TypeScript** — static web app (no Electron, no Next.js)
-- **`@clerk/react`** — sign-in; `useAuth().getToken()` → `Authorization: Bearer` on every API call
-- Runs without Clerk in offline mock mode against a `SKETCHSCAPE_AUTH_MODE=mock` backend
+- **Account picker** — choose between the two `SKETCHSCAPE_DEMO_USERS`; every API call sends `X-SketchScape-Dev-User`, no `@clerk/react`, no token
+- Runs the same way in offline mock mode against a `SKETCHSCAPE_AUTH_MODE=mock` backend (dev-user header, no picker needed)
 - **Zustand** — client state (current project, upload status, scene state)
 - **Tailwind CSS** — styling, dark theme by default
 - **lucide-react** — icons (same set as Obsidian / logseq_new)
@@ -325,8 +327,9 @@ Drag-and-drop area or file picker. Accepts:
   reconstructed as a 3D memory plaque; see `docs/BUILD_PLAN.md` step 7, not
   built yet)
 One photo can contain **several objects, and the person chooses them**:
-1. On a canvas over the uploaded photo, they mark each object they want in
-   3D: click it (include/exclude points), drag a box, or type its name.
+1. Next to the uploaded photo, they type a name for each object they want
+   in 3D (a SAM 3.1 semantic text prompt — decision 2026-09-26: typed
+   name only, no click/box selection).
 2. They add an optional label and memory text per object.
 3. Those selections are the SAM 3.1 prompts. SAM masks exactly those
    objects, and the person can refine any mask, then presses "Make 3D" to
@@ -358,13 +361,12 @@ after the Meta sign-in and Quest linking). `export_unity_experience.py`
 stays a developer tool run from a shell.
 
 **Added by the accounts track (steps 19–20):**
-- Clerk sign-in and sign-up.
+- An account picker between the two hardcoded accounts (no sign-in/sign-up).
 - Project invites: an invite link with the project's invite code.
 - Optional upload fields: object label ("what is it?"; NemoClaw labels it
   if blank), memory text, and a project room prompt.
 - Notability upload as a flat card or 3D plaque (PDF pages rendered to PNG
   in the browser).
-- A **Link Quest** page: enter the code the headset shows.
 - A Room page showing the live revision, where a person approves
   NemoClaw's proposed layout before it publishes.
 
@@ -402,9 +404,8 @@ Letter page (image, or a PDF page rendered to PNG in the browser)
 
 **Photo with several objects, chosen by the person** (Build Plan steps 20, 26–27)
 ```
-Photo → person marks objects on the website (click include/exclude, box, or name)
-      → SAM 3.1: points/box → interactive predictor (one mask each);
-                 names → semantic predictor (best instance + alternatives)
+Photo → person types a name for each object on the website
+      → SAM 3.1 semantic predictor (best instance + alternatives)
       → person refines/confirms masks → one Fast-SAM3D job per object → N .ply files
 ```
 
@@ -451,10 +452,13 @@ All .ply files in catalog
    shipped Unity player must never call NemoClaw, Unity MCP, the authoring
    backend, or any AWS service at runtime. Only the public backend API is
    allowed in a shipped build. For the Collaborative VR track, the public
-   API includes the `/v1/rooms/*` routes and `/v1/auth/meta/session` and
-   `/link-code`, and the player may also use the Meta Platform SDK and
-   Unity Multiplayer Services. Headsets authenticate with a backend room
-   token (from a verified Meta user proof), never with a Clerk secret, and
+   API includes the `/v1/rooms/*` routes, and the player may also use
+   Unity Multiplayer Services (anonymous sign-in,
+   decision 2026-09-26 — see `collab-vr-accounts-and-gates`). Headsets
+   authenticate to the backend the same way the website does: the
+   `X-SketchScape-Dev-User` header, restricted to the two
+   `SKETCHSCAPE_DEMO_USERS` in `demo` mode, sent directly by the headset —
+   never a Clerk secret, never a Meta room token (retired, R13). Headsets
    never call blueprint create/publish directly.
 
 5. **Within a job, SAM 3.1 and Fast-SAM3D never hold GPU memory at the
@@ -478,7 +482,7 @@ All .ply files in catalog
    place of failed objects.
 
 8. **Run `bash scripts/verify_local.sh` after every backend change** and
-   confirm all tests pass before reporting done. Currently 106 tests (2 are
+   confirm all tests pass before reporting done. Currently 151 tests (2 are
    skipped either way, depending on whether `boto3` is installed).
 
 9. **Collaborative VR + web accounts steps (13–29) are gated.** Before writing any code or
@@ -557,8 +561,8 @@ its current contents before relying on any of them.
 
 | Area | Status |
 |---|---|
-| Backend API (upload, poll, mock pipeline, safe edits) | ✅ done, 106 tests passing (2 skipped) |
-| Identity (`SKETCHSCAPE_AUTH_MODE=mock\|demo\|clerk`; `demo` added 2026-09-26 for a two-account demo ahead of step 13; authors on revisions) | ✅ done — Meta room tokens wait on Build Plan step 18 |
+| Backend API (upload, poll, mock pipeline, safe edits) | ✅ done, 151 tests passing (2 skipped) |
+| Identity (`SKETCHSCAPE_AUTH_MODE=mock\|demo\|clerk`; `demo` — two hardcoded accounts — is the real identity model for this track, decision 2026-09-26; authors on revisions) | ✅ done — NemoClaw's service identity needs a small follow-up (R14) before step 24 |
 | Membership, invites, ownership, `room_prompt` | ✅ done — Build Plan step 17 |
 | `identify_subject` mock labeler (`SKETCHSCAPE_SUBJECT_LABELER=mock`) | ✅ done — live NemoClaw path waits on Build Plan step 3 |
 | GPU pipeline (SAM 3.1 → Fast-SAM3D, `worker_server.py`) | ✅ verified end-to-end on an L40S (g6e.xlarge): 70 s, 53 MB PLY; instance stopped |
@@ -580,7 +584,7 @@ its current contents before relying on any of them.
 
 | Area | What exists | What's missing |
 |---|---|---|
-| GPU worker | Verified for one object per job | Several objects per photo, durable jobs, dispatcher (Build Plan steps 26–27) |
+| GPU worker | Verified for one object per job | Several objects per photo and a worker-side claim/lease dispatcher (Build Plan step 27). The durable job store from step 26 exists, but nothing calls `/v1/internal/jobs/claim` yet |
 | Cloud backends on EC2 host | DynamoDB + S3 provisioned | Env vars not set on the running API process |
 | Gaussian-splat rendering | UnitySplats installed | Never loaded a real Fast-SAM3D `.ply`; Quest perf unverified |
 | Unity offline builder | Exists | Still falls back to placeholder primitives — needs that code removed |
@@ -837,7 +841,8 @@ working. Requires a GPU-side fusion strategy.
 **Not started. Now Build Plan steps 19–20 (gated).**
 
 Build `app/` in this repo as a Vite + React + TypeScript + Zustand +
-Tailwind + lucide-react web app with Clerk (`@clerk/react`). Match the
+Tailwind + lucide-react web app with an account picker between the two
+hardcoded accounts (no Clerk — decision 2026-09-26). Match the
 [logseq_new](https://github.com/OmSanghvi/logseq_new) repo's clean dark
 aesthetic — sidebar, main content area, clear visual hierarchy.
 
@@ -935,18 +940,17 @@ SKETCHSCAPE_GPU_CONCURRENCY=1          # raise only after an approved VRAM bench
 SKETCHSCAPE_JOB_MAX_ATTEMPTS=2
 SKETCHSCAPE_JOB_LEASE_SECONDS=900
 
-# Accounts (step 16 auth core is built; Meta room tokens / Quest linking are
-# step 18). mock: dev identity header, offline only; the API refuses to start
-# in mock mode with dynamodb storage or a non-mock pipeline. Secrets below
-# live only in backend secret storage.
-SKETCHSCAPE_AUTH_MODE=mock             # mock | demo | clerk
-CLERK_SECRET_KEY=                      # secret — never in a file, commit, or chat
-SKETCHSCAPE_WEB_ORIGINS=http://localhost:5173  # CORS (+ Clerk authorized_parties in clerk mode); never * in demo or clerk mode
-SKETCHSCAPE_DEMO_USERS=demo-alice,demo-bob     # exactly two accounts, demo mode only
-SKETCHSCAPE_META_ENABLED=false         # Quest Meta-account sign-in + linking
-SKETCHSCAPE_META_APP_ID=               # public
-SKETCHSCAPE_META_APP_SECRET=           # secret
-SKETCHSCAPE_ROOM_TOKEN_SECRET=         # secret, >=32 random bytes; signs headset room tokens
+# Accounts (step 16 auth core is built). demo: two hardcoded accounts, the
+# real identity model for this track (decision 2026-09-26, no Clerk/Meta
+# account setup — see collab-vr-accounts-and-gates). mock: dev identity
+# header, offline only; the API refuses to start in mock mode with
+# dynamodb storage or a non-mock pipeline.
+SKETCHSCAPE_AUTH_MODE=mock             # mock | demo | clerk (clerk is unused by this plan, kept for a possible future upgrade)
+SKETCHSCAPE_WEB_ORIGINS=http://localhost:5173  # CORS; never * in demo or clerk mode
+SKETCHSCAPE_DEMO_USERS=demo-alice,demo-bob     # exactly two accounts, demo mode only; also what the
+                                                # website's and Quest's account switcher offers as
+                                                # "Account 1"/"Account 2" (collab-vr-accounts-and-gates)
+CLERK_SECRET_KEY=                      # secret, clerk mode only (unused by this plan) — never in a file, commit, or chat
 
 # Storage backend (local is default; dynamodb for cloud)
 SKETCHSCAPE_STORAGE_BACKEND=local
@@ -970,7 +974,7 @@ step 7 for what replaces this.
 
 ```bash
 # After any backend Python change:
-bash scripts/verify_local.sh          # must pass, currently 106 tests (2 skipped)
+bash scripts/verify_local.sh          # must pass, currently 151 tests (2 skipped)
 
 # After any Terraform change:
 cd infra/aws
@@ -1031,7 +1035,7 @@ building, not a skill for the whole project at once.
 | `unity-offline-builder-and-rendering` | 11 (parallel) |
 | `demo-video-prep` | 12 |
 | `collab-vr-accounts-and-gates` | 13 (load first for any of 13–29) |
-| `meta-quest-identity` | 14, 18 |
+| `meta-quest-identity` | retired (14, 18 no longer built; kept for reference) |
 | `backend-revision-concurrency` | 15 |
 | `backend-auth-clerk` | 16 |
 | `room-api-and-ownership` | 17, 21 |

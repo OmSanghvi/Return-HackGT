@@ -1,6 +1,6 @@
 ---
 name: gpu-multi-object-worker
-description: Use for Build Plan step 27 — making the GPU worker process several objects from one image and several uploads in flight. SAM 3.1 segmentation driven by the person's selections from the website (points/box → interactive predictor, one mask each; text → semantic predictor with alternatives), optional auto-detect, one Fast-SAM3D reconstruction per selected object, a GPU-host dispatcher that claims durable jobs with leases, and a benchmarked, configurable GPU concurrency. Requires explicit approval before any GPU run (Hard Rule 3).
+description: Use for Build Plan step 27 — making the GPU worker process several objects from one image and several uploads in flight. SAM 3.1 semantic segmentation driven by the person's typed names (text prompts only, one SAM 3.1 pass per photo, alternatives per prompt), optional auto-detect, one Fast-SAM3D reconstruction per selected object, a GPU-host dispatcher that claims durable jobs with leases, and a benchmarked, configurable GPU concurrency. Requires explicit approval before any GPU run (Hard Rule 3).
 ---
 
 # GPU worker: many objects, many uploads (step 27)
@@ -15,10 +15,11 @@ step.
 ## What "simultaneous" means here
 
 - **From the person's point of view:** they upload one photo with several
-  objects (or several photos, or several people upload at once), and all of
-  it is accepted immediately and tracked in one progress view.
+  objects (or several photos, or several people upload at once), type a
+  name for each object, and all of it is accepted immediately and tracked
+  in one progress view.
 - **On the GPU:**
-  - One SAM 3.1 pass per image masks every object the person selected.
+  - One SAM 3.1 semantic pass per image masks every named object.
   - Reconstructions run through the durable queue.
   - Within one job, SAM 3.1 and Fast-SAM3D still never share GPU memory at
     the same time (Hard Rule 5).
@@ -27,16 +28,18 @@ step.
 
 ## Verified facts
 
-- Ultralytics SAM 3 has two modes (docs.ultralytics.com/models/sam-3):
-  - **Interactive/visual:** `SAM("sam3.pt").predict(points=, labels=, bboxes=)`
-    returns **one object per prompt**. Label 0 marks an excluded point.
-  - **Semantic:** see the next bullet; it returns **every instance** of a
-    concept. The website's points/box selections use the interactive mode.
 - Ultralytics `SAM3SemanticPredictor` accepts several concept prompts in one
   call (`predictor(text=["mug", "lamp"])`) and returns zero or more
   instance masks with scores for each prompt. The current worker already
   gets all candidates (`candidate_masks`) and then keeps one
   (`choose_one`).
+- **Decision (user, 2026-09-26): object selection is text-only.** There is
+  no click-to-include/exclude and no drag-a-box, on the website or here —
+  the person always types a name. This is also the only SAM 3.1 path this
+  repo has ever run for real (`segment_sam31_local.py` uses only
+  `SAM3SemanticPredictor`), so there is no interactive predictor to add,
+  and no VRAM-sharing question between two predictors (superseded
+  `docs/KNOWN_ISSUES.md` N28).
 - Meta's SAM 3D Objects supports multi-object generation from one image
   plus several masks, including layout. **Whether the staged Fast-SAM3D
   pipeline in this repo supports a joint multi-mask call is unverified.**
@@ -46,32 +49,27 @@ step.
   took 70 s end to end, and the PLY was 53 MB. The Terraform default
   instance is still `g4dn.xlarge` (T4, 16 GB).
 - `worker_server.py` today: `queue.Queue(maxsize=1)` and a single job lock.
-  A second job gets 429 "worker busy". Models stay warm between jobs.
+  The consumer thread takes a job off the queue before running it, so one
+  job runs, one more waits in the queue, and a **third** concurrent submit
+  gets 429 "worker busy". Models stay warm between jobs.
 
 ## Build
 
-1. **Segmentation from the person's selections (`segment_sam31_local.py`).**
+1. **Segmentation from the person's typed names (`segment_sam31_local.py`).**
    Add `segment_selections(image, selections[]) -> {selection_id: mask, score, alternatives}`:
    - Load the image **once** per job.
-   - **Points / box selections** → the interactive predictor,
-     `SAM("sam3.pt").predict(source, points=[...], labels=[1|0...])` or
-     `bboxes=[...]`. That's **one mask per selection**, and label 0
-     excludes a region. Batch every point/box selection of the image into
-     one call where the API allows it.
-   - **Text selections** → `SAM3SemanticPredictor`, `predictor(text=[...])`,
-     which finds all instances. The highest score becomes the selection's
-     mask, and the rest (after the filters below) are returned as
+   - `SAM3SemanticPredictor`, `predictor(text=[selection.text for each
+     selection])`, in one batched call per image — every selection is a
+     text prompt, so this is the only path (no branching on selection
+     type). The highest score per prompt becomes that selection's mask,
+     and the rest (after the filters below) are returned as
      `alternatives` for the person to switch to.
    - Filters: area between 0.5% and 90% of the image; drop exact duplicates
      across selections (IoU > 0.85 → keep the higher score and flag the
      other as a duplicate). A selection with no usable mask → `failed` with
-     a reason ("nothing found at that point; try a box").
+     a reason ("nothing found matching that name; try being more
+     specific").
    - Write a mask and preview per selection.
-   - **Model memory:** check whether the interactive `SAM` and
-     `SAM3SemanticPredictor` can share one loaded `sam3.pt`. If they can't,
-     load the interactive predictor lazily, and measure VRAM for both while
-     Fast-SAM3D is offloaded (Hard Rule 5 still applies within a job).
-     Record the result in step 27.
    - Keep `choose_one` for the legacy single-object path, and add
      `segment_many(image, prompts[])` only for the optional auto-detect
      helper.
@@ -109,13 +107,11 @@ step.
 ## Tests (no GPU)
 
 Unit-test `segment_selections` with a stubbed predictor:
-- a points selection passes include and exclude labels through unchanged
-- a box selection maps to `bboxes`
 - a text selection returns the best instance plus alternatives
 - the area filter
 - a duplicate across selections is flagged
 - a selection with no usable mask fails with a reason
-- normalized → pixel conversion, including rounding at the edges
+- several selections batch into one predictor call
 
 Also unit-test `segment_many` (the auto-detect helper): threshold, area
 bounds, dedupe by IoU, cap, sort order.
@@ -131,8 +127,8 @@ Existing worker tests must still pass.
 
 `python3 scripts/check_collab_gates.py --done 27` passes. The user
 confirms `gpu_multi_object_verified` after an approved GPU run where:
-- one photo where the person selected 3 objects (a point, a box, and a
-  text prompt) produced 3 correct masks and 3 PLYs, and
+- one photo where the person named 3 objects produced 3 correct masks and
+  3 PLYs, and
 - two uploads submitted together both completed.
 
 The concurrency benchmark results (or "kept at 1") are recorded in the

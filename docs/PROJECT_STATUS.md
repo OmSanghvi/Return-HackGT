@@ -224,8 +224,9 @@ adding a second table. This stays sequential co-creation — no real-time
 multiplayer is needed to support more than two people, since contributors
 still add their object at different times. Live shared presence is planned
 separately as the gated Collaborative VR track (Unity Multiplayer Services
-with Distributed Authority, Clerk accounts, Meta sign-in on the Quest) —
-see ARCHITECTURE.md and `docs/BUILD_PLAN.md` steps 13–29.
+with Distributed Authority, two hardcoded accounts — no Clerk, no Meta
+account linking) — see ARCHITECTURE.md and `docs/BUILD_PLAN.md` steps
+13–29.
 
 ### Exact MVP implementation slice
 
@@ -319,6 +320,13 @@ Reality Capture (MRC) for a clean composite of the wearer and their in-headset
 view; only use MRC footage if it comes out completely clean, otherwise fall
 back to a plain screen recording rather than ship a broken composite.
 
+**Live two-person demo on one headset:** if the collaborative-track demo is
+shown live, one Quest switches between the two hardcoded `demo` accounts
+in the headset (Build Plan steps 21/22, the account switcher — decision
+2026-09-26, no Meta account needed). Each account edits only its own
+objects and can open letters addressed to it. See
+`collab-vr-accounts-and-gates`.
+
 ### Write-up (matches Meta's exact ask)
 
 - **Who it's for:** long-distance friends, couples, or family who want to
@@ -364,7 +372,7 @@ removed.
   structured commands; no raw code is ever accepted.
 - Private worker endpoint — the GPU posts its result back through a
   token-protected route; Unity never sees credentials.
-- **106 automated tests, all passing** (2 are skipped either way, depending
+- **151 automated tests, all passing** (2 are skipped either way, depending
   on whether `boto3` is installed).
 - Automatic subject labeling for uploads (`identify_subject`, mock path):
   a photo with no typed subject still gets a label for SAM 3.1. The live
@@ -519,8 +527,9 @@ and precomputed, attractive assets as the judging-safe recording path.
 ### 8 — Production hardening (post-hackathon, not needed for the demo)
 - HTTPS / TLS termination (currently plain HTTP on port 8000).
 - Rate limiting. (Client authentication is done — Build Plan step 16;
-  `SKETCHSCAPE_AUTH_MODE=mock|demo|clerk`, where `demo` is a hardcoded
-  two-account stand-in used for the live demo ahead of step 13.)
+  `SKETCHSCAPE_AUTH_MODE=mock|demo|clerk`, where `demo` — two hardcoded
+  accounts with real per-project enforcement — is the identity model
+  actually used for the live demo, not a stand-in for something else.)
 - Durable jobs so the API doesn't lose jobs on restart — planned in the
   store itself as Build Plan step 26, not SQS.
 - The "revisit and add to the room later" arc mentioned in the pitch — not

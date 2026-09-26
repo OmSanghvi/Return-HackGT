@@ -38,7 +38,7 @@ means stop. See `docs/DATA_ARCHITECTURE.md` for the items and S3 keys.
 
 ## Routes
 
-1. `POST /v1/projects/{id}/letters` (Clerk session, contributor), multipart:
+1. `POST /v1/projects/{id}/letters` (the hardcoded-account header, contributor), multipart:
    - `page` (JPEG/PNG/WebP ≤16 MB)
    - `recipient_contributor_ids` (repeated)
    - `note_text?`, `envelope_style?`, `memory_text?`
@@ -54,7 +54,8 @@ means stop. See `docs/DATA_ARCHITECTURE.md` for the items and S3 keys.
 2. `GET /v1/projects/{id}/letters` returns the letter list with a `sealed`
    or `opened` status. Page URLs are included only where the caller may see
    them (below).
-3. `POST /v1/rooms/{id}/letters/{letter_id}/open` (**room token only**):
+3. `POST /v1/rooms/{id}/letters/{letter_id}/open` (**the hardcoded-account
+   header** — same as every other route; there's no separate room token):
    - The caller's contributor id must be a recipient, else 403.
    - Conditional put of `LETTEROPEN`.
    - Returns 200 `{opened: true, opened_by, opened_at}`. Idempotent.
@@ -67,6 +68,15 @@ means stop. See `docs/DATA_ARCHITECTURE.md` for the items and S3 keys.
    - Opened: every member gets one, because everyone watched it open.
    - Non-recipients never receive the URL of a sealed letter, so the
      content can't leak before it's opened.
+
+   This is what makes the account switcher (`collab-vr-accounts-and-gates`)
+   show cross-visible letters on one headset: `demo-alice` writing a letter
+   to `demo-bob` means `demo-bob` gets a page URL on `GET /letters` (and
+   through `GET /rooms/{id}/state`) as soon as it exists — sealed but
+   visible to him as a recipient — and `demo-alice` keeps seeing her own
+   sent letter as its author. Switching accounts on the headset just
+   changes which identity these checks run as; no separate code path is
+   needed for "the other hardcoded user can read the first one's letter."
 
 ## Scene and blueprint
 

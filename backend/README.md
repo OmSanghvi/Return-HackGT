@@ -4,10 +4,11 @@ The only process clients (Unity, and later the web app) talk to, and the
 authority for project state, blueprints, and safe scene edits. It works
 without a GPU in `mock` mode, so upload, polling, scene loading, and safe
 edits are demoable without AWS. Identity is selected by
-`SKETCHSCAPE_AUTH_MODE` (`mock` default; `demo` for a real two-person demo
-with no Clerk/Meta account setup; `clerk` for a real deployment once step 13
-is done — see Auth and Membership below). Planned additions (the room API,
-durable jobs) are in `docs/BUILD_PLAN.md`.
+`SKETCHSCAPE_AUTH_MODE` (`mock` default; `demo` — two hardcoded accounts —
+is the real identity model for a live deployment of this track, no Clerk
+or Meta account setup (decision 2026-09-26); see Auth and Membership
+below). Planned additions (the room API, durable jobs) are in
+`docs/BUILD_PLAN.md`.
 
 ## Run locally
 
@@ -28,8 +29,8 @@ Open `http://127.0.0.1:8000/docs`, submit a photo to
 | Mode | Who calls | How |
 | --- | --- | --- |
 | `mock` (default) | local/dev | `X-SketchScape-Dev-User` header (default `dev-user`); no secrets; membership/ownership checks are no-ops |
-| `demo` | a live two-person demo, ahead of step 13 | same `X-SketchScape-Dev-User` header, restricted to exactly two hardcoded accounts (`SKETCHSCAPE_DEMO_USERS`, default `demo-alice,demo-bob`); real membership/ownership enforcement, no Clerk dashboard needed |
-| `clerk` | web app + NemoClaw, once step 13 is done | Clerk session tokens (`kind=user`) and M2M tokens (`kind=service`); requires `CLERK_SECRET_KEY` and an explicit `SKETCHSCAPE_WEB_ORIGINS` allowlist (no `*`) |
+| `demo` | the real identity model for this track (decision 2026-09-26) | same `X-SketchScape-Dev-User` header, restricted to exactly two hardcoded accounts (`SKETCHSCAPE_DEMO_USERS`, default `demo-alice,demo-bob`); real membership/ownership enforcement |
+| `clerk` | unused by this plan, kept for a possible future upgrade | Clerk session tokens (`kind=user`) and M2M tokens (`kind=service`); requires `CLERK_SECRET_KEY` and an explicit `SKETCHSCAPE_WEB_ORIGINS` allowlist (no `*`) |
 
 In `demo` and `clerk` mode, every `/v1/projects/**`, `/v1/reconstructions`,
 and `/v1/artifacts/**` route requires a verified identity; CORS is locked to
@@ -39,13 +40,25 @@ and `/v1/artifacts/**` route requires a verified identity; CORS is locked to
 mode. `/v1/internal/**` stays worker-token only and never accepts a Clerk
 bearer or a demo header. Startup refuses unsafe combinations (e.g. `clerk`
 without a secret, `demo` without `SKETCHSCAPE_WEB_ORIGINS`, or `mock` with
-DynamoDB / a non-mock pipeline). Meta room tokens for Quest headsets arrive
-in step 18.
+DynamoDB / a non-mock pipeline).
 
-`demo` mode is a temporary stand-in for step 13's real Clerk/Meta account
-setup — it exists so a two-account collaboration demo can run today. The
-Clerk code path is untouched and dormant; switching `SKETCHSCAPE_AUTH_MODE`
-back to `clerk` once accounts exist needs no code changes.
+**`demo` mode is the real identity model for this track, not a stand-in for
+something else** (decision 2026-09-26, `docs/KNOWN_ISSUES.md` R13). There is
+no Clerk sign-in and no Meta account linking anywhere in the plan. The
+`clerk` code path is untouched, still tested, and left in place only as a
+possible future upgrade if this ever becomes a real multi-user product —
+nothing in the active plan depends on it or should be built against it.
+
+Both the website (step 19) and the Quest (steps 21/22) authenticate the
+same way: an account picker/switcher chooses one of the two
+`SKETCHSCAPE_DEMO_USERS`, and every request from then on carries that
+account in `X-SketchScape-Dev-User` — the Quest sends it directly, with no
+linking step and no room token. Both accounts read and write the same
+project, so an image one account uploaded is owned by that account (step
+17), and a letter one account addresses to the other is visible to its
+recipient as soon as it's sent (sealed access already goes to the author
+*and* the recipients, not the whole room — step 28). Full design in
+`collab-vr-accounts-and-gates`.
 
 `clerk-backend-api` is an optional cloud dependency
 (`pip install -r requirements-cloud.txt`); the base install never needs it
@@ -76,7 +89,7 @@ cd backend
 .venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py test_auth.py
 ```
 
-106 tests (2 are skipped either way, depending on whether `boto3` is
+151 tests (2 are skipped either way, depending on whether `boto3` is
 installed). They exercise only `PIPELINE_MODE=mock`; they don't contact AWS
 or load a model. From the repo root, `bash scripts/verify_local.sh` runs
 these plus the syntax, JSON, and secret checks.

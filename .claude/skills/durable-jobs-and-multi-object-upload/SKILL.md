@@ -1,6 +1,6 @@
 ---
 name: durable-jobs-and-multi-object-upload
-description: Use for Build Plan step 26 — replacing the in-memory reconstruction job dict with durable, lease-based jobs in the AuthoringStore; moving uploads to shared storage (S3 in cloud); the upload → person selects objects (points/box/text) → SAM 3.1 masks → refine → generate API (one reconstruction job per selected object); project-level batch job polling with ETags; and removing list-in-blob writes that lose data under concurrent uploads.
+description: Use for Build Plan step 26 — replacing the in-memory reconstruction job dict with durable, lease-based jobs in the AuthoringStore; moving uploads to shared storage (S3 in cloud); the upload → person types a name per object (text-only, decision 2026-09-26) → SAM 3.1 semantic masks → refine → generate API (one reconstruction job per selected object); project-level batch job polling with ETags; and removing list-in-blob writes that lose data under concurrent uploads.
 ---
 
 # Durable jobs and multi-object upload (step 26)
@@ -71,13 +71,10 @@ optional helper, not the default.
 2. `POST /v1/projects/{id}/uploads/{upload_id}/selections` with body
    `{selections: [{selection_id, prompt, label?, memory_text?}]}`.
    - `selection_id`: a client UUID; resending the same one is idempotent.
-   - `prompt` is exactly one of:
-     - `{"type": "points", "points": [[x, y, 1|0], ...]}`: 1 includes the
-       spot, 0 excludes it.
-     - `{"type": "box", "box": [x0, y0, x1, y1]}`
-     - `{"type": "text", "text": "blue vase"}` (≤100 chars)
-   - Coordinates are **normalized 0–1** to the stored image. The server
-     validates the range and converts to pixels.
+   - `prompt` is `{"text": "blue vase"}` (≤100 chars) — **text-only**
+     (decision, 2026-09-26): no points, no box, just a typed name. This is
+     also the only SAM 3.1 path the worker has ever run
+     (`SAM3SemanticPredictor`, text prompts).
    - One request may carry many selections, capped by
      `SKETCHSCAPE_MAX_OBJECTS_PER_UPLOAD` (default 8). This is a per-photo
      safety cap, not a per-user quota.
@@ -91,9 +88,9 @@ optional helper, not the default.
    - for text prompts, `alternatives[]` (other instances found; the person
      can switch)
 4. `POST /v1/projects/{id}/uploads/{upload_id}/selections/{selection_id}/refine`
-   with extra include/exclude points or a new box. Re-segments only that
-   selection (a small `segment` job). `DELETE .../selections/{selection_id}`
-   removes one.
+   with a new `{"text": "..."}` — a different or more specific name.
+   Re-segments only that selection (a small `segment` job).
+   `DELETE .../selections/{selection_id}` removes one.
 5. `POST /v1/projects/{id}/uploads/{upload_id}/generate` with body
    `{selection_ids: [...]}`. For each **segmented** selection it creates:
    - an asset (`kind=reconstruction`, label from the selection or NemoClaw)
@@ -121,9 +118,8 @@ optional helper, not the default.
    - The result callback carries per-selection masks and scores for
      segment jobs, and the PLY for reconstruct jobs. It's accepted only
      from the lease owner.
-10. **Mock mode:** an in-process dispatcher. Segment jobs make
-    deterministic masks: a box becomes a filled rectangle, points become
-    discs of fixed radius, and text becomes a fixed centered ellipse.
+10. **Mock mode:** an in-process dispatcher. Segment jobs make a
+    deterministic mask (a fixed centered ellipse) for any text prompt.
     Reconstruct jobs complete with the existing mock PLY. No network, no
     GPU.
 
@@ -137,13 +133,11 @@ other members can't edit them.
   disk, and the job is still pollable.
 - **Two uploads racing:** both assets are listed (the child items fixed the
   lost-append bug).
-- One image, 3 selections (one points, one box, one text) → one segment
-  job → 3 masks. Refine one with an exclude point → only it re-segments.
-  Generate 2 → 2 assets, 2 reconstruct jobs, and 2 contributions with
-  memory text.
+- One image, 3 text selections → one segment job → 3 masks. Refine one
+  with a new name → only it re-segments. Generate 2 → 2 assets, 2
+  reconstruct jobs, and 2 contributions with memory text.
 - Validation:
-  - Coordinates outside 0–1 → 422, as is an empty prompt or two prompt
-    types in one selection.
+  - An empty prompt or a prompt over 100 chars → 422.
   - Generating an unsegmented selection → 409.
   - Resending the same `selection_id` creates nothing new.
 - An EXIF-rotated photo: the stored image is upright, and the mask lines

@@ -80,7 +80,7 @@
       "id": "room.state.fetch",
       "method": "GET",
       "path": "/v1/rooms/{project_id}/state",
-      "purpose": "Collaborative VR: read the live revision, objects, and ownership of a room (callable name get_room_state). Authenticated with NemoClaw's Clerk M2M token. Build Plan steps 21 and 24; gated by scripts/check_collab_gates.py.",
+      "purpose": "Collaborative VR: read the live revision, objects, and ownership of a room (callable name get_room_state). Authenticated with NemoClaw's shared service token (SKETCHSCAPE_NEMOCLAW_TOKEN, not yet built -- see docs/KNOWN_ISSUES.md R14). Build Plan steps 21 and 24; gated by scripts/check_collab_gates.py.",
       "approval_required": false,
       "implementation_status": "target"
     },

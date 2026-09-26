@@ -1,13 +1,27 @@
 ---
 name: meta-quest-identity
-description: Use for Build Plan step 14 (on-device spike proving Meta account identity on Quest - entitlement check, GetLoggedInUser, GetUserProof, SignInWithOculusAsync, server nonce validation) and step 18 (backend Meta identity exchange, backend room tokens, and linking a Quest's Meta account to a Clerk user with a code entered on the website).
+description: "RETIRED, reference only (decision 2026-09-26): steps 14 and 18 are no longer part of the Build Plan. The project uses two hardcoded accounts (SKETCHSCAPE_AUTH_MODE=demo) as its real identity model instead of Clerk/Meta account linking — see collab-vr-accounts-and-gates. This skill's content (on-device spike proving Meta account identity on Quest - entitlement check, GetLoggedInUser, GetUserProof, SignInWithOculusAsync, server nonce validation; backend Meta identity exchange, backend room tokens, and linking a Quest's Meta account to a Clerk user) is kept only in case a real multi-user product is built later. Do not build against it."
 ---
 
-# Meta account on the Quest, linked to Clerk (steps 14 and 18)
+# Meta account on the Quest, linked to Clerk (steps 14 and 18 — RETIRED)
 
-## Gate
+**Retired 2026-09-26.** Steps 14 and 18 are no longer part of the
+Collaborative VR + web accounts track. The project uses two hardcoded
+accounts (`SKETCHSCAPE_AUTH_MODE=demo`, `SKETCHSCAPE_DEMO_USERS`) as the
+real, permanent identity model instead — see `collab-vr-accounts-and-gates`
+for the full identity model and rationale (`docs/KNOWN_ISSUES.md` R13).
+No step in the current plan depends on the content below: not the
+account switcher (which sends a plain header, no nonce, no room token),
+not step 21's room API, not step 22's Unity networking. Everything in
+this file is kept **for reference only**, in case a real multi-user
+product with individual accounts is built later. Don't build against it,
+and don't try to satisfy any gate with it — `check_collab_gates.py` no
+longer has steps 14/18 at all.
 
-`python3 scripts/check_collab_gates.py 14` (or `18`). BLOCKED means stop.
+## Gate (historical — no longer runnable)
+
+`python3 scripts/check_collab_gates.py 14` (or `18`) used to gate this
+work; those step numbers have been removed from the script.
 
 ## Verified facts (2026-09-25)
 

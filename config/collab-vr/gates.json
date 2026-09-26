@@ -3,7 +3,7 @@
   "rules": [
     "An agent may set a gate to true ONLY after the user explicitly confirms it in the conversation. Never flip a gate to unblock yourself.",
     "When setting a gate to true, fill confirmed_by (the person's role, e.g. 'user') and confirmed_on (YYYY-MM-DD).",
-    "No secrets in this file. App IDs, publishable keys and URLs are public values and belong in the config described in the collab-vr-accounts-and-gates skill."
+    "No secrets in this file."
   ],
   "gates": {
     "scope_approved": {
@@ -13,34 +13,6 @@
       "confirmed_by": "user",
       "confirmed_on": "2026-09-25"
     },
-    "clerk_app_ready": {
-      "value": false,
-      "step": 13,
-      "meaning": "A Clerk dev instance exists for the web app; the publishable key is known; the web app's dev origin (http://localhost:5173) works; an M2M machine for NemoClaw can be created. The secret key is stored only in the backend environment.",
-      "confirmed_by": null,
-      "confirmed_on": null
-    },
-    "meta_app_ready": {
-      "value": false,
-      "step": 13,
-      "meaning": "A Meta Horizon developer app exists for the Quest build; App ID noted; App Secret stored only in the backend environment and the Unity dashboard; every tester is added as a test user (needed until the Data Use Checkup is approved).",
-      "confirmed_by": null,
-      "confirmed_on": null
-    },
-    "unity_meta_provider_configured": {
-      "value": false,
-      "step": 13,
-      "meaning": "Unity Dashboard > Authentication > ID Providers has the Meta Quest (Oculus) provider configured with the Meta App ID and App Secret.",
-      "confirmed_by": null,
-      "confirmed_on": null
-    },
-    "quest_meta_identity_spike_passed": {
-      "value": false,
-      "step": 14,
-      "meaning": "On a real Quest with a test user: entitlement check passed, GetLoggedInUser returned an ID, two GetUserProof nonces were obtained, SignInWithOculusAsync succeeded with one, and the other validated with is_valid:true at graph.oculus.com/user_nonce_validate (run by the user from a shell with the secret in an env var).",
-      "confirmed_by": null,
-      "confirmed_on": null
-    },
     "nemoclaw_agent_ready": {
       "value": false,
       "step": 3,
@@ -48,10 +20,17 @@
       "confirmed_by": null,
       "confirmed_on": null
     },
+    "account_switcher_verified": {
+      "value": false,
+      "step": 22,
+      "meaning": "On one real Quest in SKETCHSCAPE_AUTH_MODE=demo: the account switcher shows both SKETCHSCAPE_DEMO_USERS, joins the live multiplayer session under an anonymous Unity identity tagged with the chosen account id, and each account can edit only the objects it uploaded.",
+      "confirmed_by": null,
+      "confirmed_on": null
+    },
     "two_headset_verified": {
       "value": false,
       "step": 25,
-      "meaning": "Step 25 checklist passed on two real headsets plus the web app, including multi-object uploads and a recipient opening a letter live.",
+      "meaning": "Step 25 checklist passed on two real headsets plus the web app, including multi-object uploads, both hardcoded accounts editing live, and a recipient opening a letter live.",
       "confirmed_by": null,
       "confirmed_on": null
     },

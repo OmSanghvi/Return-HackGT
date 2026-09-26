@@ -16,20 +16,18 @@ third-party SDK (``clerk-backend-api``) is imported lazily, only inside the
 ``clerk`` branch, so the base install (``mock`` mode, the default) never
 needs it installed.
 
-``demo`` mode (added for the hackathon demo, ahead of step 13's real Clerk/
-Meta account setup) is real per-project enforcement -- unlike ``mock``, which
-no-ops membership and ownership checks -- but skips Clerk verification
-entirely: the caller is one of exactly two hardcoded accounts, selected with
-the same ``X-SketchScape-Dev-User`` header mock mode already uses. This is
-what lets a two-person collaboration demo run today without a Clerk
-dashboard. Clerk itself is left fully intact and dormant: switching back to
-``SKETCHSCAPE_AUTH_MODE=clerk`` once step 13's account setup is done needs no
-code changes here.
-
-Meta room tokens for Quest headsets are a separate verifier added by step 18
-(meta-quest-identity). ``require_identity`` is the extension point for it: a
-room-token mode would add a fourth branch here and use the already-declared
-``via="meta"`` value, not a rewrite.
+``demo`` mode is the real, permanent identity model for the Collaborative VR
+track (decision 2026-09-26, see the ``collab-vr-accounts-and-gates`` skill),
+not a stand-in for Clerk/Meta account setup -- that plan (steps 13's account
+dashboards, step 14's Quest spike, step 18's Meta identity exchange) is
+retired. It has real per-project enforcement -- unlike ``mock``, which no-ops
+membership and ownership checks -- but skips Clerk verification entirely:
+the caller is one of exactly two hardcoded accounts, selected with the same
+``X-SketchScape-Dev-User`` header mock mode already uses, sent directly by
+both the website and Quest headsets. Clerk itself is left fully intact and
+dormant: it is not part of the active plan, but ``SKETCHSCAPE_AUTH_MODE=clerk``
+still works and is still tested, in case a real multi-user product is built
+later.
 """
 
 from __future__ import annotations

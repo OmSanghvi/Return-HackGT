@@ -118,7 +118,9 @@ active contributor (`SetActiveContributor`) and every action it sends includes
 `contributor_id`; the backend then returns `403` for any object not attributed
 to that contributor. Requests without `contributor_id` (MCP/editor authoring)
 are unaffected. The id is self-asserted until the room API (step 21) replaces
-it with room tokens. The offline builder adds a `ContributorAttribution`
+it with the account the headset authenticated as (the hardcoded-account
+header — no room token; see `collab-vr-accounts-and-gates`). The offline
+builder adds a `ContributorAttribution`
 component per attributed object, which draws a glowing base ring in the
 contributor's color — attribution is diegetic, never a name tag or panel.
 

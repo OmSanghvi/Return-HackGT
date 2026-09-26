@@ -1,6 +1,6 @@
 ---
 name: room-api-and-ownership
-description: Use for Build Plan step 17 (project membership, invite codes, binding Contributors to Clerk users, room_prompt, and deriving which objects each person owns) and step 21 (the public room API /v1/rooms/{project_id}/state and /edits that headsets call with a room token). The room API is the only backend surface a shipped Unity player may use for collaborative edits (AGENT.md Hard Rule 4).
+description: Use for Build Plan step 17 (project membership, invite codes, binding Contributors to one of the two hardcoded accounts, room_prompt, and deriving which objects each person owns) and step 21 (the public room API /v1/rooms/{project_id}/state and /edits that headsets call with the X-SketchScape-Dev-User account header — no room token, no Clerk session; see collab-vr-accounts-and-gates). The room API is the only backend surface a shipped Unity player may use for collaborative edits (AGENT.md Hard Rule 4).
 ---
 
 # Membership, ownership, and the room API (steps 17 and 21)
@@ -8,7 +8,7 @@ description: Use for Build Plan step 17 (project membership, invite codes, bindi
 ## Gate
 
 `python3 scripts/check_collab_gates.py 17` (needs 2, 16) or `21` (needs 15,
-17, 18). BLOCKED means stop.
+17). BLOCKED means stop.
 
 ## Step 17: membership and ownership
 
@@ -17,11 +17,12 @@ description: Use for Build Plan step 17 (project membership, invite codes, bindi
   (max 300).
   - Only members can see the invite code.
   - Add `POST /v1/projects/{id}/invite/rotate` to rotate it.
-- `Contributor` gains `clerk_user_id: str | None`. Registering as a
+- `Contributor` gains `clerk_user_id: str | None` (the field name is
+  unchanged from the earlier Clerk plan; it now holds one of the two
+  hardcoded account ids — see `backend-auth-clerk`). Registering as a
   contributor requires a valid `invite_code` (except the project creator,
-  who is registered automatically) and binds the caller's verified identity
-  (a Clerk user, or a hardcoded `demo` account — see `backend-auth-clerk`).
-  That identity can be a contributor of a project only once.
+  who is registered automatically) and binds the caller's verified
+  identity. That identity can be a contributor of a project only once.
 - **Membership check** for every project-scoped route outside `mock` mode
   (`demo` or `clerk`):
   - The caller must be a contributor of the project, else 403.
@@ -44,12 +45,15 @@ description: Use for Build Plan step 17 (project membership, invite codes, bindi
 ## Step 21: the room API
 
 Headsets never call authoring routes (Hard Rule 4). They call these with
-the **room token** from step 18. The website and NemoClaw may call
-`GET /state` too.
+the same `X-SketchScape-Dev-User` account header every other `demo`-mode
+route uses — the headset's account switcher sends it directly (see
+`collab-vr-accounts-and-gates`). There is no room token and no Clerk
+session in this plan (decision 2026-09-26, `docs/KNOWN_ISSUES.md` R13).
+The website and NemoClaw may call `GET /state` too.
 
 ### `GET /v1/rooms/{project_id}/state`
 
-- Caller: a member (room token or Clerk session), or a service.
+- Caller: a member (the account header), or a service.
 - Returns:
   - `live_revision` (step 15 LIVE pointer) and the compiled scene.
   - Per object: `id`, `asset_id`, `position`, `rotation`, `scale`,
@@ -63,7 +67,8 @@ the **room token** from step 18. The website and NemoClaw may call
 
 ### `POST /v1/rooms/{project_id}/edits`
 
-- Caller: a **room token** only (a person in a headset). Services → 403.
+- Caller: a member, via the account header — a person in a headset.
+  Services → 403.
 - Body:
   ```json
   {"base_revision": 12, "client_edit_id": "uuid",
@@ -104,7 +109,7 @@ PR that multiple instances will need a shared one.
 
 - Owner edit → 201, and `state` shows it.
 - Non-owner → 403.
-- Clerk session token on `/edits` → 403 (headsets only).
+- A service identity on `/edits` → 403 (headsets only).
 - Missing interaction or out-of-bounds values → 422.
 - Stale base → 409.
 - Duplicate `client_edit_id` → one revision.

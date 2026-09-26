@@ -69,20 +69,20 @@ class UploadSelectionGenerateFlowTests(unittest.TestCase):
             selections = {
                 "selections": [
                     {
-                        "selection_id": "sel-points",
-                        "prompt": {"type": "points", "points": [[0.5, 0.5, 1]]},
+                        "selection_id": "sel-vase",
+                        "prompt": {"text": "vase"},
                         "label": "vase",
                         "memory_text": "Grandma's vase.",
                     },
                     {
-                        "selection_id": "sel-box",
-                        "prompt": {"type": "box", "box": [0.1, 0.1, 0.4, 0.4]},
+                        "selection_id": "sel-lamp",
+                        "prompt": {"text": "lamp"},
                         "label": "lamp",
                         "memory_text": "The reading lamp.",
                     },
                     {
-                        "selection_id": "sel-text",
-                        "prompt": {"type": "text", "text": "blue chair"},
+                        "selection_id": "sel-chair",
+                        "prompt": {"text": "blue chair"},
                         "label": "chair",
                     },
                 ]
@@ -96,7 +96,7 @@ class UploadSelectionGenerateFlowTests(unittest.TestCase):
 
             record = client.get(f"/v1/projects/{self.project_id}/uploads/{upload_id}").json()
             statuses = {item["selection_id"]: item["status"] for item in record["selections"]}
-            self.assertEqual(statuses, {"sel-points": "segmented", "sel-box": "segmented", "sel-text": "segmented"})
+            self.assertEqual(statuses, {"sel-vase": "segmented", "sel-lamp": "segmented", "sel-chair": "segmented"})
             for item in record["selections"]:
                 self.assertIsNotNone(item["mask_preview_url"])
                 mask_response = client.get(item["mask_preview_url"])
@@ -114,20 +114,20 @@ class UploadSelectionGenerateFlowTests(unittest.TestCase):
             after_resend = client.get(f"/v1/projects/{self.project_id}/uploads/{upload_id}").json()
             self.assertEqual(len(after_resend["selections"]), 3)
 
-            # Refine one selection with an exclude point; only it re-segments.
+            # Refine one selection with a more specific text prompt; only it re-segments.
             refine = client.post(
-                f"/v1/projects/{self.project_id}/uploads/{upload_id}/selections/sel-points/refine",
-                json={"points": [[0.5, 0.5, 1], [0.9, 0.9, 0]]},
+                f"/v1/projects/{self.project_id}/uploads/{upload_id}/selections/sel-vase/refine",
+                json={"text": "ceramic vase"},
             )
             self.assertEqual(refine.status_code, 202)
             refined = client.get(f"/v1/projects/{self.project_id}/uploads/{upload_id}").json()
-            refined_selection = next(s for s in refined["selections"] if s["selection_id"] == "sel-points")
-            self.assertEqual(refined_selection["prompt"]["type"], "points")
+            refined_selection = next(s for s in refined["selections"] if s["selection_id"] == "sel-vase")
+            self.assertEqual(refined_selection["prompt"]["text"], "ceramic vase")
             self.assertEqual(refined_selection["status"], "segmented")
 
             generate = client.post(
                 f"/v1/projects/{self.project_id}/uploads/{upload_id}/generate",
-                json={"selection_ids": ["sel-points", "sel-box"]},
+                json={"selection_ids": ["sel-vase", "sel-lamp"]},
             )
             self.assertEqual(generate.status_code, 202)
             body = generate.json()
@@ -152,7 +152,7 @@ class UploadSelectionGenerateFlowTests(unittest.TestCase):
             upload_id = upload["upload_id"]
             client.post(
                 f"/v1/projects/{self.project_id}/uploads/{upload_id}/selections",
-                json={"selections": [{"selection_id": "a", "prompt": {"type": "box", "box": [0, 0, 1, 1]}}]},
+                json={"selections": [{"selection_id": "a", "prompt": {"text": "thing"}}]},
             )
             deleted = client.delete(
                 f"/v1/projects/{self.project_id}/uploads/{upload_id}/selections/a"
@@ -179,28 +179,21 @@ class SelectionValidationTests(unittest.TestCase):
             json={"selections": [{"selection_id": "s1", "prompt": prompt}]},
         )
 
-    def test_coordinates_outside_0_1_are_422(self) -> None:
-        with TestClient(app) as client:
-            response = self._post_selection(client, {"type": "box", "box": [0, 0, 1.5, 1]})
-            self.assertEqual(response.status_code, 422)
-
     def test_empty_prompt_is_422(self) -> None:
         with TestClient(app) as client:
-            response = self._post_selection(client, {"type": "points", "points": []})
+            response = self._post_selection(client, {"text": ""})
             self.assertEqual(response.status_code, 422)
 
-    def test_two_prompt_types_at_once_is_422(self) -> None:
+    def test_too_long_prompt_is_422(self) -> None:
         with TestClient(app) as client:
-            response = self._post_selection(
-                client, {"type": "box", "box": [0, 0, 1, 1], "text": "also text"}
-            )
+            response = self._post_selection(client, {"text": "x" * 101})
             self.assertEqual(response.status_code, 422)
 
     def test_generating_an_unsegmented_selection_is_409(self) -> None:
         with TestClient(app) as client:
             client.post(
                 f"/v1/projects/{self.project_id}/uploads/{self.upload_id}/selections",
-                json={"selections": [{"selection_id": "s1", "prompt": {"type": "box", "box": [0, 0, 1, 1]}}]},
+                json={"selections": [{"selection_id": "s1", "prompt": {"text": "thing"}}]},
             )
             # Mock segmentation runs synchronously via TestClient's background
             # tasks, so force it back to "pending" to exercise the 409 path.
@@ -228,7 +221,7 @@ class SelectionValidationTests(unittest.TestCase):
             try:
                 selections = {
                     "selections": [
-                        {"selection_id": f"s{i}", "prompt": {"type": "box", "box": [0, 0, 0.1, 0.1]}}
+                        {"selection_id": f"s{i}", "prompt": {"text": f"thing {i}"}}
                         for i in range(3)
                     ]
                 }
@@ -266,7 +259,7 @@ class ExifOrientationTests(unittest.TestCase):
                 f"/v1/projects/{project_id}/uploads/{upload['upload_id']}/selections",
                 json={
                     "selections": [
-                        {"selection_id": "s1", "prompt": {"type": "box", "box": [0.1, 0.1, 0.5, 0.5]}}
+                        {"selection_id": "s1", "prompt": {"text": "thing"}}
                     ]
                 },
             )
@@ -319,7 +312,7 @@ class RestartDurabilityTests(unittest.TestCase):
             ).json()["upload_id"]
             create = client.post(
                 f"/v1/projects/{project_id}/uploads/{upload_id}/selections",
-                json={"selections": [{"selection_id": "s1", "prompt": {"type": "box", "box": [0, 0, 1, 1]}}]},
+                json={"selections": [{"selection_id": "s1", "prompt": {"text": "thing"}}]},
             )
             job_id = create.json()["job_id"]
 
@@ -360,7 +353,7 @@ class JobsPollingEndpointTests(unittest.TestCase):
             ).json()["upload_id"]
             client.post(
                 f"/v1/projects/{project_id}/uploads/{upload_id}/selections",
-                json={"selections": [{"selection_id": "s1", "prompt": {"type": "box", "box": [0, 0, 1, 1]}}]},
+                json={"selections": [{"selection_id": "s1", "prompt": {"text": "thing"}}]},
             )
             changed = client.get(
                 f"/v1/projects/{project_id}/jobs", headers={"If-None-Match": etag}

@@ -40,8 +40,11 @@ cold start.
   UnitySplats.
 - Failed objects are left out of the room, never replaced with placeholder
   primitives (Hard Rule 7).
-- Jobs still live in the API process's memory, and uploads on its disk. Run
-  one API process until durable jobs land (Build Plan step 26).
+- Jobs and uploads are durable (Build Plan step 26, done): jobs persist in
+  the `AuthoringStore` (local JSON or DynamoDB) with leases, and uploads in
+  the `ArtifactStore` (disk or S3), so several API instances can share
+  them. The worker is still push-based: nothing calls
+  `/v1/internal/jobs/claim` yet (that's step 27's dispatcher).
 
 ## What's planned next
 

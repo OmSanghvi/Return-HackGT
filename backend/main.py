@@ -418,13 +418,9 @@ SelectionOrigin = Literal["person", "suggested"]
 
 
 class SelectionPrompt(BaseModel):
-    """Exactly one of points / box / text (validated in the route)."""
+    """A typed name for the object SAM 3.1 should find (validated in the route)."""
 
-    type: Literal["points", "box", "text"]
-    # Normalized 0–1 coords: points are [x, y, 1|0] (1=include, 0=exclude).
-    points: list[list[float]] | None = None
-    box: list[float] | None = None  # [x0, y0, x1, y1] normalized
-    text: str | None = Field(default=None, max_length=100)
+    text: str = Field(min_length=1, max_length=100)
 
 
 class UploadSelection(BaseModel):
@@ -458,8 +454,7 @@ class SelectionsRequest(BaseModel):
 
 
 class RefineSelectionRequest(BaseModel):
-    points: list[list[float]] | None = None
-    box: list[float] | None = None
+    text: str = Field(min_length=1, max_length=100)
 
 
 class GenerateRequest(BaseModel):
@@ -1015,11 +1010,9 @@ async def run_mock_reconstruct_job(job_id: str) -> None:
 
 
 async def run_mock_segment_job(job_id: str) -> None:
-    """Mock SAM 3.1: deterministic masks per person-chosen selection.
-
-    A box becomes a filled rectangle, points become discs of fixed radius,
-    and text becomes a fixed centered ellipse (upload_pipeline.render_mock_mask)
-    -- no GPU, no network (Build Plan step 26/27's mock-mode contract).
+    """Mock SAM 3.1: a fixed centered ellipse per text-prompt selection
+    (upload_pipeline.render_mock_mask) -- no GPU, no network (Build Plan
+    step 26/27's mock-mode contract).
     """
     job = store.get_job(job_id)
     if job is None:
@@ -2091,12 +2084,7 @@ async def refine_selection(
     selection = next((item for item in upload.selections if item.selection_id == selection_id), None)
     if selection is None:
         raise HTTPException(404, "Unknown selection.")
-    if request.box:
-        selection.prompt = SelectionPrompt(type="box", box=request.box)
-    elif request.points:
-        selection.prompt = SelectionPrompt(type="points", points=request.points)
-    else:
-        raise HTTPException(422, "Provide points or a box to refine with.")
+    selection.prompt = SelectionPrompt(text=request.text)
     upload_pipeline.validate_selection_prompt(selection.prompt)
     selection.status = "pending"
     selection.mask_key = None
@@ -2175,7 +2163,7 @@ async def detect_upload_objects(
 
     selection = UploadSelection(
         selection_id=uuid.uuid4().hex,
-        prompt=SelectionPrompt(type="text", text=label.label),
+        prompt=SelectionPrompt(text=label.label),
         label=label.label,
         origin="suggested",
     )
