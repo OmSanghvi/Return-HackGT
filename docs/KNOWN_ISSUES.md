@@ -26,18 +26,18 @@ Status meanings:
 
 | # | Issue | Fix | Where | Status |
 | --- | --- | --- | --- | --- |
-| 2.1 | No authentication on any route | Clerk `session_token` (web, `authorized_parties`) + `m2m_token` (NemoClaw); headsets use backend room tokens from verified Meta proof; fail-fast config | Steps 16, 18; `backend-auth-clerk`, `meta-quest-identity` | Planned |
+| 2.1 | No authentication on any route | Clerk `session_token` (web, `authorized_parties`) + `m2m_token` (NemoClaw); headsets use backend room tokens from verified Meta proof; fail-fast config | Steps 16, 18; `backend-auth-clerk`, `meta-quest-identity` | Done (web + M2M, step 16) / Planned (Meta room tokens, step 18) |
 | 2.2 | No base-revision check: stale saves silently erase newer edits | `based_on_revision` = live revision; 409 when stale; clients rebase their own objects | Step 15, `backend-revision-concurrency` | Planned (can start now) |
 | 2.3 | DynamoDB `put_item` without condition and a per-process lock: revisions overwrite each other | `attribute_not_exists(sk)` on blueprint and publication appends, with retry | Step 15 | Planned |
 | N2 | Whole-blob `ProjectRecord` saves let the live room go backwards | Compare-and-set `LIVE` pointer item | Step 15 | Planned |
 | N3 | An unapproved NemoClaw draft could get published by a room edit | Edits copy the live revision; publish is compare-and-set on `based_on_revision` | Steps 15, 21 | Planned |
 | 2.4 | One process-wide `current_scene` for all projects | Rooms read per-project live state only; room routes never touch `current_scene` | Steps 15, 21 | Planned |
-| 2.5 | No ownership: "edit only your own object" is unenforced (Netcode check is client-side) | Contributors bound to Clerk users; ownership derived from contributions; server returns 403 | Steps 17, 21; `room-api-and-ownership` | Planned |
+| 2.5 | No ownership: "edit only your own object" is unenforced (Netcode check is client-side) | Contributors bound to Clerk users; ownership derived from contributions; server returns 403 | Steps 17, 21; `room-api-and-ownership` | Done (ownership helper + membership, step 17) / Planned (room `/edits`, step 21) |
 | 2.6 | No partial updates; every save is a full blueprint | Debounced save on release; bounded, idempotent `/v1/rooms/*/edits` builds the revision server-side | Steps 21, 23 | Planned |
 | 2.7 | No push channel to live rooms | Session owner polls `/v1/rooms/{id}/state?since_revision=` with ETag/304 | Step 23, DATA_ARCHITECTURE polling contract | Planned |
-| 2.8 | No author on revisions | `author` on revisions and publications (Clerk user, `nemoclaw:<id>`) | Steps 15, 16 | Planned |
+| 2.8 | No author on revisions | `author` on revisions and publications (Clerk user, `nemoclaw:<id>`) | Steps 15, 16 | Done |
 | N1 | Headsets calling authoring routes breaks Hard Rule 4 | Public room API `/v1/rooms/*`; Hard Rule 4 updated | Step 21, AGENT.md | Done (docs) / Planned (code) |
-| N4 | Mock auth could reach the cloud | Backend refuses to start: mock + DynamoDB or non-mock pipeline; clerk without secret or with `*` origins | Step 16 | Planned |
+| N4 | Mock auth could reach the cloud | Backend refuses to start: mock + DynamoDB or non-mock pipeline; clerk without secret or with `*` origins | Step 16 | Done |
 | N15 | Reconstruction jobs live in an in-memory dict: lost on restart, polls fail across instances | Durable lease-based jobs in the store | Step 26, `durable-jobs-and-multi-object-upload` | Planned |
 | N16 | Uploads stored on one API host's disk | S3 `uploads/` in cloud, disk locally | Step 26 | Planned |
 | N17 | `asset_ids` appended inside the project blob; simultaneous uploads lose assets | Project→asset child items | Step 26 | Planned |
@@ -64,7 +64,7 @@ Status meanings:
 | N8 | Meta `GetUserProof` needs the Data Use Checkup; until approved only test users work | Register test users now; submit the DUC early if outsiders will use it | Steps 13, 25 | Verify |
 | N14 | Link codes could be guessed | Hashed, single-use, 10-minute expiry, 5 attempts per user per 10 minutes | Step 18 | Planned |
 | N22 | Polling the link flow with a Meta nonce each time wastes Meta server checks | Nonce-free `GET /v1/auth/meta/link-code/{code_id}/status` | Step 18 | Planned |
-| N5 | NemoClaw needed its own identity | Clerk M2M token, `author = nemoclaw:<id>` | Steps 16, 24 | Planned |
+| N5 | NemoClaw needed its own identity | Clerk M2M token, `author = nemoclaw:<id>` | Steps 16, 24 | Done (identity, step 16) / Planned (room tools, step 24) |
 | N9 | Clerk's Electron support is unofficial | Upload app is a React + Vite web app with `@clerk/react` | Steps 19–20, AGENT.md | Done (docs) |
 | N10 | The "Export to Quest" screen ran a local script, which a web app can't do | Screen tells people to open the room in the Quest app; the export script stays a developer tool | AGENT.md | Done (docs) |
 | 4.3 | Dev and prod identities differ | Separate dev/prod Clerk instances and Meta apps in the config matrix | Step 13, `collab-vr-accounts-and-gates` | Planned |

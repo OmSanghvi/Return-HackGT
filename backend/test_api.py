@@ -415,13 +415,22 @@ class ContributorContributionApiTests(unittest.TestCase):
         with TestClient(app) as client:
             pid = self._make_project(client)
 
-            contributors = []
-            for name in ["Alice", "Bo", "Cass"]:
+            # Step 17: project create auto-registers the creator as member 1.
+            listed = client.get(f"/v1/projects/{pid}/contributors")
+            self.assertEqual(listed.status_code, 200)
+            contributors = listed.json()
+            self.assertEqual(len(contributors), 1)
+            self.assertEqual(contributors[0]["clerk_user_id"], "dev-user")
+            self.assertEqual(contributors[0]["display_name"], "Creator")
+
+            # Two more people join (unbound demo personas in mock mode).
+            for name in ["Alice", "Bo"]:
                 r = client.post(f"/v1/projects/{pid}/contributors", json={"display_name": name})
                 self.assertEqual(r.status_code, 201)
                 body = r.json()
                 self.assertEqual(body["display_name"], name)
                 self.assertEqual(body["project_id"], pid)
+                self.assertIsNone(body["clerk_user_id"])
                 contributors.append(body)
             self.assertEqual(len(contributors), 3)
 
@@ -813,6 +822,280 @@ class RevisionConcurrencyApiTests(unittest.TestCase):
             self.assertEqual(main.store.get_live_revision(pid), 1)
             compiled = client.get(f"/v1/projects/{pid}/compiled-scene")
             self.assertEqual(compiled.status_code, 200)
+
+
+class MembershipOwnershipApiTests(unittest.TestCase):
+    """Build Plan step 17: invites, membership, Clerk binding, ownership."""
+
+    def setUp(self) -> None:
+        main.current_scene = main.placeholder_scene()
+
+    def _ready_asset(self, client, project_id: str, hint: str = "keepsake") -> dict:
+        r = client.post(
+            f"/v1/projects/{project_id}/assets",
+            data={"subject_hint": hint},
+            files={"image": (f"{hint}.png", io.BytesIO(b"PNG"), "image/png")},
+        )
+        self.assertEqual(r.status_code, 202, r.text)
+        asset = client.get(f"/v1/projects/{project_id}/assets/{r.json()['asset_id']}").json()
+        self.assertEqual(asset["status"], "ready")
+        return asset
+
+    def test_mock_mode_keeps_working_with_dev_user(self) -> None:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/projects",
+                json={"name": "Mock room", "creator_display_name": "Dev"},
+            )
+            self.assertEqual(created.status_code, 201)
+            body = created.json()
+            self.assertTrue(len(body["invite_code"]) >= 16)
+            self.assertEqual(body["created_by"], "dev-user")
+            self.assertIsNone(body["room_prompt"])
+
+            pid = body["project_id"]
+            patched = client.patch(f"/v1/projects/{pid}", json={"room_prompt": "cozy attic"})
+            self.assertEqual(patched.status_code, 200)
+            self.assertEqual(patched.json()["room_prompt"], "cozy attic")
+
+            rotated = client.post(f"/v1/projects/{pid}/invite/rotate")
+            self.assertEqual(rotated.status_code, 200)
+            self.assertNotEqual(rotated.json()["invite_code"], body["invite_code"])
+            self.assertTrue(len(rotated.json()["invite_code"]) >= 16)
+
+            # Bad invite is rejected even in mock when a code is supplied.
+            bad = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Eve", "invite_code": "definitely-not-the-code"},
+            )
+            self.assertEqual(bad.status_code, 403)
+
+    def test_owned_object_ids_for_three_contributors(self) -> None:
+        """Ownership is derived from contributions, never a stored second copy."""
+        with TestClient(app) as client:
+            pid = client.post(
+                "/v1/projects", json={"name": "Owned room", "creator_display_name": "Ada"}
+            ).json()["project_id"]
+            # Ada is creator (clerk_user_id=dev-user). Bo and Cass join unbound
+            # in mock; bind them by creating with distinct X-SketchScape-Dev-User.
+            invite = client.get(f"/v1/projects/{pid}").json()["invite_code"]
+            bo = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bo", "invite_code": invite},
+                headers={"X-SketchScape-Dev-User": "user-bo"},
+            ).json()
+            cass = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Cass", "invite_code": invite},
+                headers={"X-SketchScape-Dev-User": "user-cass"},
+            ).json()
+            self.assertEqual(bo["clerk_user_id"], "user-bo")
+            self.assertEqual(cass["clerk_user_id"], "user-cass")
+
+            ada = next(c for c in client.get(f"/v1/projects/{pid}/contributors").json() if c["clerk_user_id"] == "dev-user")
+            assets = {
+                "ada": self._ready_asset(client, pid, "ada-mug"),
+                "bo": self._ready_asset(client, pid, "bo-book"),
+                "cass": self._ready_asset(client, pid, "cass-lamp"),
+            }
+            for key, contributor in ("ada", ada), ("bo", bo), ("cass", cass):
+                client.post(
+                    f"/v1/projects/{pid}/contributions",
+                    json={
+                        "contributor_id": contributor["contributor_id"],
+                        "asset_id": assets[key]["asset_id"],
+                        "source_type": "photo",
+                        "memory_text": f"{key} memory",
+                    },
+                )
+
+            blueprint = main.ExperienceBlueprint(
+                project_id=pid,
+                revision=1,
+                created_at=main.utc_now(),
+                experience=main.ExperienceSettings(mode="vr", theme="test", units="meters"),
+                objects=[
+                    main.BlueprintObject(
+                        id="obj_ada",
+                        asset_id=assets["ada"]["asset_id"],
+                        position=[0, 0, 1],
+                    ),
+                    main.BlueprintObject(
+                        id="obj_bo",
+                        asset_id=assets["bo"]["asset_id"],
+                        position=[1, 0, 1],
+                    ),
+                    main.BlueprintObject(
+                        id="obj_cass",
+                        asset_id=assets["cass"]["asset_id"],
+                        position=[-1, 0, 1],
+                    ),
+                    # NemoClaw environment object — no contribution → unowned.
+                    main.BlueprintObject(
+                        id="obj_env",
+                        asset_id=assets["ada"]["asset_id"],
+                        position=[0, 0, 2],
+                    ),
+                ],
+            )
+            # Force env object to a fake asset id so it matches no contribution.
+            blueprint.objects[3] = main.BlueprintObject(
+                id="obj_env",
+                asset_id="envasset000000000000000000000001",
+                position=[0, 0, 2],
+            )
+
+            self.assertEqual(main.owned_object_ids(pid, "dev-user", blueprint), {"obj_ada"})
+            self.assertEqual(main.owned_object_ids(pid, "user-bo", blueprint), {"obj_bo"})
+            self.assertEqual(main.owned_object_ids(pid, "user-cass", blueprint), {"obj_cass"})
+            self.assertEqual(main.owned_object_ids(pid, "stranger", blueprint), set())
+
+
+# -- clerk-mode membership tests (stubbed SDK, never calls real Clerk) --------
+
+_FAKE_TOKENS: dict[str, dict] = {}
+
+
+class _FakeRequestState:
+    def __init__(self, is_signed_in: bool, payload: dict | None = None, reason: str | None = None) -> None:
+        self.is_signed_in = is_signed_in
+        self.payload = payload
+        self.reason = reason
+
+
+class _FakeAuthenticateRequestOptions:
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+
+
+class _FakeClerk:
+    def __init__(self, bearer_auth: str | None = None) -> None:
+        self.bearer_auth = bearer_auth
+
+    def authenticate_request(self, request, options: _FakeAuthenticateRequestOptions) -> _FakeRequestState:
+        token = (request.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+        payload = _FAKE_TOKENS.get(token)
+        if payload is None:
+            return _FakeRequestState(False, reason="token-invalid")
+        azp = payload.get("azp")
+        authorized_parties = options.kwargs.get("authorized_parties")
+        if azp is not None and authorized_parties is not None and azp not in authorized_parties:
+            return _FakeRequestState(False, reason="token-invalid-authorized-parties")
+        return _FakeRequestState(True, payload=payload)
+
+
+class ClerkMembershipApiTests(unittest.TestCase):
+    """Membership enforcement that only applies in SKETCHSCAPE_AUTH_MODE=clerk."""
+
+    def setUp(self) -> None:
+        import sys
+        import types
+        from unittest.mock import patch
+
+        _FAKE_TOKENS.clear()
+        _FAKE_TOKENS["alice"] = {"sub": "user_alice", "azp": "https://app.example.com"}
+        _FAKE_TOKENS["bob"] = {"sub": "user_bob", "azp": "https://app.example.com"}
+        _FAKE_TOKENS["m2m"] = {"subject": "nemoclaw_machine"}
+        fake = types.ModuleType("clerk_backend_api")
+        fake.Clerk = _FakeClerk  # type: ignore[attr-defined]
+        fake.AuthenticateRequestOptions = _FakeAuthenticateRequestOptions  # type: ignore[attr-defined]
+        self._modules = patch.dict(sys.modules, {"clerk_backend_api": fake})
+        self._env = patch.dict(
+            os.environ,
+            {
+                "SKETCHSCAPE_AUTH_MODE": "clerk",
+                "CLERK_SECRET_KEY": "sk_test_fake",
+                "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com",
+            },
+        )
+        self._modules.start()
+        self._env.start()
+
+    def tearDown(self) -> None:
+        self._env.stop()
+        self._modules.stop()
+        _FAKE_TOKENS.clear()
+
+    def test_non_member_gets_403_on_reads_and_uploads(self) -> None:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/projects",
+                json={"name": "Private room", "creator_display_name": "Alice"},
+                headers={"Authorization": "Bearer alice"},
+            )
+            self.assertEqual(created.status_code, 201, created.text)
+            pid = created.json()["project_id"]
+            invite = created.json()["invite_code"]
+            self.assertTrue(len(invite) >= 16)
+
+            # Bob is authenticated but not a member.
+            read = client.get(
+                f"/v1/projects/{pid}", headers={"Authorization": "Bearer bob"}
+            )
+            self.assertEqual(read.status_code, 403)
+
+            upload = client.post(
+                f"/v1/projects/{pid}/assets",
+                data={"subject_hint": "mug"},
+                files={"image": ("mug.png", io.BytesIO(b"PNG"), "image/png")},
+                headers={"Authorization": "Bearer bob"},
+            )
+            self.assertEqual(upload.status_code, 403)
+
+            # Service may read but must not see the invite code or upload.
+            service_read = client.get(
+                f"/v1/projects/{pid}", headers={"Authorization": "Bearer m2m"}
+            )
+            self.assertEqual(service_read.status_code, 200)
+            self.assertEqual(service_read.json()["invite_code"], "")
+
+            service_upload = client.post(
+                f"/v1/projects/{pid}/assets",
+                data={"subject_hint": "mug"},
+                files={"image": ("mug.png", io.BytesIO(b"PNG"), "image/png")},
+                headers={"Authorization": "Bearer m2m"},
+            )
+            self.assertEqual(service_upload.status_code, 403)
+
+    def test_bad_invite_code_is_403_and_duplicate_register_is_rejected(self) -> None:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/projects",
+                json={"name": "Invite room", "creator_display_name": "Alice"},
+                headers={"Authorization": "Bearer alice"},
+            )
+            pid = created.json()["project_id"]
+            invite = created.json()["invite_code"]
+
+            bad = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bob", "invite_code": "wrong-code-xxxxxxxx"},
+                headers={"Authorization": "Bearer bob"},
+            )
+            self.assertEqual(bad.status_code, 403)
+
+            ok = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bob", "invite_code": invite},
+                headers={"Authorization": "Bearer bob"},
+            )
+            self.assertEqual(ok.status_code, 201)
+            self.assertEqual(ok.json()["clerk_user_id"], "user_bob")
+
+            again = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bobby", "invite_code": invite},
+                headers={"Authorization": "Bearer bob"},
+            )
+            self.assertEqual(again.status_code, 409)
+
+            # Alice (already creator) cannot register a second time either.
+            alice_again = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Alice 2", "invite_code": invite},
+                headers={"Authorization": "Bearer alice"},
+            )
+            self.assertEqual(alice_again.status_code, 409)
 
 
 if __name__ == "__main__":

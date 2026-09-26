@@ -16,16 +16,25 @@ import re
 import secrets
 import sys
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
+from auth import (
+    Identity,
+    author_from_identity,
+    require_identity,
+    require_mock_mode,
+    run_startup_checks,
+    web_origins,
+)
 from storage import RevisionConflict, create_store
 from artifact_store import create_artifact_store
 from subject_labeler import SubjectLabelError, create_subject_labeler
@@ -82,6 +91,14 @@ class SceneResponse(BaseModel):
 class ProjectCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=500)
+    # Display name for the auto-registered creator contributor (step 17).
+    creator_display_name: str = Field(default="Creator", min_length=1, max_length=100)
+
+
+class ProjectUpdateRequest(BaseModel):
+    """Partial update for project fields contributors may set (step 17)."""
+
+    room_prompt: str | None = Field(default=None, max_length=300)
 
 
 class ProjectRecord(BaseModel):
@@ -97,6 +114,11 @@ class ProjectRecord(BaseModel):
     contribution_ids: list[str] = Field(default_factory=list)
     min_contributors: int = Field(default=2, ge=2)
     max_contributors: int = Field(default=6, ge=2)
+    # Step 17: membership. Empty string only appears on records loaded from
+    # pre-step-17 snapshots; get_project() backfills a real code on read.
+    invite_code: str = ""
+    room_prompt: str | None = Field(default=None, max_length=300)
+    created_by: str | None = None
 
 
 SubjectHintSource = Literal["user", "nemoclaw"]
@@ -173,10 +195,17 @@ class Contributor(BaseModel):
     project_id: str
     display_name: str = Field(min_length=1, max_length=100)
     joined_at: datetime
+    # Bound to the caller's verified identity when they join (Clerk `sub` in
+    # clerk mode, or the mock `X-SketchScape-Dev-User` value). None for
+    # unbound demo personas created in mock mode after the creator.
+    clerk_user_id: str | None = None
 
 
 class ContributorCreateRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=100)
+    # Required in clerk mode; optional in mock so existing local/demo flows
+    # keep working (Hard Rule 2).
+    invite_code: str | None = Field(default=None, max_length=128)
 
 
 ContributionSourceType = Literal["photo", "sketch", "letter"]
@@ -290,8 +319,9 @@ class ExperienceBlueprint(ExperienceBlueprintInput):
     # that revision keeps today's unconditional publish behavior, including
     # deliberate rollback to an older revision.
     based_on_revision: int | None = None
-    # Filled by step 16 (Clerk auth) once it lands; unset for mock-mode/manual
-    # authoring today.
+    # Set from the caller's verified identity in `clerk` mode (step 16);
+    # unset for mock-mode/manual authoring, matching that mode's behavior
+    # before step 16 (Hard Rule 2).
     author: str | None = None
 
 
@@ -306,6 +336,9 @@ class PublicationRecord(BaseModel):
     project_id: str
     revision: int
     published_at: datetime
+    # Set from the caller's verified identity in `clerk` mode (step 16);
+    # unset for mock-mode/manual publishing, matching create_blueprint above.
+    author: str | None = None
 
 
 class ReconstructionResponse(BaseModel):
@@ -403,13 +436,34 @@ subject_labeler = create_subject_labeler()
 # concurrent 3D reconstructions on a 16 GB GPU would make both jobs fail.
 local_worker_lock = asyncio.Lock()
 
-app = FastAPI(title="SketchScape Reconstruction API", version="0.2.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):  # noqa: ARG001 - required by FastAPI's lifespan signature
+    # Fail fast: refuse to start under an unsafe or self-contradictory
+    # SKETCHSCAPE_AUTH_MODE configuration, rather than serving traffic and
+    # discovering the problem later. See auth.run_startup_checks.
+    run_startup_checks()
+    yield
+
+
+app = FastAPI(title="SketchScape Reconstruction API", version="0.2.0", lifespan=lifespan)
+
+# In `clerk` mode, only the configured web origin(s) may call this API, and
+# bearer tokens (not cookies) carry auth, so credentialed CORS isn't needed.
+# `mock` mode keeps today's SKETCHSCAPE_ALLOWED_ORIGINS behavior unchanged
+# (default "*") -- no behavior change for local/offline use (Hard Rule 2).
+if os.environ.get("SKETCHSCAPE_AUTH_MODE", "mock").strip().lower() == "clerk":
+    _cors_origins = web_origins()
+    _cors_headers = ["Authorization", "Content-Type"]
+else:
+    _cors_origins = os.environ.get("SKETCHSCAPE_ALLOWED_ORIGINS", "*").split(",")
+    _cors_headers = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("SKETCHSCAPE_ALLOWED_ORIGINS", "*").split(","),
+    allow_origins=_cors_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
-    allow_headers=["*"],
+    allow_headers=_cors_headers,
 )
 
 
@@ -445,11 +499,144 @@ def job_url(job_id: str) -> str:
     return f"/v1/reconstructions/{job_id}"
 
 
+def _auth_mode() -> str:
+    return os.environ.get("SKETCHSCAPE_AUTH_MODE", "mock").strip().lower()
+
+
+def new_invite_code() -> str:
+    """URL-safe invite code with at least 16 characters (step 17)."""
+    return secrets.token_urlsafe(16)
+
+
 def get_project(project_id: str) -> ProjectRecord:
     project = store.get_project(project_id)
     if project is None:
         raise HTTPException(404, "Unknown project.")
+    # Pre-step-17 snapshots have an empty invite_code; backfill once on read
+    # so membership joins always have something to check against.
+    if not project.invite_code:
+        project.invite_code = new_invite_code()
+        project.updated_at = utc_now()
+        store.save_project(project)
     return project
+
+
+def find_contributor_by_clerk_user(project_id: str, clerk_user_id: str) -> Contributor | None:
+    for contributor in store.list_contributors(project_id):
+        if contributor.clerk_user_id == clerk_user_id:
+            return contributor
+    return None
+
+
+def is_project_member(project_id: str, identity: Identity) -> bool:
+    if identity.kind == "service":
+        return False
+    return find_contributor_by_clerk_user(project_id, identity.user_id) is not None
+
+
+def visible_project(project: ProjectRecord, identity: Identity) -> ProjectRecord:
+    """Return a project view; only members see the invite code."""
+    if is_project_member(project.project_id, identity):
+        return project
+    # Service callers (and anyone else allowed to read) get the project
+    # without the invite code.
+    return project.model_copy(update={"invite_code": ""})
+
+
+def enforce_project_access(
+    project_id: str,
+    identity: Identity,
+    *,
+    capability: Literal["read", "write", "draft"],
+) -> None:
+    """Membership gate for project-scoped routes (step 17).
+
+    In ``mock`` mode this is a no-op so local/demo flows and existing tests
+    keep working (Hard Rule 2). In ``clerk`` mode:
+
+    - ``read`` / ``draft``: a project member, or a service (NemoClaw).
+    - ``write``: a project member only (never a service) — uploads,
+      contributions, invite rotation, room_prompt, publish.
+    """
+    if _auth_mode() != "clerk":
+        return
+    get_project(project_id)  # 404 if unknown
+    if identity.kind == "service":
+        if capability == "write":
+            raise HTTPException(
+                403,
+                "Service identities may read and draft, but cannot upload, "
+                "publish, or change membership.",
+            )
+        return
+    if not is_project_member(project_id, identity):
+        raise HTTPException(403, "Not a member of this project.")
+
+
+def require_project_read(
+    project_id: str, identity: Identity = Depends(require_identity)
+) -> Identity:
+    enforce_project_access(project_id, identity, capability="read")
+    return identity
+
+
+def require_project_write(
+    project_id: str, identity: Identity = Depends(require_identity)
+) -> Identity:
+    enforce_project_access(project_id, identity, capability="write")
+    return identity
+
+
+def require_project_draft(
+    project_id: str, identity: Identity = Depends(require_identity)
+) -> Identity:
+    enforce_project_access(project_id, identity, capability="draft")
+    return identity
+
+
+def owned_object_ids(project_id: str, clerk_user_id: str, blueprint: ExperienceBlueprint) -> set[str]:
+    """Object ids in ``blueprint`` this person contributed (derived, not stored).
+
+    Ownership is ``object.asset_id`` ∈ the caller's contribution asset ids.
+    Objects with no matching contribution (e.g. NemoClaw environment set-
+    dressing) are not owned by anyone and can't be edited from a headset.
+    """
+    contributor = find_contributor_by_clerk_user(project_id, clerk_user_id)
+    if contributor is None:
+        return set()
+    owned_assets = {
+        item.asset_id
+        for item in store.list_contributions(project_id)
+        if item.contributor_id == contributor.contributor_id
+    }
+    return {obj.id for obj in blueprint.objects if obj.asset_id in owned_assets}
+
+
+def register_creator_contributor(
+    project: ProjectRecord, identity: Identity, display_name: str
+) -> Contributor:
+    """Bind the project creator as the first contributor (step 17)."""
+    contributor = Contributor(
+        contributor_id=uuid.uuid4().hex,
+        project_id=project.project_id,
+        display_name=display_name.strip() or "Creator",
+        joined_at=utc_now(),
+        clerk_user_id=identity.user_id,
+    )
+    store.append_contributor(contributor)
+    project.contributor_ids.append(contributor.contributor_id)
+    project.updated_at = utc_now()
+    store.save_project(project)
+    return contributor
+
+
+def invite_codes_match(provided: str | None, expected: str) -> bool:
+    if provided is None or not expected:
+        return False
+    # secrets.compare_digest requires equal-length strings.
+    if len(provided) != len(expected):
+        return False
+    return secrets.compare_digest(provided, expected)
 
 
 def sync_project_asset(job: ReconstructionJob) -> None:
@@ -715,7 +902,9 @@ async def health_check() -> dict[str, str]:
 
 
 @app.post("/v1/projects", response_model=ProjectRecord, status_code=201)
-async def create_project(request: ProjectCreateRequest) -> ProjectRecord:
+async def create_project(
+    request: ProjectCreateRequest, identity: Identity = Depends(require_identity)
+) -> ProjectRecord:
     now = utc_now()
     project_id = uuid.uuid4().hex
     project = ProjectRecord(
@@ -726,30 +915,98 @@ async def create_project(request: ProjectCreateRequest) -> ProjectRecord:
         updated_at=now,
         min_contributors=int(os.environ.get("SKETCHSCAPE_MIN_CONTRIBUTORS", "2")),
         max_contributors=int(os.environ.get("SKETCHSCAPE_MAX_CONTRIBUTORS", "6")),
+        invite_code=new_invite_code(),
+        created_by=identity.user_id,
     )
     store.save_project(project)
-    return project
+    # Creator is the first member; invite_code is only visible to members.
+    register_creator_contributor(project, identity, request.creator_display_name)
+    return visible_project(project, identity)
 
 
 @app.get("/v1/projects/{project_id}", response_model=ProjectRecord)
-async def read_project(project_id: str) -> ProjectRecord:
-    return get_project(project_id)
+async def read_project(
+    project_id: str, identity: Identity = Depends(require_project_read)
+) -> ProjectRecord:
+    return visible_project(get_project(project_id), identity)
 
 
-@app.get("/v1/projects/{project_id}/assets", response_model=list[ProjectAsset])
+@app.patch("/v1/projects/{project_id}", response_model=ProjectRecord)
+async def update_project(
+    project_id: str,
+    request: ProjectUpdateRequest,
+    identity: Identity = Depends(require_project_write),
+) -> ProjectRecord:
+    project = get_project(project_id)
+    if request.room_prompt is not None:
+        cleaned = request.room_prompt.strip()
+        project.room_prompt = cleaned or None
+        project.updated_at = utc_now()
+        store.save_project(project)
+    return visible_project(project, identity)
+
+
+@app.post("/v1/projects/{project_id}/invite/rotate", response_model=ProjectRecord)
+async def rotate_project_invite(
+    project_id: str, identity: Identity = Depends(require_project_write)
+) -> ProjectRecord:
+    project = get_project(project_id)
+    project.invite_code = new_invite_code()
+    project.updated_at = utc_now()
+    store.save_project(project)
+    return visible_project(project, identity)
+
+
+@app.get(
+    "/v1/projects/{project_id}/assets",
+    response_model=list[ProjectAsset],
+    dependencies=[Depends(require_project_read)],
+)
 async def list_project_assets(project_id: str) -> list[ProjectAsset]:
     project = get_project(project_id)
     return [store.get_asset(asset_id) for asset_id in project.asset_ids if store.get_asset(asset_id)]
 
 
-@app.post("/v1/projects/{project_id}/contributors", response_model=Contributor, status_code=201)
-async def create_contributor(project_id: str, request: ContributorCreateRequest) -> Contributor:
+@app.post(
+    "/v1/projects/{project_id}/contributors",
+    response_model=Contributor,
+    status_code=201,
+)
+async def create_contributor(
+    project_id: str,
+    request: ContributorCreateRequest,
+    identity: Identity = Depends(require_identity),
+) -> Contributor:
     project = get_project(project_id)
+    if identity.kind == "service":
+        raise HTTPException(403, "Service identities cannot register as contributors.")
+    if len(project.contributor_ids) >= project.max_contributors:
+        raise HTTPException(409, "This project already has the maximum number of contributors.")
+
+    mode = _auth_mode()
+    existing = find_contributor_by_clerk_user(project_id, identity.user_id)
+    if mode == "clerk":
+        if not invite_codes_match(request.invite_code, project.invite_code):
+            raise HTTPException(403, "Invalid invite code.")
+        if existing is not None:
+            raise HTTPException(409, "Already a contributor of this project.")
+        clerk_user_id: str | None = identity.user_id
+    else:
+        # Mock: invite optional (must match when provided). The creator is
+        # already bound to the default dev user; further demo personas join
+        # unbound so local multi-contributor flows keep working.
+        if request.invite_code is not None and not invite_codes_match(
+            request.invite_code, project.invite_code
+        ):
+            raise HTTPException(403, "Invalid invite code.")
+        clerk_user_id = None if existing is not None else identity.user_id
+
     contributor = Contributor(
         contributor_id=uuid.uuid4().hex,
         project_id=project.project_id,
         display_name=request.display_name.strip(),
         joined_at=utc_now(),
+        clerk_user_id=clerk_user_id,
     )
     store.append_contributor(contributor)
     project.contributor_ids.append(contributor.contributor_id)
@@ -758,7 +1015,11 @@ async def create_contributor(project_id: str, request: ContributorCreateRequest)
     return contributor
 
 
-@app.get("/v1/projects/{project_id}/contributors", response_model=list[Contributor])
+@app.get(
+    "/v1/projects/{project_id}/contributors",
+    response_model=list[Contributor],
+    dependencies=[Depends(require_project_read)],
+)
 async def list_contributors(project_id: str) -> list[Contributor]:
     get_project(project_id)
     return store.list_contributors(project_id)
@@ -774,7 +1035,12 @@ def validate_contribution_request(project: ProjectRecord, request: ContributionC
         raise HTTPException(409, f"Blueprint assets are not ready: {request.asset_id}")
 
 
-@app.post("/v1/projects/{project_id}/contributions", response_model=Contribution, status_code=201)
+@app.post(
+    "/v1/projects/{project_id}/contributions",
+    response_model=Contribution,
+    status_code=201,
+    dependencies=[Depends(require_project_write)],
+)
 async def create_contribution(project_id: str, request: ContributionCreateRequest) -> Contribution:
     project = get_project(project_id)
     validate_contribution_request(project, request)
@@ -794,21 +1060,32 @@ async def create_contribution(project_id: str, request: ContributionCreateReques
     return contribution
 
 
-@app.get("/v1/projects/{project_id}/contributions", response_model=list[Contribution])
+@app.get(
+    "/v1/projects/{project_id}/contributions",
+    response_model=list[Contribution],
+    dependencies=[Depends(require_project_read)],
+)
 async def list_contributions(project_id: str) -> list[Contribution]:
     get_project(project_id)
     return store.list_contributions(project_id)
 
 
-@app.post("/v1/reconstructions", response_model=ReconstructionResponse, status_code=202)
+@app.post(
+    "/v1/reconstructions",
+    response_model=ReconstructionResponse,
+    status_code=202,
+)
 async def create_reconstruction(
     background_tasks: BackgroundTasks,
     image: Annotated[UploadFile, File(description="Photo with one prominent object")],
     mask: Annotated[UploadFile | None, File(description="Optional aligned white-on-black mask")] = None,
     subject_hint: Annotated[str | None, Form(max_length=100)] = None,
     project_id: Annotated[str | None, Form(max_length=80)] = None,
+    identity: Identity = Depends(require_identity),
 ) -> ReconstructionResponse:
     """Queue a reconstruction and optionally register it in a project catalog."""
+    if project_id:
+        enforce_project_access(project_id, identity, capability="write")
     project = get_project(project_id) if project_id else None
     job_id = uuid.uuid4().hex
     image_path = UPLOAD_ROOT / f"{job_id}-image{image_extension(image)}"
@@ -876,13 +1153,18 @@ async def create_reconstruction(
     )
 
 
-@app.post("/v1/projects/{project_id}/assets", response_model=ProjectAsset, status_code=202)
+@app.post(
+    "/v1/projects/{project_id}/assets",
+    response_model=ProjectAsset,
+    status_code=202,
+)
 async def create_project_asset(
     project_id: str,
     background_tasks: BackgroundTasks,
     image: Annotated[UploadFile, File(description="Photo with one prominent object")],
     mask: Annotated[UploadFile | None, File(description="Optional aligned white-on-black mask")] = None,
     subject_hint: Annotated[str | None, Form(max_length=100)] = None,
+    identity: Identity = Depends(require_project_write),
 ) -> ProjectAsset:
     response = await create_reconstruction(
         background_tasks=background_tasks,
@@ -890,6 +1172,7 @@ async def create_project_asset(
         mask=mask,
         subject_hint=subject_hint,
         project_id=project_id,
+        identity=identity,
     )
     job = jobs[response.job_id]
     asset = store.get_asset(job.asset_id or "")
@@ -898,7 +1181,11 @@ async def create_project_asset(
     return asset
 
 
-@app.get("/v1/reconstructions/{job_id}", response_model=ReconstructionJob)
+@app.get(
+    "/v1/reconstructions/{job_id}",
+    response_model=ReconstructionJob,
+    dependencies=[Depends(require_identity)],
+)
 async def get_reconstruction(job_id: str) -> ReconstructionJob:
     try:
         return jobs[job_id]
@@ -1003,13 +1290,26 @@ async def receive_worker_result(
     return job
 
 
-@app.get("/v1/scene", response_model=SceneResponse)
-@app.get("/scene", response_model=SceneResponse, include_in_schema=False)
+@app.get("/v1/scene", response_model=SceneResponse, dependencies=[Depends(require_mock_mode)])
+@app.get(
+    "/scene",
+    response_model=SceneResponse,
+    include_in_schema=False,
+    dependencies=[Depends(require_mock_mode)],
+)
 async def get_scene() -> SceneResponse:
+    # /v1/scene and /scene both read the same process-global demo scene, not
+    # a project's published blueprint (see /v1/projects/{id}/compiled-scene
+    # for that) -- a legacy, unauthenticated demo surface, so it stays
+    # mock-mode-only rather than joining the authenticated /v1/projects/**
+    # group. See require_mock_mode in auth.py.
     return SceneResponse(scene=current_scene)
 
 
-@app.get("/v1/artifacts/{job_id}/{filename}")
+@app.get(
+    "/v1/artifacts/{job_id}/{filename}",
+    dependencies=[Depends(require_identity)],
+)
 async def get_artifact(job_id: str, filename: str) -> Response:
     if not jobs.get(job_id) or Path(filename).name != filename:
         raise HTTPException(404, "Unknown artifact.")
@@ -1049,7 +1349,11 @@ def validate_blueprint_assets(project: ProjectRecord, request: ExperienceBluepri
             )
 
 
-@app.post("/v1/projects/{project_id}/blueprints/validate", response_model=ExperienceBlueprintInput)
+@app.post(
+    "/v1/projects/{project_id}/blueprints/validate",
+    response_model=ExperienceBlueprintInput,
+    dependencies=[Depends(require_project_draft)],
+)
 async def validate_blueprint(project_id: str, request: ExperienceBlueprintInput) -> ExperienceBlueprintInput:
     project = get_project(project_id)
     validate_blueprint_assets(project, request)
@@ -1076,6 +1380,7 @@ async def create_blueprint(
             ),
         ),
     ] = None,
+    identity: Identity = Depends(require_project_draft),
 ) -> ExperienceBlueprint:
     project = get_project(project_id)
     validate_blueprint_assets(project, request)
@@ -1103,6 +1408,7 @@ async def create_blueprint(
             revision=len(revisions) + 1,
             created_at=utc_now(),
             based_on_revision=base_revision,
+            author=author_from_identity(identity),
         )
         try:
             store.append_blueprint(blueprint)
@@ -1122,7 +1428,11 @@ async def create_blueprint(
     )
 
 
-@app.get("/v1/projects/{project_id}/blueprints/{revision}", response_model=ExperienceBlueprint)
+@app.get(
+    "/v1/projects/{project_id}/blueprints/{revision}",
+    response_model=ExperienceBlueprint,
+    dependencies=[Depends(require_project_read)],
+)
 async def get_blueprint(project_id: str, revision: int) -> ExperienceBlueprint:
     get_project(project_id)
     revisions = store.list_blueprints(project_id)
@@ -1135,7 +1445,9 @@ _MAX_LIVE_POINTER_ATTEMPTS = 5
 
 
 @app.post("/v1/projects/{project_id}/blueprints/{revision}/publish", response_model=SceneResponse)
-async def publish_blueprint(project_id: str, revision: int) -> SceneResponse:
+async def publish_blueprint(
+    project_id: str, revision: int, identity: Identity = Depends(require_project_write)
+) -> SceneResponse:
     global current_scene
     project = get_project(project_id)
     blueprint = await get_blueprint(project_id, revision)
@@ -1199,12 +1511,21 @@ async def publish_blueprint(project_id: str, revision: int) -> SceneResponse:
     # Append-only: record which revision went live and when. Republishing an
     # earlier revision appends a new record rather than rewriting history.
     store.append_publication(
-        PublicationRecord(project_id=project_id, revision=revision, published_at=utc_now())
+        PublicationRecord(
+            project_id=project_id,
+            revision=revision,
+            published_at=utc_now(),
+            author=author_from_identity(identity),
+        )
     )
     return SceneResponse(scene=current_scene)
 
 
-@app.get("/v1/projects/{project_id}/compiled-scene", response_model=SceneResponse)
+@app.get(
+    "/v1/projects/{project_id}/compiled-scene",
+    response_model=SceneResponse,
+    dependencies=[Depends(require_project_read)],
+)
 async def get_compiled_project_scene(project_id: str) -> SceneResponse:
     project = get_project(project_id)
     # The LIVE pointer is authoritative; project.published_revision is only a
@@ -1220,14 +1541,22 @@ async def get_compiled_project_scene(project_id: str) -> SceneResponse:
     return SceneResponse(scene=compile_blueprint(blueprint))
 
 
-@app.get("/v1/projects/{project_id}/publications", response_model=list[PublicationRecord])
+@app.get(
+    "/v1/projects/{project_id}/publications",
+    response_model=list[PublicationRecord],
+    dependencies=[Depends(require_project_read)],
+)
 async def list_project_publications(project_id: str) -> list[PublicationRecord]:
     """Return the append-only publication history for a project."""
     get_project(project_id)
     return store.list_publications(project_id)
 
 
-@app.get("/v1/projects/{project_id}/assets/{asset_id}", response_model=ProjectAsset)
+@app.get(
+    "/v1/projects/{project_id}/assets/{asset_id}",
+    response_model=ProjectAsset,
+    dependencies=[Depends(require_project_read)],
+)
 async def get_project_asset(project_id: str, asset_id: str) -> ProjectAsset:
     """Return a single catalog asset with its full view provenance."""
     project = get_project(project_id)
@@ -1239,7 +1568,11 @@ async def get_project_asset(project_id: str, asset_id: str) -> ProjectAsset:
     return asset
 
 
-@app.get("/v1/projects/{project_id}/assets/{asset_id}/views", response_model=list[AssetView])
+@app.get(
+    "/v1/projects/{project_id}/assets/{asset_id}/views",
+    response_model=list[AssetView],
+    dependencies=[Depends(require_project_read)],
+)
 async def list_asset_views(project_id: str, asset_id: str) -> list[AssetView]:
     """Return per-view reconstruction provenance for one catalog asset."""
     asset = await get_project_asset(project_id, asset_id)
@@ -1250,6 +1583,7 @@ async def list_asset_views(project_id: str, asset_id: str) -> list[AssetView]:
     "/v1/projects/{project_id}/assets/{asset_id}/views",
     response_model=AssetView,
     status_code=202,
+    dependencies=[Depends(require_project_write)],
 )
 async def add_asset_view(
     project_id: str,
@@ -1499,6 +1833,7 @@ def compose_connection_mock(
     "/v1/projects/{project_id}/connection/compose",
     response_model=ConnectionComposeResponse,
     status_code=201,
+    dependencies=[Depends(require_project_draft)],
 )
 async def compose_connection(project_id: str) -> ConnectionComposeResponse:
     project = get_project(project_id)
@@ -1558,9 +1893,14 @@ def bounded_vector(values: list[float], *, minimum: float, maximum: float, actio
     return values
 
 
-@app.get("/v1/interactives", response_model=InteractiveRegistryResponse)
+@app.get(
+    "/v1/interactives",
+    response_model=InteractiveRegistryResponse,
+    dependencies=[Depends(require_mock_mode)],
+)
 async def get_interactives() -> InteractiveRegistryResponse:
     """Expose names and capabilities, never Unity component internals."""
+    # Process-global demo scene surface (same as /v1/scene) — mock-mode only.
     return InteractiveRegistryResponse(
         interactives=[
             InteractiveObject(id=item.id, name=item.id, type=item.type, actions=item.actions.copy())
@@ -1569,7 +1909,11 @@ async def get_interactives() -> InteractiveRegistryResponse:
     )
 
 
-@app.post("/v1/scene/actions", response_model=SceneResponse)
+@app.post(
+    "/v1/scene/actions",
+    response_model=SceneResponse,
+    dependencies=[Depends(require_mock_mode)],
+)
 async def apply_scene_action(request: SceneActionRequest) -> SceneResponse:
     """Apply an allowlisted, bounded transform action to one named object."""
     target = find_scene_object(request.target_id)
@@ -1604,8 +1948,17 @@ async def apply_scene_action(request: SceneActionRequest) -> SceneResponse:
     return SceneResponse(scene=current_scene)
 
 
-@app.post("/v1/scene/modify", response_model=SceneResponse)
-@app.post("/modify-scene", response_model=SceneResponse, include_in_schema=False)
+@app.post(
+    "/v1/scene/modify",
+    response_model=SceneResponse,
+    dependencies=[Depends(require_mock_mode)],
+)
+@app.post(
+    "/modify-scene",
+    response_model=SceneResponse,
+    include_in_schema=False,
+    dependencies=[Depends(require_mock_mode)],
+)
 async def modify_scene(request: SceneModificationRequest) -> SceneResponse:
     """Legacy phrase adapter; all mutations pass through the structured policy."""
     normalized = " ".join(request.instruction.lower().split())
@@ -1618,7 +1971,12 @@ async def modify_scene(request: SceneModificationRequest) -> SceneResponse:
     raise HTTPException(422, "Demo supports: 'make the tree twice as tall'.")
 
 
-@app.post("/sketch", response_model=SceneResponse, include_in_schema=False)
+@app.post(
+    "/sketch",
+    response_model=SceneResponse,
+    include_in_schema=False,
+    dependencies=[Depends(require_mock_mode)],
+)
 async def legacy_sketch(sketch: UploadFile = File(...)) -> SceneResponse:
     """Compatibility endpoint retained while Unity migrates to reconstruction jobs."""
     if not (sketch.content_type or "").startswith("image/"):
