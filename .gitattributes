@@ -1,0 +1,22 @@
+# Normalize line endings so shell scripts don't break on Windows checkouts
+# (core.autocrlf=true silently converts LF -> CRLF, which breaks `bash -n`
+# and script execution — see scripts/verify_local.sh).
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.MD text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.txt text eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ply binary
+*.ico binary
+*.ipynb -text

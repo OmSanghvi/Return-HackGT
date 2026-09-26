@@ -8,6 +8,7 @@ import {
   createSketchCard,
   createUpload,
   deleteSelection,
+  detectUploadObjects,
   generateSelectedObjects,
   getProject,
   getUpload,
@@ -94,6 +95,7 @@ function SelectionRow({
         </button>
       </div>
       {mask.url && <img src={mask.url} alt={`Mask preview for ${selection.prompt.text}`} style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 8 }} />}
+      {selection.memory_text && <p className="rt-field-hint" style={{ margin: 0, fontStyle: 'italic' }}>&ldquo;{selection.memory_text}&rdquo;</p>}
       <div style={{ display: 'flex', gap: 6, width: '100%' }}>
         <input
           className="rt-input"
@@ -120,10 +122,12 @@ function UploadCard({
   upload: UploadEntry;
   onChanged: (uploadId: string) => void;
 }) {
-  const [pendingNames, setPendingNames] = useState<string[]>([]);
+  const [pendingNames, setPendingNames] = useState<{ text: string; memory: string }[]>([]);
   const [draft, setDraft] = useState('');
+  const [draftMemory, setDraftMemory] = useState('');
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState('');
   const image = useAuthedImage(upload.image_url);
 
@@ -134,8 +138,9 @@ function UploadCard({
       setError('A photo may have at most 8 selected objects.');
       return;
     }
-    setPendingNames((v) => [...v, text]);
+    setPendingNames((v) => [...v, { text, memory: draftMemory.trim().slice(0, 1000) }]);
     setDraft('');
+    setDraftMemory('');
     setError('');
   };
 
@@ -147,7 +152,11 @@ function UploadCard({
       await createSelections(
         projectId,
         upload.upload_id,
-        pendingNames.map((text) => ({ selection_id: newSelectionId(), prompt: { text } })),
+        pendingNames.map((p) => ({
+          selection_id: newSelectionId(),
+          prompt: { text: p.text },
+          memory_text: p.memory || undefined,
+        })),
       );
       setPendingNames([]);
       onChanged(upload.upload_id);
@@ -155,6 +164,19 @@ function UploadCard({
       setError(err instanceof ApiError ? err.message : 'Could not submit those objects.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const suggestObject = async () => {
+    setSuggesting(true);
+    setError('');
+    try {
+      await detectUploadObjects(projectId, upload.upload_id);
+      onChanged(upload.upload_id);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not suggest an object.');
+    } finally {
+      setSuggesting(false);
     }
   };
 
@@ -188,7 +210,7 @@ function UploadCard({
         {image.url && <img src={image.url} alt="Uploaded photo" style={{ width: 180, height: 180, objectFit: 'cover', borderRadius: 12 }} />}
         <div style={{ flex: 1, minWidth: 240, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <p className="rt-field-hint" style={{ margin: 0 }}>
-            Type a name for each object you want in 3D (e.g. "blue vase"), then find them.
+            Type a name for each object you want in 3D (e.g. "blue vase"), add an optional memory or reason, then find them.
           </p>
           <div style={{ display: 'flex', gap: 6 }}>
             <input
@@ -199,16 +221,30 @@ function UploadCard({
               onKeyDown={(e) => e.key === 'Enter' && addDraft()}
               style={{ flex: 1 }}
             />
+            <input
+              className="rt-input"
+              placeholder="Why this matters (optional)"
+              value={draftMemory}
+              onChange={(e) => setDraftMemory(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addDraft()}
+              style={{ flex: 1 }}
+            />
             <Button size="sm" variant="secondary" icon="plus" onClick={addDraft}>
               Add
+            </Button>
+          </div>
+          <div className="app-actions" style={{ marginTop: 0 }}>
+            <Button size="sm" variant="ghost" loading={suggesting} onClick={suggestObject}>
+              Suggest an object
             </Button>
           </div>
           {pendingNames.length > 0 && (
             <ul className="rt-chips" style={{ margin: 0 }}>
               {pendingNames.map((n, i) => (
                 <li key={i} className="rt-chip">
-                  {n}
-                  <button type="button" className="rt-chip-x" aria-label={`Remove ${n}`} onClick={() => setPendingNames((v) => v.filter((_, j) => j !== i))}>
+                  {n.text}
+                  {n.memory && <span className="rt-field-hint"> — &ldquo;{n.memory}&rdquo;</span>}
+                  <button type="button" className="rt-chip-x" aria-label={`Remove ${n.text}`} onClick={() => setPendingNames((v) => v.filter((_, j) => j !== i))}>
                     <Icon name="x" size={12} strokeWidth={2.5} />
                   </button>
                 </li>
