@@ -51,8 +51,8 @@ namespace Return.UI
             _ring = new GameObject("Ring").transform; _ring.SetParent(_hubRoot, false);
 
             _active = this;
-            ThemeManager.SetForced(ReturnTheme.Dusk);
-            var env = HubEnvironment.Build(_hubRoot, head, SceneKey.Hub, true, 150f, true); // extras: water floor, fireflies, motes, lanterns, ambience
+            ThemeManager.SetForced(ReturnTheme.Day);
+            var env = HubEnvironment.Build(_hubRoot, head, HubEnvironment.DefaultScene(false), false, 150f, true); // daylight hub; extras: water floor, petals, motes, ambience (fireflies + lanterns are dusk-only)
             env.transform.rotation = Quaternion.Euler(0, _yaw, 0);
 
             var camGo = head != null ? (head.GetComponent<Camera>() != null ? head : head.GetComponentInChildren<Camera>()?.transform ?? head) : null;
@@ -189,7 +189,7 @@ namespace Return.UI
         void HubVisible(bool visible)
         {
             _hubRoot.gameObject.SetActive(visible);
-            ThemeManager.SetForced(visible ? ReturnTheme.Dusk : (ReturnTheme?)null);
+            ThemeManager.SetForced(visible ? ReturnTheme.Day : (ReturnTheme?)null);
             if (visible) Recenter();
         }
 

@@ -11,7 +11,7 @@ namespace Return.Design
     public static class ReturnShaders
     {
         public const string Flat = "Return/Flat", SkyGradient = "Return/SkyGradient", SkyParallax = "Return/SkyParallax",
-            Vignette = "Return/Vignette", WaterFloor = "Return/WaterFloor", ParticleGlow = "Return/ParticleGlow",
+            Vignette = "Return/Vignette", WaterFloor = "Return/WaterFloor", ParticleGlow = "Return/ParticleGlow", LiquidGlass = "Return/LiquidGlass",
             ParticlesUnlit = "Universal Render Pipeline/Particles/Unlit";
         const string Root = "ReturnUI/Shaders/";
 
