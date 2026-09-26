@@ -1,0 +1,24 @@
+/* CreateRoom + RoomUpload: single centered glass card over a blurred painting. */
+.app-card { width: 760px; max-width: 100%; box-sizing: border-box; padding: var(--space-6); margin: var(--space-5) 0; }
+.app-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); flex-wrap: wrap; }
+.app-card-people { display: flex; align-items: center; gap: var(--space-3); }
+.app-card-body { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-6); align-items: start; margin-top: var(--space-4); }
+@media (max-width: 760px) { .app-card-body { grid-template-columns: 1fr; } }
+
+/* ---------- PhotoDrop arch ---------- */
+.rt-arch { width: 300px; max-width: 100%; aspect-ratio: 3 / 4; border-radius: 999px 999px 0 0; overflow: hidden; position: relative;
+  background: var(--glass); border: 1px solid var(--glass-edge); cursor: pointer; box-sizing: border-box;
+  box-shadow: inset 0 0 0 1px rgba(243, 169, 201, .35), 0 0 40px rgba(243, 169, 201, .25);
+  transition: box-shadow var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out); }
+.rt-arch:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.rt-arch-active { box-shadow: inset 0 0 0 1px rgba(243, 169, 201, .6), 0 0 60px rgba(243, 169, 201, .45); transform: scale(1.02); }
+.rt-arch-tiles { position: absolute; inset: 0; display: flex; flex-wrap: wrap-reverse; align-content: flex-start; }
+.rt-arch-tile { width: 33.333%; height: 25%; position: relative; overflow: hidden; }
+.rt-arch-tile .rt-iconbtn { position: absolute; top: 4px; right: 4px; opacity: 0; transition: opacity var(--duration-fast) var(--ease-out); }
+.rt-arch-tile:hover .rt-iconbtn, .rt-arch-tile:focus-within .rt-iconbtn { opacity: 1; }
+.rt-arch-prompt { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2);
+  text-align: center; padding: var(--space-4); pointer-events: none; }
+.rt-arch-prompt .rt-drop-title { font-size: 26px; line-height: 30px; }
+.rt-arch-prompt .rt-drop-hint { max-width: 26ch; }
+.rt-arch-prompt-small { justify-content: flex-start; padding-top: var(--space-6); }
+.rt-arch-addmore { font-size: 14px; font-weight: 600; color: var(--ink-muted); }

@@ -163,9 +163,10 @@ export function RoomCard(props: { src?: string; title?: string; meta?: string; s
 
 /* ---------- PhotoDrop ---------- */
 export interface Photo { src: string; name?: string; id?: string }
-export function PhotoDrop({ photos = [], max = 12, onFiles, onRemove, onImage, error, className }: { photos?: Photo[]; max?: number; onFiles?: (f: File[]) => void; onRemove?: (i: number) => void; onImage?: boolean; error?: React.ReactNode; className?: string }) {
+export function PhotoDrop({ photos = [], max = 12, onFiles, onRemove, error, className }: { photos?: Photo[]; max?: number; onFiles?: (f: File[]) => void; onRemove?: (i: number) => void; onImage?: boolean; error?: React.ReactNode; className?: string }) {
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const full = photos.length >= max;
   const take = (list: FileList | null) => {
     const files = Array.from(list || []).filter((f) => f.type.startsWith('image/'));
     if (files.length) onFiles?.(files.slice(0, Math.max(0, max - photos.length)));
@@ -173,49 +174,53 @@ export function PhotoDrop({ photos = [], max = 12, onFiles, onRemove, onImage, e
   const open = () => input.current?.click();
   return (
     <div className={className}>
-      <div className={cx('rt-drop', onImage && 'rt-glass-strong', over && 'rt-drop-active')} role="button" tabIndex={0} aria-label="Add photos. Drop images here or press Enter to choose files."
+      <div className={cx('rt-arch', over && 'rt-arch-active')} role="button" tabIndex={0} aria-label="Add photos. Drop images here or press Enter to choose files."
         onClick={open} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
         onDragOver={(e) => { e.preventDefault(); if (!over) setOver(true); }} onDragLeave={() => setOver(false)}
         onDrop={(e) => { e.preventDefault(); setOver(false); take(e.dataTransfer.files); }}>
-        <span className="rt-drop-icon"><Icon name={over ? 'photos' : 'upload'} size={24} /></span>
-        <span className="rt-drop-title">{over ? <>Let <em>go</em></> : <>Bring a <em>moment</em> back</>}</span>
-        <span className="rt-drop-hint">Drop 1 to {max} photos of the same place. More angles build a fuller world.</span>
+        <div className="rt-arch-tiles" role="list" aria-label="Selected photos">
+          {photos.map((p, i) => (
+            <div key={p.id || i} role="listitem" className={cx('rt-arch-tile', 'app-focus-in', 'app-photo', i === 0 && 'rt-thumb-cover')}>
+              <img className="rt-img" src={p.src} alt={p.name || 'Photo ' + (i + 1)} />
+              {onRemove && <button type="button" className="rt-iconbtn" aria-label={'Remove ' + (p.name || 'photo ' + (i + 1))} onClick={(e) => { e.stopPropagation(); onRemove(i); }}><Icon name="x" size={14} strokeWidth={2} /></button>}
+            </div>
+          ))}
+        </div>
+        {!full && (
+          <div className={cx('rt-arch-prompt', photos.length > 0 && 'rt-arch-prompt-small')} aria-hidden>
+            {photos.length === 0 ? (
+              <>
+                <span className="rt-drop-icon"><Icon name={over ? 'photos' : 'upload'} size={24} /></span>
+                <span className="rt-drop-title">{over ? <>Let <em>go</em></> : <>Bring a <em>moment</em> back</>}</span>
+                <span className="rt-drop-hint">Drop 1 to {max} photos of the same place.</span>
+              </>
+            ) : <span className="rt-arch-addmore">{over ? 'Let go' : 'Add more'}</span>}
+          </div>
+        )}
         <input ref={input} type="file" accept="image/*" multiple hidden onChange={(e) => { take(e.target.files); e.target.value = ''; }} />
       </div>
+      {photos.length > 0 && <div className="rt-drop-count"><span>{photos.length} of {max} photos</span><span>The first photo is the cover</span></div>}
       {error && <div className="rt-field-error"><Icon name="alert" size={16} />{error}</div>}
-      {photos.length > 0 && (
-        <>
-          <div className="rt-strip" role="list" aria-label="Selected photos">
-            {photos.map((p, i) => (
-              <div key={p.id || i} role="listitem" className={cx('rt-thumb', 'app-focus-in', i === 0 && 'rt-thumb-cover')}>
-                <img className="rt-img" src={p.src} alt={p.name || 'Photo ' + (i + 1)} />
-                {onRemove && <button type="button" className="rt-iconbtn" aria-label={'Remove ' + (p.name || 'photo ' + (i + 1))} onClick={() => onRemove(i)}><Icon name="x" size={14} strokeWidth={2} /></button>}
-              </div>
-            ))}
-          </div>
-          <div className="rt-drop-count"><span>{photos.length} of {max} photos</span><span>The first photo is the cover</span></div>
-        </>
-      )}
     </div>
   );
 }
 
 /* ---------- DevelopProgress ---------- */
 export const DEVELOP_STEPS = ['Reading your photos', 'Estimating depth', 'Building the world', 'Setting the light'];
-export function DevelopProgress({ src, title, steps = DEVELOP_STEPS, progress = 0, actions, className }: { src?: string; title?: string; steps?: string[]; progress?: number; actions?: React.ReactNode; className?: string }) {
+export function DevelopProgress({ src, title, steps = DEVELOP_STEPS, progress = 0, actions, photo, className }: { src?: string; title?: string; steps?: string[]; progress?: number; actions?: React.ReactNode; photo?: boolean; className?: string }) {
   const pct = Math.max(0, Math.min(1, progress)), cur = Math.min(steps.length - 1, Math.floor(pct * steps.length));
   const f = `blur(${(18 - 18 * pct).toFixed(1)}px) saturate(${(0.35 + 0.65 * pct).toFixed(2)}) brightness(${(1.25 - 0.25 * pct).toFixed(2)})`;
   return (
     <section className={cx('rt-develop', className)} aria-live="polite">
-      <div className="rt-develop-photo">
+      <div className={cx('rt-develop-photo', photo && 'app-photo')}>
         {src && <img className="rt-img" src={src} alt="" style={{ filter: f }} />}
         <div className="rt-develop-mist" style={{ opacity: (1 - pct) * 0.85 }} />
       </div>
       <div>
         <h3 className="rt-develop-title">{pct >= 1 ? <>Ready to <em>return</em></> : <>Coming into <em>focus</em></>}</h3>
-        <p className="rt-develop-sub">{pct >= 1 ? "Put on your headset. It's waiting in your rooms." : (title ? title + ' · ' : '') + 'About ten seconds. Watch it come into focus.'}</p>
+        <p className="rt-develop-sub app-italic">{pct >= 1 ? "Put on your headset. It's waiting in your rooms." : (title ? title + ' · ' : '') + 'About ten seconds. Watch it come into focus.'}</p>
         <div className="rt-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct * 100)} aria-label="Building the world">
-          <i style={{ width: pct * 100 + '%', background: pct >= 1 ? 'var(--success)' : undefined }} />
+          <i style={{ width: pct * 100 + '%' }} />
         </div>
         <ol className="rt-steps">
           {steps.map((s, i) => {
@@ -380,7 +385,7 @@ export function MemberList({ members, onResend, className }: { members: MemberRo
           <motion.li layout key={m.email || i} className={cx('rt-member', s.cls)} style={{ position: 'relative', overflow: 'hidden' }}>
             {m.status === 'done' && (
               <motion.span key={m.status} aria-hidden style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
-                animate={{ backgroundColor: ['var(--success-soft)', 'rgba(0,0,0,0)'] }} transition={{ duration: 0.9, ease: 'easeOut' }} />
+                animate={{ backgroundColor: ['var(--blossom-soft)', 'rgba(0,0,0,0)'] }} transition={{ duration: 0.9, ease: 'easeOut' }} />
             )}
             <span className={cx('rt-avatar', m.here && 'rt-avatar-here')}>{initials(m.name || m.email)}</span>
             <span className="rt-person-name">{(m.name || m.email) + (m.isYou ? ' (you)' : '')}<small><Icon name={s.icon} size={13} strokeWidth={2.25} />{memberLine(m)}</small></span>

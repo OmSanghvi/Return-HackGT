@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
-import { Button, Field, InviteSearch, MemberList, PhotoDrop, Stepper, type Photo } from '../ui';
+import { Button, Field, InviteSearch, MemberList, PhotoDrop, PresenceStack, Stepper, type Photo } from '../ui';
 import { ME, mine, parseObjects, useRooms, agoText, type Room } from '../data/store';
 import { searchPeople } from '../data/directory';
 import { Stage } from '../world/Stage';
-import { AppNav, reveal, shrink } from './shared';
+import { AppNav, Sheet, reveal, shrink } from './shared';
 import { REAL_MODE } from '../config';
 import * as backend from '../real/rooms';
 import { ApiError } from '../api/client';
+import './form.css';
 
 export const memberRows = (r: Room) => r.members.map((m) => ({
   name: m.name, email: m.email, count: m.count, hasNote: !!m.note, isOwner: m.isOwner, isYou: m.id === ME.id,
@@ -27,6 +28,7 @@ export default function RoomUpload() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [q, setQ] = useState('');
+  const [people, setPeople] = useState(false);
   const submitTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const invited = room && mine(room)?.status === 'invited';
   useEffect(() => { if (room && invited) void (REAL_MODE ? backend.join(room.id) : useRooms.getState().join(room.id)); }, [room?.id, invited]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -62,43 +64,52 @@ export default function RoomUpload() {
 
   return (
     <div className="app-shell">
-      <div className="app-nav-row"><AppNav plain /></div>
-      <div className="app-split">
-        <div className="app-form">
-          <motion.p className="caption app-crumb" {...reveal(0)}>
-            <a href="/rooms" onClick={(e) => { e.preventDefault(); navigate('/rooms'); }}>Rooms</a> / {room.title}
-          </motion.p>
-          <motion.div {...reveal(0)}><Stepper current={1} /></motion.div>
-          <motion.h1 className="display-l" style={{ margin: 0 }} {...reveal(1)}>Add your <em>view</em> of it</motion.h1>
-          <motion.div {...reveal(2)}><PhotoDrop photos={photos} onFiles={add} onRemove={(i) => setPhotos((p) => p.filter((_, j) => j !== i))} error={error} /></motion.div>
-          <AnimatePresence>
-            {mine(room)?.isOwner && photos.length > 0 && (
-              <motion.div style={{ overflow: 'hidden' }} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }} layout>
-                <Field label="What should we rebuild? (optional)" placeholder="Everything" value={objects} maxLength={400}
-                  hint="Leave blank and we rebuild everything in your photos. For a wide shot, list the things you care about, like: the porch swing, the blue vase."
-                  onChange={(e) => setObjects(e.target.value)} />
-              </motion.div>
-            )}
-          </AnimatePresence>
-          <motion.div {...reveal(3)}>
-            <Field multiline rows={3} label="Leave a note for this room" placeholder="What do you remember about being here?" value={note}
-              maxLength={1000} onChange={(e) => setNote(e.target.value)} />
-          </motion.div>
-          <motion.div className="app-actions app-actions-start" {...reveal(4)}>
+      <Stage scene={room.scene} blur={0.6} scrim="none" className="app-full app-center" label={room.title}>
+        <div className="rt-hero-top app-hero-top"><AppNav /></div>
+        <motion.div className="rt-glass-strong app-panel app-card" {...reveal(0)}>
+          <div className="app-card-head">
+            <div>
+              <p className="caption app-crumb">
+                <a href="/rooms" onClick={(e) => { e.preventDefault(); navigate('/rooms'); }}>Rooms</a> / {room.title}
+              </p>
+              <Stepper current={1} />
+              <h1 className="display-l" style={{ margin: 0 }}>Add your view of it</h1>
+              <p className="app-italic">the way you remember it</p>
+            </div>
+            <div className="app-card-people">
+              <PresenceStack people={room.members.map((m) => ({ name: m.name }))} size="sm" />
+              <Button variant="ghost" size="sm" icon="people" onClick={() => setPeople(true)}>People</Button>
+            </div>
+          </div>
+          <div className="app-card-body">
+            <PhotoDrop photos={photos} onFiles={add} onRemove={(i) => setPhotos((p) => p.filter((_, j) => j !== i))} error={error} />
+            <div>
+              <AnimatePresence>
+                {mine(room)?.isOwner && photos.length > 0 && (
+                  <motion.div style={{ overflow: 'hidden' }} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }} layout>
+                    <Field label="What should we rebuild? (optional)" placeholder="Everything" value={objects} maxLength={400}
+                      hint="Leave blank and we rebuild everything in your photos. For a wide shot, list the things you care about, like: the porch swing, the blue vase."
+                      onChange={(e) => setObjects(e.target.value)} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <Field multiline rows={3} label="Leave a note for this room" placeholder="What do you remember about being here?" value={note}
+                maxLength={1000} onChange={(e) => setNote(e.target.value)} />
+            </div>
+          </div>
+          <div className="app-actions app-actions-start">
             <Button variant="primary" size="lg" arrow loading={busy} onClick={submit}>{busy ? 'Adding' : 'Add to the room'}</Button>
             <Button variant="ghost" size="lg" disabled={busy} onClick={() => navigate('/rooms')}>Save for later</Button>
-          </motion.div>
-        </div>
-        <Stage scene={room.scene} scrim="none" className="app-side-stage" label={room.title} mist={photos.length ? 0 : 0.35}>
-          <motion.div className="rt-glass-strong app-panel" {...reveal(2)}>
-            <h2 className="title" style={{ margin: 0 }}>In this <em>room</em></h2>
-            <MemberList members={memberRows(room)} onResend={REAL_MODE ? undefined : (m) => { const x = room.members.find((y) => y.email === m.email); if (x) useRooms.getState().resend(room.id, x.id); }} />
-            {REAL_MODE ? <p className="rt-field-hint" style={{ margin: 0 }}>Switch accounts from your avatar to add the other person's photos.</p> : <InviteSearch label="Invite someone else" results={searchPeople(q)} invited={room.members.map((m) => ({ name: m.name, email: m.email }))}
-              onQuery={setQ} onInvite={(p) => useRooms.getState().invite(room.id, p.email)} />}
-          </motion.div>
-        </Stage>
-      </div>
+          </div>
+        </motion.div>
+      </Stage>
+      <Sheet open={people} onClose={() => setPeople(false)} label={'People in ' + room.title}>
+        <h2 className="title" style={{ margin: 0 }}>In this room</h2>
+        <MemberList members={memberRows(room)} onResend={REAL_MODE ? undefined : (m) => { const x = room.members.find((y) => y.email === m.email); if (x) useRooms.getState().resend(room.id, x.id); }} />
+        {REAL_MODE ? <p className="rt-field-hint" style={{ margin: 0 }}>Switch accounts from your avatar to add the other person's photos.</p> : <InviteSearch label="Invite someone else" results={searchPeople(q)} invited={room.members.map((m) => ({ name: m.name, email: m.email }))}
+          onQuery={setQ} onInvite={(p) => useRooms.getState().invite(room.id, p.email)} />}
+      </Sheet>
     </div>
   );
 }
