@@ -56,13 +56,25 @@ namespace Return.UI
         {
             if (State != SessionState.InWorld) return;
             Set(SessionState.Loading);
-            _fade.SetColor(FadeColor(Current));
-            await _fade.FadeTo(1f, fadeSeconds);
-            await _loader.UnloadAsync();
-            _hubVisible(true);
-            Current = null;
-            await _fade.FadeTo(0f, fadeSeconds);
-            if (_transition != null) await _transition.ExitStep(_head);
+            try
+            {
+                _fade.SetColor(FadeColor(Current));
+                await _fade.FadeTo(1f, fadeSeconds);
+                await _loader.UnloadAsync();
+                _hubVisible(true);
+                Current = null;
+                await _fade.FadeTo(0f, fadeSeconds);
+                if (_transition != null) await _transition.ExitStep(_head);
+            }
+            catch (Exception e)
+            {
+                // Without this a throw after the fade-out left the view on the opaque (near-black, for dusk) fade quad with the
+                // hub audio already back, and nothing in the log: callers fire and forget this task.
+                Debug.LogError("Return: could not leave " + (Current != null ? Current.title : "the world") + ": " + e);
+                try { _hubVisible(true); } catch (Exception e2) { Debug.LogException(e2); }
+                Current = null;
+                _fade.SetAlpha(0f);
+            }
             Set(SessionState.Hub);
         }
     }

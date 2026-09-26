@@ -1,0 +1,23 @@
+# ninja log v5
+2858	3178	8121485721278522	C:/Users/shaop/Documents/GitHub/Return-HackGT/unity/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/6g3j3s70/obj/arm64-v8a/libswappywrapper.so	cde8cb4102d5dfde
+2	3999	8121485729685748	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	f02e6e0f76a13a16
+294	2856	8121485718357731	FramePacing/CMakeFiles/swappywrapper.dir/UnitySwappyWrapper.cpp.o	d5c66e9c5634247e
+137	3436	8121485723963695	GameActivity/CMakeFiles/game.dir/UGAEntry.cpp.o	ee9b099833722119
+157	3450	8121485723983826	GameActivity/CMakeFiles/game.dir/UGAInputKeyEvent.cpp.o	b671ece57f178258
+216	3819	8121485727952348	GameActivity/CMakeFiles/game.dir/UGASoftKeyboard.cpp.o	e8fb7279527bc7e4
+23	3506	8121485724689046	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	c8ee5180745c6df0
+75	3572	8121485725457538	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	c303edc5727bab43
+245	3513	8121485724818786	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	658ce2b6b1d97b81
+47	3837	8121485728108512	GameActivity/CMakeFiles/game.dir/UGAInput.cpp.o	264b67c3d297a688
+3999	4222	8121485731853126	C:/Users/shaop/Documents/GitHub/Return-HackGT/unity/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/6g3j3s70/obj/arm64-v8a/libgame.so	7343df118f013510
+127	674	8121539464554320	FramePacing/CMakeFiles/swappywrapper.dir/UnitySwappyWrapper.cpp.o	d5c66e9c5634247e
+675	1447	8121539471523990	C:/Users/shaop/Documents/GitHub/Return-HackGT/unity/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/6g3j3s70/obj/arm64-v8a/libswappywrapper.so	cde8cb4102d5dfde
+69	2213	8121539480036499	GameActivity/CMakeFiles/game.dir/UGAInputKeyEvent.cpp.o	b671ece57f178258
+83	2233	8121539480337691	GameActivity/CMakeFiles/game.dir/UGAEntry.cpp.o	ee9b099833722119
+113	2267	8121539480724167	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	658ce2b6b1d97b81
+43	2290	8121539480961879	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	c8ee5180745c6df0
+14	2393	8121539482043427	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	c303edc5727bab43
+96	2574	8121539483854918	GameActivity/CMakeFiles/game.dir/UGASoftKeyboard.cpp.o	e8fb7279527bc7e4
+56	2630	8121539484439893	GameActivity/CMakeFiles/game.dir/UGAInput.cpp.o	264b67c3d297a688
+27	2783	8121539485893890	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	f02e6e0f76a13a16
+2783	2960	8121539487742272	C:/Users/shaop/Documents/GitHub/Return-HackGT/unity/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/6g3j3s70/obj/arm64-v8a/libgame.so	7343df118f013510

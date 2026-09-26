@@ -9,7 +9,8 @@ namespace Return.UI
 {
     [Serializable] public class WorldEntry { public string roomId, sceneName; }
 
-    /// <summary>Loads a room's world as an additive Unity scene from a roomId to sceneName map (hardcode.MD: map lake-house to one known-good scene). Falls back to the stub for unmapped rooms.</summary>
+    /// <summary>Loads a room's world as an additive Unity scene from a roomId to sceneName map (hardcode.MD: map lake-house to one known-good scene). Falls back to the stub for unmapped rooms.
+    /// The scene's WorldSceneRoot is moved under the viewer once loaded; build world scenes with Tools/Return/Worlds (ReturnWorldScenes).</summary>
     public class SceneWorldLoader : IWorldLoader
     {
         readonly Dictionary<string, string> _map = new Dictionary<string, string>();
@@ -36,7 +37,20 @@ namespace Return.UI
             }
             while (!op.isDone) { progress?.Invoke(Mathf.Clamp01(op.progress / 0.9f)); await Task.Yield(); }
             _loaded = SceneManager.GetSceneByName(name); _hasScene = true;
+            var root = FindRoot(_loaded);
+            if (root != null) root.Arrive(room, head);
+            else Debug.LogWarning("Return: scene '" + name + "' has no WorldSceneRoot, so it stays where it was authored instead of around the viewer.");
             progress?.Invoke(1f);
+        }
+
+        static WorldSceneRoot FindRoot(Scene scene)
+        {
+            foreach (var go in scene.GetRootGameObjects())
+            {
+                var root = go.GetComponentInChildren<WorldSceneRoot>(true);
+                if (root != null) return root;
+            }
+            return null;
         }
 
         public async Task UnloadAsync()

@@ -28,7 +28,7 @@ namespace Return.UI
             go.transform.localPosition = new Vector3(0, 0, 0.29f); go.transform.localScale = new Vector3(5, 5, 1);
             go.AddComponent<MeshFilter>().sharedMesh = SkyBackdrop.Quad();
             var r = go.AddComponent<MeshRenderer>(); r.shadowCastingMode = ShadowCastingMode.Off; r.receiveShadows = false;
-            _vignetteMat = new Material(Shader.Find("Return/Vignette")) { hideFlags = HideFlags.HideAndDontSave };
+            _vignetteMat = ReturnShaders.Create(ReturnShaders.Vignette);
             _vignetteMat.SetFloat("_ZTest", (float)CompareFunction.Always);
             r.sharedMaterial = _vignetteMat;
             SetVignette(0f);

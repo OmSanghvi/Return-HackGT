@@ -24,8 +24,6 @@ namespace Return.UI
 
         public SceneKey Current => _cur;
 
-        static Shader FindShader() => Shader.Find("Return/SkyParallax");
-
         void OnEnable() { Ensure(); }
 
         void Ensure()
@@ -34,7 +32,7 @@ namespace Return.UI
             var mf = this.GetOrAdd<MeshFilter>();
             _r = this.GetOrAdd<MeshRenderer>();
             mf.sharedMesh = Quad();
-            _m = new Material(FindShader()) { hideFlags = HideFlags.HideAndDontSave };
+            _m = ReturnShaders.Create(ReturnShaders.SkyParallax);
             _r.sharedMaterial = _m; _r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; _r.receiveShadows = false;
             transform.localScale = new Vector3(size.x, size.y, 1);
             _m.SetVector(Size, new Vector4(size.x, size.y, 0, 0));

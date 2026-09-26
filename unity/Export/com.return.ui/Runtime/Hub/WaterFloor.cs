@@ -28,7 +28,7 @@ namespace Return.UI
             go.AddComponent<MeshFilter>().sharedMesh = SkyBackdrop.Quad();
             go.transform.localRotation = Quaternion.Euler(90, 0, 0); go.transform.localPosition = new Vector3(0, -0.02f, 0); go.transform.localScale = new Vector3(Radius, Radius, 1);
             var wf = go.AddComponent<WaterFloor>();
-            wf._mat = new Material(Shader.Find("Return/WaterFloor")) { hideFlags = HideFlags.HideAndDontSave };
+            wf._mat = ReturnShaders.Create(ReturnShaders.WaterFloor);
             wf._mat.SetColor("_Color", new Color(0.02f, 0.03f, 0.08f, 0.88f));
             wf._mat.SetColor("_Top", (Color)ReturnColorsDusk.SkyTop);
             wf._mat.SetColor("_Bottom", (Color)ReturnColorsDusk.SkyBottom);

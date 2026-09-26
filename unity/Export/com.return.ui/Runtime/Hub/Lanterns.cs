@@ -30,14 +30,14 @@ namespace Return.UI
 
             var body = GameObject.CreatePrimitive(PrimitiveType.Sphere); body.name = "Body"; body.transform.SetParent(go.transform, false);
             body.transform.localScale = new Vector3(0.16f, 0.2f, 0.16f);
-            l._body = new Material(Shader.Find("Return/Flat")) { hideFlags = HideFlags.HideAndDontSave };
+            l._body = ReturnShaders.Create(ReturnShaders.Flat);
             l._body.SetColor("_Color", new Color(0.98f, 0.65f, 0.28f, 1f)); l._body.SetFloat("_Radial", 0);
             body.GetComponent<MeshRenderer>().sharedMaterial = l._body;
             var col = body.GetComponent<SphereCollider>(); col.radius = 0.55f; // slightly bigger than the mesh so it's easy to grab
 
             var glow = new GameObject("Glow"); glow.transform.SetParent(go.transform, false); glow.transform.localScale = Vector3.one * 0.14f;
             glow.AddComponent<MeshFilter>().sharedMesh = SkyBackdrop.Quad();
-            l._glow = new Material(Shader.Find("Return/Flat")) { hideFlags = HideFlags.HideAndDontSave };
+            l._glow = ReturnShaders.Create(ReturnShaders.Flat);
             l._glow.SetColor("_Color", new Color(1f, 0.92f, 0.75f, 0.9f)); l._glow.SetFloat("_Radial", 1);
             glow.AddComponent<MeshRenderer>().sharedMaterial = l._glow;
             glow.AddComponent<Billboard>();
