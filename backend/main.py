@@ -3364,3 +3364,11 @@ async def legacy_sketch(sketch: UploadFile = File(...)) -> SceneResponse:
 from letter_routes import router as letter_router  # noqa: E402
 
 app.include_router(letter_router)
+
+# Guided tour routes (Build Plan steps 30-31): draft -> activate. Kept in its
+# own module (backend/tour_routes.py) so that module owns its own file, per
+# the Build Plan's parallel-track file-ownership rules; imported last so
+# every name it needs from this module already exists (see its docstring).
+from tour_routes import router as tour_router  # noqa: E402
+
+app.include_router(tour_router)

@@ -52,6 +52,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a circular import.
     )
     from letters import Letter, LetterOpenRecord
 
+    from guided_tour import GuidedTour
+
 
 STATE_VERSION = 3
 
@@ -100,6 +102,17 @@ def _job_upload_types() -> tuple[type, type]:
     from main import ReconstructionJob, UploadRecord
 
     return ReconstructionJob, UploadRecord
+
+
+def _tour_model_type() -> type:
+    """Return ``GuidedTour``, imported lazily like the other model helpers above.
+
+    ``guided_tour`` never imports ``storage`` or ``main``, so this is a
+    one-directional import, not a cycle.
+    """
+    from guided_tour import GuidedTour
+
+    return GuidedTour
 
 
 def _job_status_type():
@@ -264,6 +277,32 @@ class AuthoringStore(ABC):
     def persist_all(self) -> None:  # pragma: no cover - default no-op
         """Force a full flush. Backends that write eagerly need not override."""
 
+    # -- guided tours (Build Plan step 30) -----------------------------------
+
+    @abstractmethod
+    def append_tour(self, tour: "GuidedTour") -> None:
+        """Conditional put on TOUR#<version padded>; raises RevisionConflict on collision."""
+
+    @abstractmethod
+    def get_tour(self, project_id: str, tour_version: int) -> "GuidedTour | None": ...
+
+    @abstractmethod
+    def list_tours(self, project_id: str) -> list["GuidedTour"]: ...
+
+    @abstractmethod
+    def get_active_tour_version(self, project_id: str) -> int | None:
+        """The TOURLIVE pointer: which tour_version the in-room guide performs, if any."""
+
+    @abstractmethod
+    def activate_tour(self, project_id: str, expected: int | None, new_version: int) -> "GuidedTour | None":
+        """Compare-and-set TOURLIVE to ``new_version``, same pattern as ``set_live_revision``.
+
+        On success, flips the previously active tour's ``status`` to
+        ``retired`` and the new one's to ``active``, and returns the updated
+        (now-active) ``GuidedTour``. Returns ``None`` (never raises) on a
+        losing race against ``expected``, so callers can turn it into a 409.
+        """
+
 
 class LocalJsonStore(AuthoringStore):
     """A JSON-file-backed, single-process authoring store.
@@ -292,6 +331,9 @@ class LocalJsonStore(AuthoringStore):
         self.letters: dict[str, dict[str, Letter]] = {}
         self.letter_opens: dict[str, dict[str, dict[str, LetterOpenRecord]]] = {}
 
+        self.tours: dict[str, list["GuidedTour"]] = {}
+        self.tour_live: dict[str, int] = {}
+
     # -- lifecycle ---------------------------------------------------------
 
     def load(self) -> None:
@@ -313,6 +355,9 @@ class LocalJsonStore(AuthoringStore):
             self.asset_links = {}
             self.letters = {}
             self.letter_opens = {}
+
+            self.tours = {}
+            self.tour_live = {}
             if not self._state_path.is_file():
                 return
             try:
@@ -375,6 +420,12 @@ class LocalJsonStore(AuthoringStore):
                     for letter_id, records in by_letter.items()
                 }
 
+            GuidedTour = _tour_model_type()
+            for project_id, versions in raw.get("tours", {}).items():
+                self.tours[project_id] = [GuidedTour.model_validate(item) for item in versions]
+            for project_id, version in raw.get("tour_live", {}).items():
+                self.tour_live[project_id] = int(version)
+
     def _quarantine_corrupt_state(self) -> None:
         backup = self._state_path.with_suffix(
             self._state_path.suffix + f".corrupt-{int(datetime.now(UTC).timestamp())}"
@@ -430,6 +481,12 @@ class LocalJsonStore(AuthoringStore):
                 }
                 for project_id, by_letter in self.letter_opens.items()
             },
+
+            "tours": {
+                project_id: [item.model_dump(mode="json") for item in versions]
+                for project_id, versions in self.tours.items()
+            },
+            "tour_live": dict(self.tour_live),
         }
 
     def _flush(self) -> None:
@@ -697,6 +754,46 @@ class LocalJsonStore(AuthoringStore):
 
     def letters_version(self, project_id: str) -> int:
         return sum(len(opens) for opens in self.letter_opens.get(project_id, {}).values())
+
+    # -- guided tours (Build Plan step 30) -----------------------------------
+
+    def list_tours(self, project_id: str) -> list["GuidedTour"]:
+        return self.tours.setdefault(project_id, [])
+
+    def append_tour(self, tour: "GuidedTour") -> None:
+        with self._lock:
+            existing = self.tours.setdefault(tour.project_id, [])
+            if tour.tour_version != len(existing) + 1:
+                raise RevisionConflict(
+                    f"Tour version {tour.tour_version} for project {tour.project_id} is out of "
+                    f"sequence (expected {len(existing) + 1})."
+                )
+            existing.append(tour)
+            self._flush()
+
+    def get_tour(self, project_id: str, tour_version: int) -> "GuidedTour | None":
+        existing = self.tours.get(project_id, [])
+        if tour_version < 1 or tour_version > len(existing):
+            return None
+        return existing[tour_version - 1]
+
+    def get_active_tour_version(self, project_id: str) -> int | None:
+        return self.tour_live.get(project_id)
+
+    def activate_tour(self, project_id: str, expected: int | None, new_version: int) -> "GuidedTour | None":
+        with self._lock:
+            current = self.tour_live.get(project_id)
+            if current != expected:
+                return None
+            existing = self.tours.get(project_id, [])
+            if new_version < 1 or new_version > len(existing):
+                return None
+            if current is not None and 1 <= current <= len(existing):
+                existing[current - 1] = existing[current - 1].model_copy(update={"status": "retired"})
+            existing[new_version - 1] = existing[new_version - 1].model_copy(update={"status": "active"})
+            self.tour_live[project_id] = new_version
+            self._flush()
+            return existing[new_version - 1]
 
 
 class DynamoDbStore(AuthoringStore):
@@ -1371,6 +1468,95 @@ class DynamoDbStore(AuthoringStore):
 
     def letters_version(self, project_id: str) -> int:
         return len(self._query_children(project_id, "LETTEROPEN"))
+
+    # -- guided tours (Build Plan step 30) -----------------------------------
+    #
+    # TOUR#<0-padded version> mirrors BLUEPRINT#<rev>; TOURLIVE mirrors LIVE.
+    # `activate_tour` CASes the TOURLIVE pointer first (that's the actual
+    # linearization point, same as `set_live_revision`), then best-effort
+    # rewrites the two tour documents' `status` field so `GET /tours` shows
+    # draft/active/retired without a second read against the pointer.
+    #
+    # ponytail: the guided-tour-contract skill suggests TransactWriteItems
+    # for the pointer + two status rewrites; that's skipped here in favor of
+    # two plain conditional/unconditional puts after the CAS succeeds. The
+    # pointer write above is what actually decides which tour is live, so a
+    # crash between these three puts only leaves a stale `status` label, not
+    # a wrong live tour. Upgrade to TransactWriteItems if a reader ever needs
+    # the stored `status` field to be authoritative independent of a second
+    # `get_active_tour_version` read.
+
+    def _tour_key(self, project_id: str, tour_version: int) -> dict:
+        return {"pk": f"PROJECT#{project_id}", "sk": self._seq_key("TOUR", tour_version)}
+
+    def _put_tour(self, tour: "GuidedTour") -> None:
+        self._require_table().put_item(
+            Item={**self._tour_key(tour.project_id, tour.tour_version), "document": tour.model_dump_json()}
+        )
+
+    def list_tours(self, project_id: str) -> list["GuidedTour"]:
+        GuidedTour = _tour_model_type()
+        return [
+            GuidedTour.model_validate_json(item["document"])
+            for item in self._query_children(project_id, "TOUR")
+        ]
+
+    def append_tour(self, tour: "GuidedTour") -> None:
+        with self._lock:
+            try:
+                self._require_table().put_item(
+                    Item={**self._tour_key(tour.project_id, tour.tour_version), "document": tour.model_dump_json()},
+                    ConditionExpression="attribute_not_exists(sk)",
+                )
+            except Exception as error:  # noqa: BLE001 - narrowed below
+                if self._is_conditional_check_failure(error):
+                    raise RevisionConflict(
+                        f"Tour version {tour.tour_version} for project {tour.project_id} already exists."
+                    ) from error
+                raise
+
+    def get_tour(self, project_id: str, tour_version: int) -> "GuidedTour | None":
+        GuidedTour = _tour_model_type()
+        response = self._require_table().get_item(Key=self._tour_key(project_id, tour_version))
+        item = response.get("Item")
+        if item is None:
+            return None
+        return GuidedTour.model_validate_json(item["document"])
+
+    def get_active_tour_version(self, project_id: str) -> int | None:
+        response = self._require_table().get_item(Key={"pk": f"PROJECT#{project_id}", "sk": "TOURLIVE"})
+        item = response.get("Item")
+        if item is None:
+            return None
+        return int(item["tour_version"])
+
+    def activate_tour(self, project_id: str, expected: int | None, new_version: int) -> "GuidedTour | None":
+        pointer_item = {"pk": f"PROJECT#{project_id}", "sk": "TOURLIVE", "tour_version": new_version}
+        if expected is None:
+            kwargs: dict = {"Item": pointer_item, "ConditionExpression": "attribute_not_exists(pk)"}
+        else:
+            kwargs = {
+                "Item": pointer_item,
+                "ConditionExpression": "attribute_not_exists(pk) OR tour_version = :expected",
+                "ExpressionAttributeValues": {":expected": expected},
+            }
+        with self._lock:
+            try:
+                self._require_table().put_item(**kwargs)
+            except Exception as error:  # noqa: BLE001 - narrowed below
+                if self._is_conditional_check_failure(error):
+                    return None
+                raise
+            if expected is not None:
+                previous = self.get_tour(project_id, expected)
+                if previous is not None:
+                    self._put_tour(previous.model_copy(update={"status": "retired"}))
+            new_tour = self.get_tour(project_id, new_version)
+            if new_tour is None:
+                return None
+            new_tour = new_tour.model_copy(update={"status": "active"})
+            self._put_tour(new_tour)
+            return new_tour
 
 
 def create_store(
