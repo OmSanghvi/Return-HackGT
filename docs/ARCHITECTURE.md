@@ -147,18 +147,72 @@ contribution" / "each object," never "the first/second contributor."
   contributor can only edit the object(s) they contributed, regardless of
   how many other contributors are in the room.
 
-### Unity Cloud / real-time presence — explicitly out of MVP scope, but plan for it
+### Unity Cloud / real-time presence — out of MVP scope; planned as the gated Collaborative VR track
 
 The MVP stays **sequential co-creation**: contributors add their object at
 different times, nobody needs to be online simultaneously, and there is no
-netcode anywhere in the shipped build. This scales to N contributors with
+netcode anywhere in the MVP build. This scales to N contributors with
 zero networking work, which is why it's the right MVP shape. Do not add
-real-time multiplayer to hit the N-contributor request — it's explicitly
-out of scope per the existing hard rule against accounts, chat, real-time
-multiplayer, and notifications.
+real-time multiplayer to the MVP to hit the N-contributor request.
 
-If a *future* "everyone views the finished room together, live" mode is ever
-built, evaluate these paths and pick the one that best fits the track:
+**Decision (2026-09-25):** the live "everyone in the room together" mode
+is approved as a separate, gated **Collaborative VR track**
+(`docs/BUILD_PLAN.md` steps 13–29, AGENT.md Hard Rule 9). It uses the
+Unity Cloud path below, specifically:
+
+- **Unity Multiplayer Services with Distributed Authority** and Netcode for
+  GameObjects 2.x. Client-hosted Relay was rejected because Unity doesn't
+  support host migration for Netcode for GameObjects there, so the room
+  would close whenever the host left.
+- **Clerk is the account system**, used directly by the web app
+  (`@clerk/react`).
+- **The Quest uses the person's Meta account.**
+  - Unity Cloud signs in with `SignInWithOculusAsync`.
+  - The backend validates a Meta user-proof nonce, maps the Meta ID to the
+    linked Clerk user (linked once with a code entered on the website), and
+    issues a short-lived room token.
+  - Clerk has no Meta Quest login provider. The earlier plan of a Clerk
+    OAuth browser login on the headset was dropped because it was the
+    riskiest step.
+- **A public, authenticated room API** (`/v1/rooms/{project_id}/state`,
+  `/edits`) for headset saves. It enforces per-contributor ownership,
+  bounds, and revision checks, and publishes server-side. Headsets never
+  call authoring routes (Hard Rule 4).
+- **Revision safety:** `based_on_revision` with 409 on stale writes,
+  conditional DynamoDB writes, and a compare-and-set `LIVE` pointer for the
+  published revision.
+- Unity Cloud Save was considered and rejected: its shared items are
+  server-write-only and would add a second source of truth.
+
+Meta's Shared Spatial Anchors / colocation remains the option to revisit
+for co-located (same physical room) sessions; it wasn't chosen because the
+requirement is remote collaboration tied to Clerk accounts.
+
+Added 2026-09-25 (details in `docs/DATA_ARCHITECTURE.md` and Build Plan
+steps 26–29):
+
+- **Data architecture:**
+  - One DynamoDB table (new GSI1/GSI2 and TTL need an approved Terraform
+    change) and one S3 bucket.
+  - Membership, assets, jobs, and letters are child items, never lists
+    inside the project blob.
+  - Jobs are durable and lease-based.
+  - Uploads live in shared storage.
+- **Several objects per photo, several uploads at once:**
+  - One SAM 3.1 multi-concept pass produces candidate masks, then the
+    person selects objects, then one Fast-SAM3D job runs per object.
+  - GPU concurrency defaults to 1 and is raised only after an approved
+    benchmark.
+- **Letters:**
+  - A Notability page becomes a textured 3D paper mesh (no GPU, legible)
+    sealed in an envelope.
+  - Only the addressed recipients can open it; the open animation plays
+    live for everyone, and the opened state persists.
+  - `scene.schema.json` gains `source: "letter"`.
+- **Polling** is the baseline sync mechanism for web and headset: ETag/304,
+  `since_revision`, and backoff.
+
+The original evaluation of the two paths, kept for reference:
 
 - **Meta's own Platform SDK — Shared Spatial Anchors / colocation**
   (Quest-native shared-anchor APIs for co-located or remote presence in the

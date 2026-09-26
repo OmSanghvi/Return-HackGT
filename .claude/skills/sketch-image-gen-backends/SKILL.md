@@ -20,8 +20,17 @@ uses them for what they actually are instead.
 **Do not reintroduce `image_gen.py`, an `azure`/`hf`/`grok` image-generation
 backend, or `/v1/sketches`.** If any reference to Meta Muse Image, Azure
 DALL-E, or HF SDXL image-gen turns up anywhere in the repo, it's stale —
-remove it. (This is unrelated to `NEMOCLAW_MODEL_BACKEND=llama|grok`, which
-picks NemoClaw's own *reasoning* model and is untouched by this step.)
+remove it. (This is unrelated to `NEMOCLAW_MODEL_PROVIDER=meta|xai|nebius`,
+which picks NemoClaw's own *reasoning* model and is untouched by this step.
+In particular, **Muse Spark on the Meta Model API is NemoClaw's reasoning
+model and must not be removed**; only "Meta Muse Image" image generation
+is rejected.)
+
+**Letters:** a handwritten Notability page addressed to someone is no
+longer a Path 2 plaque. It becomes a textured 3D paper page in an envelope
+(Build Plan steps 28–29, skills `letters-backend-and-web` and
+`letters-vr-envelope`). Path 1 (flat card) stays the default for drawings,
+and Path 2 stays optional for non-letter pages.
 
 ## What to build, concretely
 

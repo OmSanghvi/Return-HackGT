@@ -47,7 +47,7 @@ flow; the write-up for each track selects which framing to lead with. See
 ## The pitch, in one line
 
 **Two long-distance friends, a couple, or family members each contribute one
-meaningful object. AI figures out why those two objects belong together, and
+meaningful object. AI figures out why those objects belong together, and
 Unity turns that connection into a room they can walk through side by side —
 on a Meta Quest.**
 
@@ -70,7 +70,7 @@ part only AI can do.
   single artifact.
 - **AI is essential and well-integrated:** AI does three jobs a normal 3D
   editor can't — interpret an ambiguous photo/sketch, infer the shared theme
-  between two people's contributions, and translate that theme into a room
+  across everyone's contributions, and translate that theme into a room
   layout. The AI's reasoning is perceivable — through lighting, staging, a
   connecting motif, sound, and spoken narration — not hidden behind the
   scenes, and deliberately not reduced to a floating text card either. The
@@ -100,7 +100,9 @@ part only AI can do.
 
 This is intentionally sequential co-creation, not real-time multiplayer. It
 can be demonstrated locally with two named contributors and does not require
-accounts, chat, notifications, or a production sharing service.
+accounts, chat, notifications, or a production sharing service. Live
+multi-headset rooms with accounts are a separate, gated post-MVP track
+(`docs/BUILD_PLAN.md` steps 13–29).
 
 ### The two input paths
 
@@ -171,17 +173,17 @@ tools (`place_objects_in_scene`, optionally `read_sketch_layout`, and
 the theme and the room's staging come from the same pass. `connection/compose`
 should invoke NemoClaw, not a separate composition backend that bypasses it.
 
-For the reasoning model that powers NemoClaw, use a **Llama model** (Llama 4
-Maverick/Scout, natively multimodal) as the default runtime. Submitting to
-Meta's own challenge running Meta's own model for the load-bearing reasoning
-step is a small, deliberate choice that reads well to judges. **As of July
-2026, Meta retired the public-preview Llama API**, so this means serving the
-model through a hosting provider (Together AI, Groq, or AWS Bedrock all
-currently offer Llama 4) or self-hosting it — not a first-party Meta-hosted
-endpoint. **Keep Grok configured as a switchable fallback runtime**
-(`NEMOCLAW_MODEL_BACKEND=llama|grok`) for the alternate Resilience Commons
-framing — this is a NemoClaw configuration choice, not a second parallel API
-path.
+For the reasoning model that powers NemoClaw, use **Meta's Muse Spark** on
+the **Meta Model API** (`https://api.meta.ai/v1`, `muse-spark-1.3`, tool
+calling and image input) as the default. Submitting to Meta's own challenge
+running Meta's own current model through Meta's own API is a small,
+deliberate choice that reads well to judges. Two alternatives stay
+switchable with `NEMOCLAW_MODEL_PROVIDER=meta|xai|nebius`:
+- **Grok API** (`xai`), for the alternate Resilience Commons framing.
+- **Nebius Token Factory** (`nebius`), for open models such as Llama.
+
+This is a NemoClaw configuration choice, not a second parallel API path.
+See the `nemoclaw-model-providers` skill.
 
 Separately, the old **sketch → photorealistic image** step (`POST /v1/sketches`,
 `backend/image_gen.py`, and its `mock`/`azure`/`hf` backends) has been
@@ -264,7 +266,7 @@ connection must be felt, not read" in AGENT.md) — not as on-screen text.
 
 `PIPELINE_MODE=mock` must return a deterministic insight and layout from two
 labels/memory snippets so the entire social flow works offline, with no
-NemoClaw agent runtime required. A live NemoClaw run (Llama-backed by
+NemoClaw agent runtime required. A live NemoClaw run (Muse Spark by
 default) can later replace only this composition step. The mock result must
 be labelled as mock in metadata and must never claim that a live model ran.
 
@@ -542,8 +544,8 @@ POST /v1/projects/{id}/connection/compose → invokes NemoClaw's tools
   ├─ Interpretation: labels/descriptions for each object
   ├─ Connection-making: shared theme + explanation, via
   │  place_objects_in_scene + stage_immersive_reveal (mock, or a live
-  │  NemoClaw run — Llama-backed by default, Grok kept as a switchable
-  │  fallback runtime)
+  │  NemoClaw run — Muse Spark by default; Grok or Nebius
+  │  switchable via NEMOCLAW_MODEL_PROVIDER)
   └─ Expression: proposed room layout (positions, rationale)
   │
   ↓

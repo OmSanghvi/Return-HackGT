@@ -13,6 +13,7 @@ python3 -m py_compile \
   "$ROOT/backend/test_subject_labeler.py" \
   "$ROOT/scripts/smoke_test_aws_storage.py" \
   "$ROOT/scripts/export_unity_experience.py" \
+  "$ROOT/scripts/check_collab_gates.py" \
   "$ROOT/worker/run_job.py" \
   "$ROOT/worker/segment_sam31_local.py"
 bash -n \
@@ -26,6 +27,12 @@ python3 -m json.tool "$ROOT/config/nemoclaw/sketchscape-tools.json" >/dev/null
 python3 -m json.tool "$ROOT/shared/experience-blueprint.schema.json" >/dev/null
 python3 -m json.tool "$ROOT/config/unity/sketchscape-scene.profile.json" >/dev/null
 python3 -m json.tool "$ROOT/config/unity/sketchscape-scene.profile.schema.json" >/dev/null
+python3 -m json.tool "$ROOT/config/collab-vr/gates.json" >/dev/null
+python3 -m json.tool "$ROOT/config/nemoclaw/model-providers.example.json" >/dev/null
+# Collaborative VR gate status (read-only, offline). Fails only if a secret
+# (Clerk/Meta/xAI key, secret env assignment, VITE_*SECRET*) leaks into the
+# repo, app/.env*, or the Unity project.
+python3 "$ROOT/scripts/check_collab_gates.py" --status
 
 if [[ -x "$ROOT/backend/.venv/bin/python" ]]; then
   (

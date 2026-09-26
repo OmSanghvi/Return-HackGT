@@ -7,6 +7,10 @@ for *how* to do each step (skill name, files, concrete steps, definition of
 done) — this file is only the *who* and *in what order*, chosen to minimize
 file collisions and blocked time.
 
+The Collaborative VR + web accounts track (Build Plan steps 13–29) is
+post-MVP and not assigned here. Whoever picks it up runs
+`python3 scripts/check_collab_gates.py <step>` first (AGENT.md Hard Rule 9).
+
 Load `meta-track-alignment` (the standing skill) regardless of track — it's
 the judgment-call gate for all of them. Each track below names the
 step-specific skill(s) to load in addition.

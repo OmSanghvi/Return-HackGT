@@ -75,6 +75,22 @@
       "purpose": "Fetch the runtime scene compiled from the project's published blueprint.",
       "approval_required": false,
       "implementation_status": "implemented-base-scene"
+    },
+    {
+      "id": "room.state.fetch",
+      "method": "GET",
+      "path": "/v1/rooms/{project_id}/state",
+      "purpose": "Collaborative VR: read the live revision, objects, and ownership of a room (callable name get_room_state). Authenticated with NemoClaw's Clerk M2M token. Build Plan steps 21 and 24; gated by scripts/check_collab_gates.py.",
+      "approval_required": false,
+      "implementation_status": "target"
+    },
+    {
+      "id": "room.edit.draft",
+      "method": "POST",
+      "path": "/v1/projects/{project_id}/blueprints?base_revision={live_revision}",
+      "purpose": "Collaborative VR: draft a room edit as a new revision based on the live revision (callable name propose_room_edit). Never publishes; publishing uses blueprint.publish with approval. Returns 409 if the room changed. A person approves the publish on the website. Build Plan step 24.",
+      "approval_required": false,
+      "implementation_status": "target"
     }
   ],
   "unity_mcp_menu_tasks": [

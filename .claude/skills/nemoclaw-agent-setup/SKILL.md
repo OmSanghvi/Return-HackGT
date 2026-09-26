@@ -20,13 +20,13 @@ Unity MCP in documentation (`AGENT.md`, `config/nemoclaw/sketchscape-tools.json`
   its install steps and tool surface can change, so don't rely on a
   remembered configuration. **Requires Unity Editor 6000.0.66f2 or later**
   (verified September 2026) — check the installed Unity version first.
-- Default `NEMOCLAW_MODEL_BACKEND=llama`, served through a hosting provider
-  (Together AI, Groq, or AWS Bedrock all offer current Llama 4 endpoints) or
-  self-hosted. **Meta retired its own public-preview Llama API in July
-  2026** — there is no first-party Meta-hosted Llama endpoint to point at
-  anymore, so don't assume one exists. Confirm `grok` also works as an
-  alternate value before anyone relies on it for the Resilience Commons
-  framing — this is a config value, not a code fork.
+- Model provider: follow the `nemoclaw-model-providers` skill. The default
+  is `NEMOCLAW_MODEL_PROVIDER=meta` (Meta Model API, Muse Spark
+  `muse-spark-1.3`), with `xai` (Grok) and `nebius` (Token Factory, open
+  models including Llama) switchable. `NEMOCLAW_MODEL_BACKEND` is replaced.
+  Meta's Model API doesn't list Llama models; use `nebius` for Llama.
+  Confirm `xai` works before anyone relies on it for the Resilience
+  Commons framing. It's a config value, not a code fork.
 - **Never expose the registered Unity MCP endpoint publicly.** Register only
   a trusted local/private target, per
   `.agents/skills/sketchscape-infrastructure/SKILL.md`'s existing safety
@@ -52,11 +52,24 @@ Unity MCP in documentation (`AGENT.md`, `config/nemoclaw/sketchscape-tools.json`
 2. Follow that runtime's current official onboarding docs to install it
    locally.
 3. Install and configure the Unity MCP Extension for Horizon per its current
-   docs page (link above). Confirm it can inspect the open `../HackGTUnity`
-   project read-only before attempting any write.
+   docs page (link above).
+   - It installs from GitHub
+     (`https://github.com/meta-quest/Unity-MCP-Extensions.git`) and Meta
+     warns that "functionality might vary by version", so **pin a specific
+     commit or tag** in `Packages/manifest.json` and record it here.
+   - The extension documents only **write** operations (create, update or
+     delete GameObjects, relative move/rotate, grabbable, teleport
+     hotspots). Any read-only inspection comes from Unity's base MCP
+     package that the extension plugs into. Check what that exposes. If
+     there's no read tool, read scene state from the backend
+     (`compiled-scene`) instead of assuming the extension can.
+   - Confirm a read-only inspection of the open `../HackGTUnity` project
+     works before attempting any write.
 4. Register the Unity MCP Extension as NemoClaw's trusted local Unity target.
-5. Set `NEMOCLAW_MODEL_BACKEND=llama` in the runtime's config; verify `grok`
-   is at least a valid selectable value even if untested end-to-end yet.
+5. Configure the runtime's OpenAI-compatible provider from
+   `config/nemoclaw/model-providers.example.json`, with keys only in its
+   credential provider. Run one tool-calling round trip on `meta`, then on
+   `xai` by changing only `NEMOCLAW_MODEL_PROVIDER`.
 6. Update `config/nemoclaw/sketchscape-tools.json`: this file is
    documentation-only (its own header says so) — add or update entries for
    any newly-registered capability, keeping the existing `id`/`method`/`path`/

@@ -13,14 +13,16 @@ plan is the *how* and the *what's next*.
 
 ## What this project does
 
-**SketchScape / Shared Room** is a social product: two people who care about
-each other each contribute one meaningful object (a photo or a Notability
-sketch). AI infers why those two objects belong together — a shared theme, an
-explanation, a placement rationale — and Unity turns that inference into one
-explorable VR room the two of them can walk through on a Meta Quest headset.
+**SketchScape / Shared Room** is a social product: two or more people who
+care about each other (a couple, friends, or a whole family, with no fixed
+limit) each contribute meaningful objects (photos, Notability sketches, or
+handwritten letters). AI infers why those objects belong together — a
+shared theme, an explanation, a placement rationale — and Unity turns that
+inference into one explorable VR room they can walk through together on
+Meta Quest headsets.
 The 3D reconstruction pipeline (SAM 3.1 → Fast-SAM3D → Gaussian-splat `.ply`)
 is the plumbing underneath; the product is the connection the AI surfaces
-between two people's contributions, not the reconstruction itself. Keep this
+between everyone's contributions, not the reconstruction itself. Keep this
 framing first in every doc, demo, and commit — see the primary competition
 track below.
 
@@ -34,10 +36,11 @@ before doing any product work. `features.txt` at the repo root lists the exact
 features to hit in the demo video. The summary here is only an agent-facing
 pointer; do not let AGENT.md and PROJECT_STATUS.md drift apart.
 
-**One-line pitch:** two long-distance friends, a couple, or family members
-each contribute one meaningful object. AI figures out why those two objects
-belong together, and Unity turns that connection into a room they can walk
-through side by side — on a Meta Quest.
+**One-line pitch:** long-distance friends, a couple, or a whole family each
+contribute a meaningful object. AI figures out why those objects belong
+together, and Unity turns that connection into a room they can walk through
+side by side on Meta Quest. The demo shows two people; the product supports
+any number.
 
 **Judging criteria and how this product answers them:**
 - *Strengthens human connection* — the room is a private, spatial artifact of
@@ -45,7 +48,7 @@ through side by side — on a Meta Quest.
   revisited and extended (a third object later, an anniversary update).
 - *AI is essential and well-integrated* — AI does three jobs a normal 3D
   editor can't: interpret an ambiguous photo/sketch, infer the shared theme
-  between two people's contributions, and translate that theme into a room
+  across everyone's contributions, and translate that theme into a room
   layout. The AI's reasoning must be perceivable — through the scene itself
   (lighting, staging, motion, sound, symbolic set dressing) or spoken
   narration — never hidden behind raw coordinates, and never reduced to a
@@ -71,18 +74,24 @@ through side by side — on a Meta Quest.
   staging come from the same reasoning pass. Do not build a separate
   standalone "composition backend" that bypasses NemoClaw and calls a model
   API directly — the tools *are* the composition mechanism.
-- NemoClaw's underlying reasoning runtime defaults to a **Llama model**
-  (Llama 4 Maverick/Scout — natively multimodal) for this track — submitting
-  a Llama-backed agent to Meta's own challenge is a deliberate, judge-legible
-  choice. **As of July 2026, Meta retired the public-preview Llama API** —
-  there's no first-party Meta-hosted Llama endpoint anymore. Serve the model
-  through a hosting provider (Together AI, Groq, or AWS Bedrock all offer
-  current Llama 4 endpoints) or self-host it; confirm whichever host is
-  chosen before implementing, since this landscape shifts. **Keep Grok
-  configured as a switchable fallback runtime, not a deleted option**, for
-  the alternate Resilience Commons framing below — this is a NemoClaw
-  runtime/config choice (which model backs the agent's reasoning), not a
-  second parallel API.
+- NemoClaw's reasoning and vision model comes from one of three providers,
+  all OpenAI-SDK compatible and chosen with `NEMOCLAW_MODEL_PROVIDER`
+  (updated 2026-09-25; details in the `nemoclaw-model-providers` skill and
+  `config/nemoclaw/model-providers.example.json`):
+  - **`meta` (default for this track):** Meta Model API,
+    `https://api.meta.ai/v1`, **Muse Spark** (`muse-spark-1.3`, tool
+    calling and image input). This is Meta's own current model through
+    Meta's own API, a judge-legible choice for Meta's challenge. It's in
+    public preview for US developers.
+  - **`xai`:** Grok API, `https://api.x.ai/v1` (`grok-4.7`), for the
+    Resilience Commons framing and as a fallback.
+  - **`nebius`:** Nebius Token Factory
+    (`https://api.tokenfactory.nebius.com/v1/`), open models including
+    Llama, for when an open-weights story is wanted.
+
+  This is a NemoClaw runtime/config choice, not a second parallel API.
+  Muse Spark (reasoning) has nothing to do with the rejected "Meta Muse
+  Image" image-generation backend.
 - The old **sketch → photorealistic image** pipeline is removed entirely —
   `POST /v1/sketches`, `backend/image_gen.py` (`mock`/`azure`/`hf`
   backends), and `backend/test_image_gen.py` are gone. Hallucinating a fake
@@ -117,24 +126,27 @@ through side by side — on a Meta Quest.
   as the Unity MCP integration, rather than a generic/third-party Unity MCP
   server. Submitting to Meta's own challenge using Meta's own official Unity
   tooling is a deliberate, judge-legible choice, the same reasoning as the
-  Llama requirement above. Follow that page's current setup instructions
+  Meta model-provider default above. Follow that page's current setup instructions
   rather than a remembered/guessed configuration — the extension's install
   steps and tool surface can change.
 - `PIPELINE_MODE=mock` must return a deterministic `ConnectionInsight` and
-  layout from two labels/memory snippets, labelled `mock` in metadata, and
+  layout from the contributions' labels/memory snippets (two or more), labelled `mock` in metadata, and
   must never claim a live model ran when it didn't.
 
-**Definition of done for this track:** two named contributors can complete
+**Definition of done for this track:** two or more named contributors (the demo shows two; tests use three or more) can complete
 the full flow in local mock mode, Unity visibly attributes their objects
 without a UI text overlay, the AI theme is perceivable through the staged
 scene (and/or spoken narration), the published blueprint loads successfully,
 and one safe scene edit is demonstrated — all captured in a 2–3 minute video
 that states who the product is for, how it strengthens connection, and why
-AI (specifically NemoClaw's Llama-backed reasoning and scene-authoring
-tools) is essential.
+AI (specifically NemoClaw's reasoning on Meta's Muse Spark and its
+scene-authoring tools) is essential.
 
 **Do not scope-creep this MVP** into accounts, chat, real-time multiplayer,
-or notifications — those are explicitly post-hackathon.
+or notifications — those are explicitly post-hackathon. The one approved
+exception is the **Collaborative VR track** (live multi-headset rooms with
+Clerk accounts, `docs/BUILD_PLAN.md` steps 13–29). It is separate from the
+MVP, must never break or delay steps 1–12, and is gated by Hard Rule 9.
 
 ## Secondary / alternate competition track: Resilience Commons with Grok
 
@@ -177,10 +189,11 @@ This is sequential co-creation for the prototype — contributors add their
 object at different times; nobody needs to be present simultaneously, and
 there is no real-time networking anywhere in the shipped build. Do not expand
 the MVP into accounts, chat, real-time multiplayer, notifications, or a new
-social network. Those features are post-hackathon work; if real-time shared
-presence is ever pursued, `docs/ARCHITECTURE.md` names the two candidate
-paths (Meta's own colocation/Shared Spatial Anchors APIs, or Unity Cloud /
-Unity Gaming Services) and the tradeoff between them.
+social network. Those features are post-hackathon work. Real-time shared
+presence is now planned as the gated Collaborative VR track (Unity
+Multiplayer Services with Distributed Authority, Clerk identity) — see
+`docs/ARCHITECTURE.md` and `docs/BUILD_PLAN.md` steps 13–29. It does not
+change the MVP's sequential flow.
 
 ## Competition track: Resilience Commons with Grok
 
@@ -239,7 +252,7 @@ When implementing the MVP, preserve the current ownership boundaries:
 - Add project-scoped `Contributor`, `Contribution`, and `ConnectionInsight`
   records. A contribution points to an existing `asset_id` and includes the
   contributor ID, source type, and optional memory text.
-- Add a project-scoped composition endpoint that accepts the two contributions
+- Add a project-scoped composition endpoint that accepts all of the project's contributions (two or more)
   and returns a shared theme, explanation, placement rationale, and an
   `ExperienceBlueprintInput` proposal.
 - Reuse blueprint validation, immutable revisions, publication, and compiled
@@ -277,18 +290,22 @@ strengthens connection, and why AI is essential.
 
 ## Frontend app — the user's control surface
 
-The user interacts with SketchScape through a **desktop app** built on the
-same stack as the `logseq_new` repo (Electron + electron-vite + React 18 +
-TypeScript + Zustand + Tailwind + lucide-react). The app is clean, dark, and
-minimal — the same aesthetic as Obsidian / logseq_new.
+The user interacts with SketchScape through a **web app** (decided
+2026-09-25, replacing the earlier Electron desktop-app plan because Clerk
+supports React web apps officially and Electron only unofficially). The app
+is clean, dark, and minimal — the same aesthetic as Obsidian / logseq_new.
+Accounts are Clerk; building it is Build Plan steps 19–20 (skills
+`web-app-foundation`, `web-uploads-and-linking`), gated like the rest of the
+Collaborative VR + web accounts track.
 
 **The app lives at `app/` inside this repository (to be created).**
 It communicates only with the SketchScape backend API at
 `http://127.0.0.1:8000` (or the EC2 public IP for the live demo).
 
 ### Stack
-- **Electron + electron-vite** — cross-platform desktop shell, same as logseq_new
-- **React 18 + TypeScript** — renderer
+- **Vite + React + TypeScript** — static web app (no Electron, no Next.js)
+- **`@clerk/react`** — sign-in; `useAuth().getToken()` → `Authorization: Bearer` on every API call
+- Runs without Clerk in offline mock mode against a `SKETCHSCAPE_AUTH_MODE=mock` backend
 - **Zustand** — client state (current project, upload status, scene state)
 - **Tailwind CSS** — styling, dark theme by default
 - **lucide-react** — icons (same set as Obsidian / logseq_new)
@@ -306,8 +323,18 @@ Drag-and-drop area or file picker. Accepts:
 - Notability sketch exports (same formats — shown directly as a flat card, or
   reconstructed as a 3D memory plaque; see `docs/BUILD_PLAN.md` step 7, not
   built yet)
-User types a short label ("oak chair", "blue ceramic vase"). Submits. Shows a
-live progress indicator while reconstruction runs (polls the job endpoint).
+One photo can contain **several objects, and the person chooses them**:
+1. On a canvas over the uploaded photo, they mark each object they want in
+   3D: click it (include/exclude points), drag a box, or type its name.
+2. They add an optional label and memory text per object.
+3. Those selections are the SAM 3.1 prompts. SAM masks exactly those
+   objects, and the person can refine any mask, then presses "Make 3D" to
+   generate one PLY per object.
+
+"Suggest objects" (NemoClaw auto-detect) only proposes selections. One
+progress view polls every job at once (`GET
+/v1/projects/{id}/jobs?active=1`, ETag/304, backoff). See Build Plan steps
+20, 26–27 and `docs/DATA_ARCHITECTURE.md`.
 
 **3 — Project / scene manager**
 Shows all objects in the current project with their status (processing /
@@ -324,15 +351,32 @@ to Unity.
 **5 — VR launch**
 "Export to Quest" button — runs `scripts/export_unity_experience.py`, packages
 the scene, and opens instructions to build the APK or sideload to the headset.
+In the web app this screen can't run local scripts. It shows how to open
+the room in the SketchScape Quest app (which loads rooms from the backend
+after the Meta sign-in and Quest linking). `export_unity_experience.py`
+stays a developer tool run from a shell.
+
+**Added by the accounts track (steps 19–20):**
+- Clerk sign-in and sign-up.
+- Project invites: an invite link with the project's invite code.
+- Optional upload fields: object label ("what is it?"; NemoClaw labels it
+  if blank), memory text, and a project room prompt.
+- Notability upload as a flat card or 3D plaque (PDF pages rendered to PNG
+  in the browser).
+- A **Link Quest** page: enter the code the headset shows.
+- A Room page showing the live revision, where a person approves
+  NemoClaw's proposed layout before it publishes.
 
 ### What the app must never do
-- Store AWS credentials, HF tokens, or worker tokens
+- Store AWS credentials, HF tokens, worker tokens, or any secret — only public
+  values (`VITE_CLERK_PUBLISHABLE_KEY`, API URL) may appear in `app/`, because
+  Vite ships every `VITE_*` variable in the public bundle
 - Call Unity MCP or NemoClaw directly — those go through the backend
 - Block the UI while polling — use non-blocking polling with a progress indicator
 
 ---
 
-## The two input paths
+## The input paths
 
 **Photo upload**
 ```
@@ -346,10 +390,29 @@ Path 2 (memory plaque): Sketch + memory text (the whole page) → SAM 3.1 → Fa
                          → a 3D plaque/page object with the memory text physically on it
 ```
 
+**Notability letter** (Build Plan steps 28–29)
+```
+Letter page (image, or a PDF page rendered to PNG in the browser)
+  + recipients (one or more contributors) + optional typed note
+  → stored as a letter asset (no GPU)
+  → in VR: a sealed envelope; only a recipient can open it; everyone sees the
+    flap open and the textured 3D paper page slide out and unfold
+```
+
+**Photo with several objects, chosen by the person** (Build Plan steps 20, 26–27)
+```
+Photo → person marks objects on the website (click include/exclude, box, or name)
+      → SAM 3.1: points/box → interactive predictor (one mask each);
+                 names → semantic predictor (best instance + alternatives)
+      → person refines/confirms masks → one Fast-SAM3D job per object → N .ply files
+```
+
 There is no image-generation conversion step anymore — a sketch is no longer
 turned into a fake photorealistic photo first. Photo upload still produces a
 `.ply` Gaussian-splat stored in S3 with metadata in DynamoDB; Path 2 for
-sketches produces the same kind of `.ply`, just of the page itself.
+sketches produces the same kind of `.ply`, just of the page itself. Users
+don't upload their own PLYs; every PLY comes from the worker. Storage for
+all of it is in `docs/DATA_ARCHITECTURE.md`.
 
 ---
 
@@ -386,10 +449,22 @@ All .ply files in catalog
 4. **NemoClaw and Unity MCP are development control-plane tools only.** The
    shipped Unity player must never call NemoClaw, Unity MCP, the authoring
    backend, or any AWS service at runtime. Only the public backend API is
-   allowed in a shipped build.
+   allowed in a shipped build. For the Collaborative VR track, the public
+   API includes the `/v1/rooms/*` routes and `/v1/auth/meta/session` and
+   `/link-code`, and the player may also use the Meta Platform SDK and
+   Unity Multiplayer Services. Headsets authenticate with a backend room
+   token (from a verified Meta user proof), never with a Clerk secret, and
+   never call blueprint create/publish directly.
 
-5. **SAM 3.1 and Fast-SAM3D run sequentially on the GPU, never concurrently.**
-   The T4 has 16 GB VRAM. Release SAM 3.1 memory before starting Fast-SAM3D.
+5. **Within a job, SAM 3.1 and Fast-SAM3D never hold GPU memory at the
+   same time.** Release SAM 3.1 memory before starting Fast-SAM3D.
+   - Several objects per upload and several uploads at once go through
+     the durable job queue (Build Plan steps 26–27): one SAM 3.1 pass
+     finds every object, then one Fast-SAM3D job runs per object.
+   - Parallel jobs on one GPU (`SKETCHSCAPE_GPU_CONCURRENCY` > 1) only after
+     an approved VRAM benchmark on that instance type, recorded in the
+     Build Plan. A T4 (16 GB) always stays at 1. The verified L40S (45 GB)
+     starts at 1 until benchmarked.
 
 6. **Published blueprint revisions are the source of truth.** Generated Unity
    scenes are reproducible compiler output. Never make opaque MCP edits the
@@ -403,6 +478,16 @@ All .ply files in catalog
 8. **Run `bash scripts/verify_local.sh` after every backend change** and
    confirm all tests pass before reporting done. Currently 40 tests, all
    passing.
+
+9. **Collaborative VR + web accounts steps (13–29) are gated.** Before writing any code or
+   config for one, run `python3 scripts/check_collab_gates.py <step>`. If
+   it says BLOCKED, stop: don't implement, stub, fake, or work around the
+   missing prerequisite. Tell the user what is missing and offer to do that
+   step instead. A step is done only when `--done <step>` and
+   `verify_local.sh` both pass. Never add code just to satisfy the gate
+   script's checks without a working, tested implementation. Never set a
+   manual gate in `config/collab-vr/gates.json` unless the user explicitly
+   confirmed it in the conversation.
 
 ---
 
@@ -511,8 +596,13 @@ Four tools need to be built and registered with NemoClaw:
 **`place_objects_in_scene`**
 Input: list of `{asset_id, label}` objects and optionally the Notability sketch.
 Behaviour: reasons about realistic room layout (interior-design logic), assigns
-`position`, `rotation`, `scale`, and `animations` to each object, constructs
-an experience blueprint, and publishes it immediately via Unity MCP.
+`position`, `rotation`, `scale`, and `animations` to each object, and
+returns a schema-validated blueprint **proposal** (saved as a draft
+revision). It never publishes. Publishing is the separate
+`blueprint.publish` step, which needs a person's approval
+(`approval_required: true`; on the website's Room page once steps 19–20
+exist). This matches the `nemoclaw-scene-tools` skill and the tool
+registry.
 
 **`read_sketch_layout`**
 Input: Notability sketch image.
@@ -539,9 +629,12 @@ correctly with plain lighting and no effects — never block the core
 connection story on the immersive layer.
 
 **`trigger_unity_scene_update`**
-Input: compiled scene JSON from a published blueprint.
-Behaviour: calls Unity MCP to apply the scene to the open Unity project
-immediately. No waiting for manual publish review — changes go live at once.
+Input: compiled scene JSON from an **already published** (approved)
+blueprint.
+Behaviour: calls Unity MCP to apply that scene to the open Unity **Editor**
+project for authoring and APK builds. It needs no second review, because
+the publish itself was approved. It doesn't reach running headsets; live
+rooms update through the backend (Build Plan steps 21–23).
 
 NemoClaw setup: choose an agent runtime — three concrete, currently-real
 open-source options, verified as of September 2026:
@@ -556,8 +649,10 @@ open-source options, verified as of September 2026:
   Python, built on LangGraph, provider-agnostic, with built-in planning,
   filesystem/computer access, and sub-agent delegation.
 
-Follow whichever one's current official onboarding docs, then register Unity
-MCP as a trusted local target. For the Meta track, "Unity MCP" means Meta's
+Follow whichever one's current official onboarding docs, configure its
+model provider per the `nemoclaw-model-providers` skill (Muse Spark on the
+Meta Model API by default), then register Unity MCP as a trusted local
+target. For the Meta track, "Unity MCP" means Meta's
 official **Unity MCP Extension for Horizon**
 (https://developers.meta.com/horizon/documentation/unity/unity-mcp-extension/) —
 install and configure it per that page's current instructions rather than a
@@ -567,7 +662,7 @@ attempting setup. Never put credentials in this repo.
 
 ### Immersive scene craft — open-source toolkit for `stage_immersive_reveal`
 
-The goal is emotional impact, not object placement: when two contributors'
+The goal is emotional impact, not object placement: when the contributors'
 objects and the AI's connection explanation come together in the room, the
 scene should *feel* like something, not just render correctly. Build
 `stage_immersive_reveal` on these open-source building blocks rather than a
@@ -587,7 +682,7 @@ Unity player's runtime dependencies beyond the public backend API (Hard Rule
   sequence should end in a floating UI panel.
 - **Procedural / cinematic animation** — [PrimeTween](https://github.com/KyryloKuzyk/PrimeTween)
   for lightweight, allocation-free tweens (object entrance animations, camera
-  drift, a connecting light path growing between the two objects), or
+  drift, a connecting light path growing between the contributed objects), or
   [TweenPlayables](https://github.com/AnnulusGames/TweenPlayables) if the
   reveal sequence is authored on Unity's built-in Timeline instead — it adds
   tween tracks directly to Timeline. Pick one, not both.
@@ -596,7 +691,7 @@ Unity player's runtime dependencies beyond the public backend API (Hard Rule
   or [ramalingamthangamani/URP-Volumetric-Fog](https://github.com/ramalingamthangamani/URP-Volumetric-Fog)
   (built for real-time VR, XR-instancing-safe) to warm or cool the room's
   lighting to match the AI-inferred theme, and to put a soft light shaft or
-  glow at the shared midpoint between the two objects during the reveal —
+  glow at the shared center of the contributed objects during the reveal —
   this light/glow *is* the visible expression of the theme, doing the job a
   text card would otherwise do.
 - **Atmospheric particles** — Unity's own official
@@ -701,13 +796,13 @@ Per-view provenance is already tracked (`AssetView` model, `views` list on
 object into one better `.ply`. Lower priority than getting a single view
 working. Requires a GPU-side fusion strategy.
 
-### 9 — Desktop app (the user's control surface)
-**Not started. Build this once the core pipeline is working end-to-end.**
+### 9 — Web app (the user's control surface)
+**Not started. Now Build Plan steps 19–20 (gated).**
 
-Build `app/` in this repo using the same Electron + electron-vite + React 18
-+ TypeScript + Zustand + Tailwind + lucide-react stack as the
-[logseq_new](https://github.com/OmSanghvi/logseq_new) repo. Match that app's
-clean dark aesthetic — sidebar, main content area, clear visual hierarchy.
+Build `app/` in this repo as a Vite + React + TypeScript + Zustand +
+Tailwind + lucide-react web app with Clerk (`@clerk/react`). Match the
+[logseq_new](https://github.com/OmSanghvi/logseq_new) repo's clean dark
+aesthetic — sidebar, main content area, clear visual hierarchy.
 
 The app talks to the SketchScape FastAPI backend only. No credentials in the
 app. Non-blocking polling with visible progress.
@@ -765,8 +860,8 @@ implemented).
 - Shared theme, explanation, and a placement rationale that references
   **every** contribution, not just two
 - Produced by NemoClaw's tools, not a standalone API call; metadata records
-  `mock` or the live NemoClaw run's underlying model (`llama` default,
-  `grok` fallback via `NEMOCLAW_MODEL_BACKEND`)
+  `backend` (`mock` | `meta` | `xai` | `nebius`) and the exact `model` id
+  (see `nemoclaw-model-providers`)
 - Feeds `stage_immersive_reveal`'s reveal-order and staging decisions
 
 ---
@@ -784,12 +879,33 @@ SKETCHSCAPE_ALLOWED_ORIGINS=*         # CORS origins
 SKETCHSCAPE_MIN_CONTRIBUTORS=2         # connection/compose refuses below this
 SKETCHSCAPE_MAX_CONTRIBUTORS=6         # keeps NemoClaw layout + demo readable
 
-# NemoClaw's underlying reasoning runtime (not yet implemented). NemoClaw's
-# own tools (place_objects_in_scene, stage_immersive_reveal) are what build
-# the scene; this only selects which model powers the agent's reasoning.
-# "llama" is served via a hosting provider (Together AI / Groq / AWS Bedrock)
-# or self-hosted — Meta's own Llama API public preview was retired July 2026.
-NEMOCLAW_MODEL_BACKEND=llama           # llama (Meta track default) | grok (Resilience Commons)
+# NemoClaw's model provider (not yet implemented; nemoclaw-model-providers
+# skill). NemoClaw's own tools build the scene; this only selects the model.
+# Keys live only in the NemoClaw runtime's credential provider.
+NEMOCLAW_MODEL_PROVIDER=meta           # meta (Muse Spark, Meta track) | xai (Grok) | nebius (Token Factory)
+NEMOCLAW_MODEL=                        # optional override (default: muse-spark-1.3 / grok-4.7 / chosen Nebius id)
+NEMOCLAW_VISION_MODEL=                 # optional override for image input (identify_subject)
+META_MODEL_API_KEY=                    # secret, runtime only
+XAI_API_KEY=                           # secret, runtime only
+NEBIUS_API_KEY=                        # secret, runtime only
+
+# Uploads and GPU jobs (Build Plan steps 26-27)
+SKETCHSCAPE_MAX_OBJECTS_PER_UPLOAD=8   # safety cap per photo, not a per-user quota
+SKETCHSCAPE_GPU_CONCURRENCY=1          # raise only after an approved VRAM benchmark
+SKETCHSCAPE_JOB_MAX_ATTEMPTS=2
+SKETCHSCAPE_JOB_LEASE_SECONDS=900
+
+# Accounts (not yet implemented — Build Plan steps 16 and 18; full matrix in
+# the collab-vr-accounts-and-gates skill). mock: dev identity header, offline
+# only; the API refuses to start in mock mode with dynamodb storage or a
+# non-mock pipeline. Secrets below live only in backend secret storage.
+SKETCHSCAPE_AUTH_MODE=mock             # mock | clerk
+CLERK_SECRET_KEY=                      # secret — never in a file, commit, or chat
+SKETCHSCAPE_WEB_ORIGINS=http://localhost:5173  # CORS + Clerk authorized_parties; never * in clerk mode
+SKETCHSCAPE_META_ENABLED=false         # Quest Meta-account sign-in + linking
+SKETCHSCAPE_META_APP_ID=               # public
+SKETCHSCAPE_META_APP_SECRET=           # secret
+SKETCHSCAPE_ROOM_TOKEN_SECRET=         # secret, >=32 random bytes; signs headset room tokens
 
 # Storage backend (local is default; dynamodb for cloud)
 SKETCHSCAPE_STORAGE_BACKEND=local
@@ -843,6 +959,9 @@ Never report a task as done until the relevant validation passes.
 | Unity scene builder | `docs/INTEGRATION_GUIDE.md` sections 5–7 |
 | Meta track status, priorities, demo plan | `docs/PROJECT_STATUS.md` |
 | Concrete, step-by-step build plan | `docs/BUILD_PLAN.md` |
+| Data model: DynamoDB items/indexes, S3 layout, user text, auth data, jobs, polling | `docs/DATA_ARCHITECTURE.md` |
+| Every known issue, its current fix, and where it lives | `docs/KNOWN_ISSUES.md` |
+| Collaborative VR + web accounts (steps 13–29) | `docs/BUILD_PLAN.md` "Collaborative VR + web accounts track", then `collab-vr-accounts-and-gates`; run `python3 scripts/check_collab_gates.py <step>` first |
 | Demo-video feature checklist (Meta + AR/VR tracks) | `features.txt` |
 | Full picture | `docs/PROJECT_STATUS.md` |
 
@@ -868,3 +987,19 @@ building, not a skill for the whole project at once.
 | `gpu-cloud-activation` | 10 (parallel) |
 | `unity-offline-builder-and-rendering` | 11 (parallel) |
 | `demo-video-prep` | 12 |
+| `collab-vr-accounts-and-gates` | 13 (load first for any of 13–29) |
+| `meta-quest-identity` | 14, 18 |
+| `backend-revision-concurrency` | 15 |
+| `backend-auth-clerk` | 16 |
+| `room-api-and-ownership` | 17, 21 |
+| `web-app-foundation` | 19 |
+| `web-uploads-and-linking` | 20 |
+| `unity-cloud-collaborative-vr` | 22 |
+| `vr-edit-cloud-backprop-sync` | 23 |
+| `top-tier-nemoclaw-tool-design` | 24, and standing guidance for any NemoClaw tool |
+| `collab-vr-device-verification` | 25 |
+| `durable-jobs-and-multi-object-upload` | 26 |
+| `gpu-multi-object-worker` | 27 |
+| `letters-backend-and-web` | 28 |
+| `letters-vr-envelope` | 29 |
+| `nemoclaw-model-providers` | 3 (model config), and any change to NemoClaw's model |
