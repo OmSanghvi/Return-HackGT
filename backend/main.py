@@ -8,8 +8,11 @@ one job at a time and writes the result manifest in ``worker_contract.json``.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import math
 import os
+import re
 import secrets
 import sys
 import uuid
@@ -1268,6 +1271,217 @@ async def add_asset_view(
         background_tasks.add_task(run_mock_job, job_id)
 
     return new_view
+
+
+# -- connection/compose (Build Plan step 5) ------------------------------------
+#
+# The mock composer is deterministic over the contributions' labels and memory
+# text and makes no network call. The live composer must derive the insight
+# from the same NemoClaw place_objects_in_scene pass that produces the layout
+# (never a separate model call); it waits on step 4.
+
+
+class ConnectionComposeResponse(BaseModel):
+    """A persisted `ConnectionInsight` plus the blueprint proposal it explains.
+
+    The caller creates the blueprint revision separately through
+    `POST /v1/projects/{project_id}/blueprints`.
+    """
+
+    insight: ConnectionInsight
+    blueprint: ExperienceBlueprintInput
+
+
+# (theme, lighting_preset, keywords). Order breaks ties.
+_MOCK_THEMES: list[tuple[str, str, frozenset[str]]] = [
+    (
+        "Home, carried with us",
+        "warm_evening",
+        frozenset({"home", "house", "family", "grandma", "grandmother", "grandpa", "grandfather", "mom", "mother", "dad", "father", "sister", "brother", "childhood"}),
+    ),
+    (
+        "Around the kitchen table",
+        "warm_evening",
+        frozenset({"kitchen", "cook", "cooking", "recipe", "bake", "baking", "dinner", "breakfast", "food", "tea", "coffee", "mug", "cup", "table"}),
+    ),
+    (
+        "Songs we carry",
+        "stage_glow",
+        frozenset({"music", "song", "guitar", "piano", "sing", "singing", "concert", "record", "vinyl", "band", "radio"}),
+    ),
+    (
+        "By the water",
+        "golden_hour",
+        frozenset({"beach", "ocean", "sea", "lake", "river", "boat", "shell", "summer", "swim", "swimming", "wave"}),
+    ),
+    (
+        "Things we grew",
+        "soft_daylight",
+        frozenset({"garden", "plant", "flower", "tree", "park", "hike", "hiking", "forest", "seed", "leaf"}),
+    ),
+    (
+        "Places that shaped us",
+        "dusk",
+        frozenset({"travel", "trip", "train", "flight", "road", "map", "city", "moved", "move", "journey", "postcard"}),
+    ),
+    (
+        "How we played",
+        "bright_day",
+        frozenset({"game", "play", "played", "toy", "ball", "team", "match", "soccer", "basketball", "puzzle"}),
+    ),
+]
+_MOCK_FALLBACK_THEMES: list[tuple[str, str]] = [
+    ("Small things, kept close", "warm_evening"),
+    ("What we held onto", "soft_daylight"),
+    ("Pieces of the same afternoon", "golden_hour"),
+]
+_MOCK_OBJECT_INTERACTIONS: list[Literal["highlight", "inspect", "scale", "translate", "rotate", "activate"]] = [
+    "highlight",
+    "inspect",
+    "rotate",
+]
+
+
+def _mock_tokens(text: str) -> set[str]:
+    tokens = set()
+    for word in re.findall(r"[a-z]+", text.lower()):
+        tokens.add(word)
+        if len(word) > 3 and word.endswith("s"):
+            tokens.add(word[:-1])
+    return tokens
+
+
+def _clip(text: str, limit: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def compose_connection_mock(
+    contributions: list[Contribution],
+    contributors: dict[str, Contributor],
+    assets: dict[str, ProjectAsset],
+) -> tuple[str, str, list[PlacementRationale], ExperienceBlueprintInput]:
+    """Deterministic stand-in for NemoClaw's layout + connection reasoning."""
+    ordered = sorted(contributions, key=lambda item: (item.created_at, item.contribution_id))
+    texts = [f"{assets[item.asset_id].label} {item.memory_text}" for item in ordered]
+
+    # Prefer the theme the most contributors touch, then the most keyword hits.
+    best_score, best_index = (0, 0), None
+    for index, (_, _, keywords) in enumerate(_MOCK_THEMES):
+        hits = [len(_mock_tokens(text) & keywords) for text in texts]
+        score = (sum(1 for count in hits if count), sum(hits))
+        if score > best_score:
+            best_score, best_index = score, index
+    if best_index is not None:
+        theme, lighting, _ = _MOCK_THEMES[best_index]
+    else:
+        digest = hashlib.sha256("\n".join(sorted(texts)).encode("utf-8")).digest()
+        theme, lighting = _MOCK_FALLBACK_THEMES[digest[0] % len(_MOCK_FALLBACK_THEMES)]
+
+    # Everyone's object sits on one ring facing the shared center, so no
+    # contribution is placed "behind" another.
+    count = len(ordered)
+    radius = max(1.2, 0.45 * count)
+    objects: list[BlueprintObject] = []
+    rationale: list[PlacementRationale] = []
+    for index, contribution in enumerate(ordered):
+        angle = 2 * math.pi * index / count
+        x = round(radius * math.sin(angle), 3)
+        z = round(radius * math.cos(angle), 3)
+        facing = round((math.degrees(angle) + 180.0) % 360.0, 3)
+        asset = assets[contribution.asset_id]
+        object_id = f"contribution-{contribution.contribution_id[:24]}"
+        objects.append(
+            BlueprintObject(
+                id=object_id,
+                asset_id=asset.asset_id,
+                position=[x, 0.0, z],
+                rotation=[0.0, facing, 0.0],
+                scale=list(asset.suggested_scale),
+                interactions=list(_MOCK_OBJECT_INTERACTIONS),
+            )
+        )
+        name = contributors[contribution.contributor_id].display_name if contribution.contributor_id in contributors else "A contributor"
+        memory = f' ("{_clip(contribution.memory_text, 200)}")' if contribution.memory_text else ""
+        rationale.append(
+            PlacementRationale(
+                object_id=object_id,
+                asset_id=asset.asset_id,
+                rationale=_clip(
+                    f"{name}'s {asset.label}{memory} faces the center of the circle, "
+                    f"level with the others, as one part of \"{theme}\".",
+                    500,
+                ),
+            )
+        )
+
+    names = []
+    for contribution in ordered:
+        contributor = contributors.get(contribution.contributor_id)
+        if contributor and contributor.display_name not in names:
+            names.append(contributor.display_name)
+    joined = names[0] if len(names) == 1 else ", ".join(names[:-1]) + f" and {names[-1]}"
+    explanation = _clip(
+        f"{joined} each brought something that belongs to \"{theme}\". "
+        f"The {count} objects stand in one circle facing a shared center, "
+        "so the room reads as one gathering rather than separate exhibits.",
+        2000,
+    )
+
+    blueprint = ExperienceBlueprintInput(
+        experience=ExperienceSettings(mode="vr", theme=theme),
+        environment=EnvironmentSettings(lighting_preset=lighting),
+        objects=objects,
+        navigation=NavigationSettings(vr="teleport"),
+    )
+    return theme, explanation, rationale, blueprint
+
+
+@app.post(
+    "/v1/projects/{project_id}/connection/compose",
+    response_model=ConnectionComposeResponse,
+    status_code=201,
+)
+async def compose_connection(project_id: str) -> ConnectionComposeResponse:
+    project = get_project(project_id)
+    contributions = store.list_contributions(project_id)
+    if len(contributions) < project.min_contributors:
+        raise HTTPException(
+            409,
+            f"connection/compose needs at least {project.min_contributors} contributions; "
+            f"this project has {len(contributions)}.",
+        )
+
+    assets: dict[str, ProjectAsset] = {}
+    for contribution in contributions:
+        asset = store.get_asset(contribution.asset_id)
+        if asset is None or asset.status != AssetStatus.READY:
+            raise HTTPException(409, f"Blueprint assets are not ready: {contribution.asset_id}")
+        assets[asset.asset_id] = asset
+    contributors = {item.contributor_id: item for item in store.list_contributors(project_id)}
+
+    composer = os.environ.get("SKETCHSCAPE_CONNECTION_COMPOSER", "mock")
+    if composer != "mock":
+        raise HTTPException(
+            501,
+            "Only SKETCHSCAPE_CONNECTION_COMPOSER=mock is implemented; the live NemoClaw "
+            "path waits on Build Plan step 4 (place_objects_in_scene).",
+        )
+    theme, explanation, rationale, blueprint = compose_connection_mock(contributions, contributors, assets)
+    validate_blueprint_assets(project, blueprint)
+
+    insight = ConnectionInsight(
+        project_id=project_id,
+        revision=len(store.list_connection_insights(project_id)) + 1,
+        theme=theme,
+        explanation=explanation,
+        placement_rationale=rationale,
+        backend="mock",
+        model="mock-composer-v1",
+        created_at=utc_now(),
+    )
+    store.append_connection_insight(insight)
+    return ConnectionComposeResponse(insight=insight, blueprint=blueprint)
 
 
 SAFE_SCENE_ACTIONS = ["scale_by", "translate_by", "rotate_by"]

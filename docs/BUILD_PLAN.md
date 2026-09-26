@@ -29,7 +29,7 @@ this plan does not re-litigate them, only sequences the work.
 | 3 | NemoClaw agent + Unity MCP Extension setup | — | Not started | `nemoclaw-agent-setup` |
 | 4 | NemoClaw layout tools (`place_objects_in_scene`, `read_sketch_layout`) | 3 | Not started | `nemoclaw-scene-tools` |
 | 4a | NemoClaw subject labeling for uploads (`identify_subject`) | 3 (live path only) | Mock path built; live path waits on 3 | `nemoclaw-subject-labeling` |
-| 5 | `connection/compose` endpoint (mock path, then live NemoClaw path) | 1, 2, 4 | Not started | `connection-compose-endpoint` |
+| 5 | `connection/compose` endpoint (mock path, then live NemoClaw path) | 1, 2, 4 | Mock path built; live path waits on 4 | `connection-compose-endpoint` |
 | 6 | `stage_immersive_reveal` + immersive scene-craft toolkit | 4, 5 | Not started | `immersive-reveal-staging` |
 | 6a | NemoClaw environment objects from web images (`find_object_image`) | 4, 10 | Not started | `nemoclaw-environment-sourcing` |
 | 7 | Notability sketch: direct display (flat quad) + SAM3D memory-plaque path | — | Not started | `sketch-image-gen-backends` |
