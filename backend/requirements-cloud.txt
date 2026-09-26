@@ -3,3 +3,8 @@
 # default JSON store needs none of these. boto3 is imported lazily so the base
 # install stays dependency-light.
 boto3>=1.34,<2.0
+# Optional: only needed when SKETCHSCAPE_AUTH_MODE=clerk. The default mock
+# auth mode needs none of this. clerk-backend-api is imported lazily (see
+# backend/auth.py) so the base install stays dependency-light. Pinned to the
+# version installed and tested against (7.0.0).
+clerk-backend-api>=7.0,<8.0

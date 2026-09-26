@@ -3,9 +3,10 @@
 The only process clients (Unity, and later the web app) talk to, and the
 authority for project state, blueprints, and safe scene edits. It works
 without a GPU in `mock` mode, so upload, polling, scene loading, and safe
-edits are demoable without AWS. Planned additions (contributors,
-`connection/compose`, auth, the room API, durable jobs) are in
-`docs/BUILD_PLAN.md`.
+edits are demoable without AWS. Identity is selected by
+`SKETCHSCAPE_AUTH_MODE` (`mock` default, or `clerk` for real deployments —
+see Auth below). Planned additions (`connection/compose`, the room API,
+durable jobs) are in `docs/BUILD_PLAN.md`.
 
 ## Run locally
 
@@ -19,15 +20,37 @@ PIPELINE_MODE=mock .venv/bin/uvicorn main:app --reload --port 8000
 Open `http://127.0.0.1:8000/docs`, submit a photo to
 `POST /v1/reconstructions`, poll its `poll_url`, then read `/v1/scene`.
 
+## Auth
+
+`backend/auth.py` (Build Plan step 16), selected by `SKETCHSCAPE_AUTH_MODE`:
+
+| Mode | Who calls | How |
+| --- | --- | --- |
+| `mock` (default) | local/dev | `X-SketchScape-Dev-User` header (default `dev-user`); no secrets |
+| `clerk` | web app + NemoClaw | Clerk session tokens (`kind=user`) and M2M tokens (`kind=service`); requires `CLERK_SECRET_KEY` and an explicit `SKETCHSCAPE_WEB_ORIGINS` allowlist (no `*`) |
+
+In `clerk` mode, every `/v1/projects/**`, `/v1/reconstructions`, and
+`/v1/artifacts/**` route requires a verified identity; CORS is locked to
+`SKETCHSCAPE_WEB_ORIGINS` and allows the `Authorization` header. Legacy
+demo routes (`/v1/scene`, `/scene`, `/sketch`, `/modify-scene`, and the
+related `/v1/interactives` / `/v1/scene/actions` / `/v1/scene/modify`
+surface) return 404. `/v1/internal/**` stays worker-token only and never
+accepts a Clerk bearer. Startup refuses unsafe combinations (e.g. `clerk`
+without a secret, or `mock` with DynamoDB / a non-mock pipeline). Meta
+room tokens for Quest headsets arrive in step 18.
+
+`clerk-backend-api` is an optional cloud dependency
+(`pip install -r requirements-cloud.txt`); the base install never needs it.
+
 ## Contract test
 
 ```bash
 cd backend
 .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py
+.venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py test_auth.py
 ```
 
-72 tests (2 are skipped either way, depending on whether `boto3` is
+99 tests (2 are skipped either way, depending on whether `boto3` is
 installed). They exercise only `PIPELINE_MODE=mock`; they don't contact AWS
 or load a model. From the repo root, `bash scripts/verify_local.sh` runs
 these plus the syntax, JSON, and secret checks.

@@ -13,16 +13,25 @@ import os
 import secrets
 import sys
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
+from auth import (
+    Identity,
+    author_from_identity,
+    require_identity,
+    require_mock_mode,
+    run_startup_checks,
+    web_origins,
+)
 from storage import RevisionConflict, create_store
 from artifact_store import create_artifact_store
 from subject_labeler import SubjectLabelError, create_subject_labeler
@@ -284,8 +293,9 @@ class ExperienceBlueprint(ExperienceBlueprintInput):
     # that revision keeps today's unconditional publish behavior, including
     # deliberate rollback to an older revision.
     based_on_revision: int | None = None
-    # Filled by step 16 (Clerk auth) once it lands; unset for mock-mode/manual
-    # authoring today.
+    # Set from the caller's verified identity in `clerk` mode (step 16);
+    # unset for mock-mode/manual authoring, matching that mode's behavior
+    # before step 16 (Hard Rule 2).
     author: str | None = None
 
 
@@ -300,6 +310,9 @@ class PublicationRecord(BaseModel):
     project_id: str
     revision: int
     published_at: datetime
+    # Set from the caller's verified identity in `clerk` mode (step 16);
+    # unset for mock-mode/manual publishing, matching create_blueprint above.
+    author: str | None = None
 
 
 class ReconstructionResponse(BaseModel):
@@ -392,13 +405,34 @@ subject_labeler = create_subject_labeler()
 # concurrent 3D reconstructions on a 16 GB GPU would make both jobs fail.
 local_worker_lock = asyncio.Lock()
 
-app = FastAPI(title="SketchScape Reconstruction API", version="0.2.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):  # noqa: ARG001 - required by FastAPI's lifespan signature
+    # Fail fast: refuse to start under an unsafe or self-contradictory
+    # SKETCHSCAPE_AUTH_MODE configuration, rather than serving traffic and
+    # discovering the problem later. See auth.run_startup_checks.
+    run_startup_checks()
+    yield
+
+
+app = FastAPI(title="SketchScape Reconstruction API", version="0.2.0", lifespan=lifespan)
+
+# In `clerk` mode, only the configured web origin(s) may call this API, and
+# bearer tokens (not cookies) carry auth, so credentialed CORS isn't needed.
+# `mock` mode keeps today's SKETCHSCAPE_ALLOWED_ORIGINS behavior unchanged
+# (default "*") -- no behavior change for local/offline use (Hard Rule 2).
+if os.environ.get("SKETCHSCAPE_AUTH_MODE", "mock").strip().lower() == "clerk":
+    _cors_origins = web_origins()
+    _cors_headers = ["Authorization", "Content-Type"]
+else:
+    _cors_origins = os.environ.get("SKETCHSCAPE_ALLOWED_ORIGINS", "*").split(",")
+    _cors_headers = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("SKETCHSCAPE_ALLOWED_ORIGINS", "*").split(","),
+    allow_origins=_cors_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
-    allow_headers=["*"],
+    allow_headers=_cors_headers,
 )
 
 
@@ -667,7 +701,9 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok", "pipeline_mode": os.environ.get("PIPELINE_MODE", "mock")}
 
 
-@app.post("/v1/projects", response_model=ProjectRecord, status_code=201)
+@app.post(
+    "/v1/projects", response_model=ProjectRecord, status_code=201, dependencies=[Depends(require_identity)]
+)
 async def create_project(request: ProjectCreateRequest) -> ProjectRecord:
     now = utc_now()
     project_id = uuid.uuid4().hex
@@ -684,18 +720,27 @@ async def create_project(request: ProjectCreateRequest) -> ProjectRecord:
     return project
 
 
-@app.get("/v1/projects/{project_id}", response_model=ProjectRecord)
+@app.get("/v1/projects/{project_id}", response_model=ProjectRecord, dependencies=[Depends(require_identity)])
 async def read_project(project_id: str) -> ProjectRecord:
     return get_project(project_id)
 
 
-@app.get("/v1/projects/{project_id}/assets", response_model=list[ProjectAsset])
+@app.get(
+    "/v1/projects/{project_id}/assets",
+    response_model=list[ProjectAsset],
+    dependencies=[Depends(require_identity)],
+)
 async def list_project_assets(project_id: str) -> list[ProjectAsset]:
     project = get_project(project_id)
     return [store.get_asset(asset_id) for asset_id in project.asset_ids if store.get_asset(asset_id)]
 
 
-@app.post("/v1/projects/{project_id}/contributors", response_model=Contributor, status_code=201)
+@app.post(
+    "/v1/projects/{project_id}/contributors",
+    response_model=Contributor,
+    status_code=201,
+    dependencies=[Depends(require_identity)],
+)
 async def create_contributor(project_id: str, request: ContributorCreateRequest) -> Contributor:
     project = get_project(project_id)
     contributor = Contributor(
@@ -711,7 +756,11 @@ async def create_contributor(project_id: str, request: ContributorCreateRequest)
     return contributor
 
 
-@app.get("/v1/projects/{project_id}/contributors", response_model=list[Contributor])
+@app.get(
+    "/v1/projects/{project_id}/contributors",
+    response_model=list[Contributor],
+    dependencies=[Depends(require_identity)],
+)
 async def list_contributors(project_id: str) -> list[Contributor]:
     get_project(project_id)
     return store.list_contributors(project_id)
@@ -727,7 +776,12 @@ def validate_contribution_request(project: ProjectRecord, request: ContributionC
         raise HTTPException(409, f"Blueprint assets are not ready: {request.asset_id}")
 
 
-@app.post("/v1/projects/{project_id}/contributions", response_model=Contribution, status_code=201)
+@app.post(
+    "/v1/projects/{project_id}/contributions",
+    response_model=Contribution,
+    status_code=201,
+    dependencies=[Depends(require_identity)],
+)
 async def create_contribution(project_id: str, request: ContributionCreateRequest) -> Contribution:
     project = get_project(project_id)
     validate_contribution_request(project, request)
@@ -747,13 +801,22 @@ async def create_contribution(project_id: str, request: ContributionCreateReques
     return contribution
 
 
-@app.get("/v1/projects/{project_id}/contributions", response_model=list[Contribution])
+@app.get(
+    "/v1/projects/{project_id}/contributions",
+    response_model=list[Contribution],
+    dependencies=[Depends(require_identity)],
+)
 async def list_contributions(project_id: str) -> list[Contribution]:
     get_project(project_id)
     return store.list_contributions(project_id)
 
 
-@app.post("/v1/reconstructions", response_model=ReconstructionResponse, status_code=202)
+@app.post(
+    "/v1/reconstructions",
+    response_model=ReconstructionResponse,
+    status_code=202,
+    dependencies=[Depends(require_identity)],
+)
 async def create_reconstruction(
     background_tasks: BackgroundTasks,
     image: Annotated[UploadFile, File(description="Photo with one prominent object")],
@@ -829,7 +892,12 @@ async def create_reconstruction(
     )
 
 
-@app.post("/v1/projects/{project_id}/assets", response_model=ProjectAsset, status_code=202)
+@app.post(
+    "/v1/projects/{project_id}/assets",
+    response_model=ProjectAsset,
+    status_code=202,
+    dependencies=[Depends(require_identity)],
+)
 async def create_project_asset(
     project_id: str,
     background_tasks: BackgroundTasks,
@@ -851,7 +919,11 @@ async def create_project_asset(
     return asset
 
 
-@app.get("/v1/reconstructions/{job_id}", response_model=ReconstructionJob)
+@app.get(
+    "/v1/reconstructions/{job_id}",
+    response_model=ReconstructionJob,
+    dependencies=[Depends(require_identity)],
+)
 async def get_reconstruction(job_id: str) -> ReconstructionJob:
     try:
         return jobs[job_id]
@@ -956,13 +1028,26 @@ async def receive_worker_result(
     return job
 
 
-@app.get("/v1/scene", response_model=SceneResponse)
-@app.get("/scene", response_model=SceneResponse, include_in_schema=False)
+@app.get("/v1/scene", response_model=SceneResponse, dependencies=[Depends(require_mock_mode)])
+@app.get(
+    "/scene",
+    response_model=SceneResponse,
+    include_in_schema=False,
+    dependencies=[Depends(require_mock_mode)],
+)
 async def get_scene() -> SceneResponse:
+    # /v1/scene and /scene both read the same process-global demo scene, not
+    # a project's published blueprint (see /v1/projects/{id}/compiled-scene
+    # for that) -- a legacy, unauthenticated demo surface, so it stays
+    # mock-mode-only rather than joining the authenticated /v1/projects/**
+    # group. See require_mock_mode in auth.py.
     return SceneResponse(scene=current_scene)
 
 
-@app.get("/v1/artifacts/{job_id}/{filename}")
+@app.get(
+    "/v1/artifacts/{job_id}/{filename}",
+    dependencies=[Depends(require_identity)],
+)
 async def get_artifact(job_id: str, filename: str) -> Response:
     if not jobs.get(job_id) or Path(filename).name != filename:
         raise HTTPException(404, "Unknown artifact.")
@@ -989,7 +1074,11 @@ def validate_blueprint_assets(project: ProjectRecord, request: ExperienceBluepri
         raise HTTPException(409, f"Blueprint assets are not ready: {', '.join(unavailable)}")
 
 
-@app.post("/v1/projects/{project_id}/blueprints/validate", response_model=ExperienceBlueprintInput)
+@app.post(
+    "/v1/projects/{project_id}/blueprints/validate",
+    response_model=ExperienceBlueprintInput,
+    dependencies=[Depends(require_identity)],
+)
 async def validate_blueprint(project_id: str, request: ExperienceBlueprintInput) -> ExperienceBlueprintInput:
     project = get_project(project_id)
     validate_blueprint_assets(project, request)
@@ -1016,6 +1105,7 @@ async def create_blueprint(
             ),
         ),
     ] = None,
+    identity: Identity = Depends(require_identity),
 ) -> ExperienceBlueprint:
     project = get_project(project_id)
     validate_blueprint_assets(project, request)
@@ -1043,6 +1133,7 @@ async def create_blueprint(
             revision=len(revisions) + 1,
             created_at=utc_now(),
             based_on_revision=base_revision,
+            author=author_from_identity(identity),
         )
         try:
             store.append_blueprint(blueprint)
@@ -1062,7 +1153,11 @@ async def create_blueprint(
     )
 
 
-@app.get("/v1/projects/{project_id}/blueprints/{revision}", response_model=ExperienceBlueprint)
+@app.get(
+    "/v1/projects/{project_id}/blueprints/{revision}",
+    response_model=ExperienceBlueprint,
+    dependencies=[Depends(require_identity)],
+)
 async def get_blueprint(project_id: str, revision: int) -> ExperienceBlueprint:
     get_project(project_id)
     revisions = store.list_blueprints(project_id)
@@ -1075,7 +1170,9 @@ _MAX_LIVE_POINTER_ATTEMPTS = 5
 
 
 @app.post("/v1/projects/{project_id}/blueprints/{revision}/publish", response_model=SceneResponse)
-async def publish_blueprint(project_id: str, revision: int) -> SceneResponse:
+async def publish_blueprint(
+    project_id: str, revision: int, identity: Identity = Depends(require_identity)
+) -> SceneResponse:
     global current_scene
     project = get_project(project_id)
     blueprint = await get_blueprint(project_id, revision)
@@ -1139,12 +1236,21 @@ async def publish_blueprint(project_id: str, revision: int) -> SceneResponse:
     # Append-only: record which revision went live and when. Republishing an
     # earlier revision appends a new record rather than rewriting history.
     store.append_publication(
-        PublicationRecord(project_id=project_id, revision=revision, published_at=utc_now())
+        PublicationRecord(
+            project_id=project_id,
+            revision=revision,
+            published_at=utc_now(),
+            author=author_from_identity(identity),
+        )
     )
     return SceneResponse(scene=current_scene)
 
 
-@app.get("/v1/projects/{project_id}/compiled-scene", response_model=SceneResponse)
+@app.get(
+    "/v1/projects/{project_id}/compiled-scene",
+    response_model=SceneResponse,
+    dependencies=[Depends(require_identity)],
+)
 async def get_compiled_project_scene(project_id: str) -> SceneResponse:
     project = get_project(project_id)
     # The LIVE pointer is authoritative; project.published_revision is only a
@@ -1160,14 +1266,22 @@ async def get_compiled_project_scene(project_id: str) -> SceneResponse:
     return SceneResponse(scene=compile_blueprint(blueprint))
 
 
-@app.get("/v1/projects/{project_id}/publications", response_model=list[PublicationRecord])
+@app.get(
+    "/v1/projects/{project_id}/publications",
+    response_model=list[PublicationRecord],
+    dependencies=[Depends(require_identity)],
+)
 async def list_project_publications(project_id: str) -> list[PublicationRecord]:
     """Return the append-only publication history for a project."""
     get_project(project_id)
     return store.list_publications(project_id)
 
 
-@app.get("/v1/projects/{project_id}/assets/{asset_id}", response_model=ProjectAsset)
+@app.get(
+    "/v1/projects/{project_id}/assets/{asset_id}",
+    response_model=ProjectAsset,
+    dependencies=[Depends(require_identity)],
+)
 async def get_project_asset(project_id: str, asset_id: str) -> ProjectAsset:
     """Return a single catalog asset with its full view provenance."""
     project = get_project(project_id)
@@ -1179,7 +1293,11 @@ async def get_project_asset(project_id: str, asset_id: str) -> ProjectAsset:
     return asset
 
 
-@app.get("/v1/projects/{project_id}/assets/{asset_id}/views", response_model=list[AssetView])
+@app.get(
+    "/v1/projects/{project_id}/assets/{asset_id}/views",
+    response_model=list[AssetView],
+    dependencies=[Depends(require_identity)],
+)
 async def list_asset_views(project_id: str, asset_id: str) -> list[AssetView]:
     """Return per-view reconstruction provenance for one catalog asset."""
     asset = await get_project_asset(project_id, asset_id)
@@ -1190,6 +1308,7 @@ async def list_asset_views(project_id: str, asset_id: str) -> list[AssetView]:
     "/v1/projects/{project_id}/assets/{asset_id}/views",
     response_model=AssetView,
     status_code=202,
+    dependencies=[Depends(require_identity)],
 )
 async def add_asset_view(
     project_id: str,
@@ -1286,9 +1405,14 @@ def bounded_vector(values: list[float], *, minimum: float, maximum: float, actio
     return values
 
 
-@app.get("/v1/interactives", response_model=InteractiveRegistryResponse)
+@app.get(
+    "/v1/interactives",
+    response_model=InteractiveRegistryResponse,
+    dependencies=[Depends(require_mock_mode)],
+)
 async def get_interactives() -> InteractiveRegistryResponse:
     """Expose names and capabilities, never Unity component internals."""
+    # Process-global demo scene surface (same as /v1/scene) — mock-mode only.
     return InteractiveRegistryResponse(
         interactives=[
             InteractiveObject(id=item.id, name=item.id, type=item.type, actions=item.actions.copy())
@@ -1297,7 +1421,11 @@ async def get_interactives() -> InteractiveRegistryResponse:
     )
 
 
-@app.post("/v1/scene/actions", response_model=SceneResponse)
+@app.post(
+    "/v1/scene/actions",
+    response_model=SceneResponse,
+    dependencies=[Depends(require_mock_mode)],
+)
 async def apply_scene_action(request: SceneActionRequest) -> SceneResponse:
     """Apply an allowlisted, bounded transform action to one named object."""
     target = find_scene_object(request.target_id)
@@ -1325,8 +1453,17 @@ async def apply_scene_action(request: SceneActionRequest) -> SceneResponse:
     return SceneResponse(scene=current_scene)
 
 
-@app.post("/v1/scene/modify", response_model=SceneResponse)
-@app.post("/modify-scene", response_model=SceneResponse, include_in_schema=False)
+@app.post(
+    "/v1/scene/modify",
+    response_model=SceneResponse,
+    dependencies=[Depends(require_mock_mode)],
+)
+@app.post(
+    "/modify-scene",
+    response_model=SceneResponse,
+    include_in_schema=False,
+    dependencies=[Depends(require_mock_mode)],
+)
 async def modify_scene(request: SceneModificationRequest) -> SceneResponse:
     """Legacy phrase adapter; all mutations pass through the structured policy."""
     normalized = " ".join(request.instruction.lower().split())
@@ -1339,7 +1476,12 @@ async def modify_scene(request: SceneModificationRequest) -> SceneResponse:
     raise HTTPException(422, "Demo supports: 'make the tree twice as tall'.")
 
 
-@app.post("/sketch", response_model=SceneResponse, include_in_schema=False)
+@app.post(
+    "/sketch",
+    response_model=SceneResponse,
+    include_in_schema=False,
+    dependencies=[Depends(require_mock_mode)],
+)
 async def legacy_sketch(sketch: UploadFile = File(...)) -> SceneResponse:
     """Compatibility endpoint retained while Unity migrates to reconstruction jobs."""
     if not (sketch.content_type or "").startswith("image/"):

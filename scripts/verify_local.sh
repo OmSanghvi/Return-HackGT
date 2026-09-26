@@ -8,9 +8,11 @@ python3 -m py_compile \
   "$ROOT/backend/storage.py" \
   "$ROOT/backend/artifact_store.py" \
   "$ROOT/backend/subject_labeler.py" \
+  "$ROOT/backend/auth.py" \
   "$ROOT/backend/test_api.py" \
   "$ROOT/backend/test_storage.py" \
   "$ROOT/backend/test_subject_labeler.py" \
+  "$ROOT/backend/test_auth.py" \
   "$ROOT/scripts/smoke_test_aws_storage.py" \
   "$ROOT/scripts/export_unity_experience.py" \
   "$ROOT/scripts/check_collab_gates.py" \
@@ -37,7 +39,7 @@ python3 "$ROOT/scripts/check_collab_gates.py" --status
 if [[ -x "$ROOT/backend/.venv/bin/python" ]]; then
   (
     cd "$ROOT/backend"
-    .venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py
+    .venv/bin/python -m unittest test_api.py test_storage.py test_subject_labeler.py test_auth.py
   )
 else
   echo "Python syntax checks passed. Create backend/.venv and install requirements-dev.txt to run API tests."

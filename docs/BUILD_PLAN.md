@@ -58,7 +58,7 @@ blocked until its prerequisites are verifiably done. See "Collaborative VR
 | 13 | Accounts: Clerk app, Meta Horizon app + test users, Unity Meta Quest provider | — | Unity Cloud linked; rest not confirmed | `collab-vr-accounts-and-gates` |
 | 14 | Quest Meta identity spike on a real headset | 13 | Not started | `meta-quest-identity` |
 | 15 | Backend revision safety (`based_on_revision` 409, conditional DynamoDB writes, LIVE pointer) | — | Done | `backend-revision-concurrency` |
-| 16 | Backend auth core: Clerk web sessions + NemoClaw M2M, mock mode, fail-fast config | 15 | Not started | `backend-auth-clerk` |
+| 16 | Backend auth core: Clerk web sessions + NemoClaw M2M, mock mode, fail-fast config | 15 | Done | `backend-auth-clerk` |
 | 17 | Membership, invite codes, Contributor ↔ Clerk user, ownership, `room_prompt` | 2, 16 | Not started | `room-api-and-ownership` |
 | 18 | Meta identity exchange + Quest ↔ Clerk linking (backend, room tokens) | 14, 16 | Not started | `meta-quest-identity` |
 | 19 | Web app foundation: `app/` React + Vite + `@clerk/react`, API client, mock mode | 13, 16 | Not started | `web-app-foundation` |

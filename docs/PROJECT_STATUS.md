@@ -364,7 +364,7 @@ removed.
   structured commands; no raw code is ever accepted.
 - Private worker endpoint — the GPU posts its result back through a
   token-protected route; Unity never sees credentials.
-- **72 automated tests, all passing** (2 are skipped either way, depending
+- **99 automated tests, all passing** (2 are skipped either way, depending
   on whether `boto3` is installed).
 - Automatic subject labeling for uploads (`identify_subject`, mock path):
   a photo with no typed subject still gets a label for SAM 3.1. The live
@@ -518,7 +518,8 @@ and precomputed, attractive assets as the judging-safe recording path.
 
 ### 8 — Production hardening (post-hackathon, not needed for the demo)
 - HTTPS / TLS termination (currently plain HTTP on port 8000).
-- Rate limiting. (Client authentication is planned as Build Plan step 16.)
+- Rate limiting. (Client authentication is done — Build Plan step 16;
+  `SKETCHSCAPE_AUTH_MODE=mock|clerk`.)
 - Durable jobs so the API doesn't lose jobs on restart — planned in the
   store itself as Build Plan step 26, not SQS.
 - The "revisit and add to the room later" arc mentioned in the pitch — not
