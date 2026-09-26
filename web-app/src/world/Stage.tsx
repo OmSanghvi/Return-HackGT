@@ -5,9 +5,9 @@ import type * as React from 'react';
 import { SCENES, type SceneKey } from './scenes';
 import { immersive, useWorld } from './state';
 
-interface StageProps { scene: SceneKey; mist?: number; zoom?: number; fast?: boolean; scrim?: 'center' | 'bottom' | 'none'; className?: string; style?: React.CSSProperties; children?: React.ReactNode; label?: string }
+interface StageProps { scene: SceneKey; mist?: number; zoom?: number; blur?: number; petals?: boolean; fast?: boolean; scrim?: 'center' | 'bottom' | 'none'; className?: string; style?: React.CSSProperties; children?: React.ReactNode; label?: string }
 
-export function Stage({ scene, mist = 0, zoom = 0, fast, scrim = 'bottom', className, style, children, label }: StageProps) {
+export function Stage({ scene, mist = 0, zoom = 0, blur = 0, petals = false, fast, scrim = 'bottom', className, style, children, label }: StageProps) {
   const ref = useRef<HTMLElement>(null);
   const ready = useWorld((w) => w.ready);
   useLayoutEffect(() => {
@@ -15,13 +15,15 @@ export function Stage({ scene, mist = 0, zoom = 0, fast, scrim = 'bottom', class
     return () => { if (useWorld.getState().stage === ref.current) useWorld.setState({ stage: null }); };
   }, []);
   useEffect(() => {
-    useWorld.setState({ scene, mist, zoom, fast: !!fast });
-  }, [scene, mist, zoom, fast]);
+    useWorld.setState({ scene, mist, zoom, blur, petals, fast: !!fast });
+    document.documentElement.dataset.theme = SCENES[scene].dusk ? 'dusk' : 'day';
+  }, [scene, mist, zoom, blur, petals, fast]);
   const painted = immersive && ready;
+  const fallbackFilter = mist || blur ? `blur(${blur * 14}px) blur(${mist * 16}px) saturate(${1 - mist * 0.6})` : undefined;
   return (
     <section ref={ref} className={'rt-hero rt-hero-drift app-stage ' + (className || '')} style={style} aria-label={label}>
       <div className="rt-hero-media" aria-hidden>
-        {!painted && <div className="rt-drift"><img className="rt-img" src={SCENES[scene].image} alt="" style={{ filter: mist ? `blur(${mist * 16}px) saturate(${1 - mist * 0.6})` : undefined }} /></div>}
+        {!painted && <div className="rt-drift"><img className="rt-img" src={SCENES[scene].image} alt="" style={{ filter: fallbackFilter }} /></div>}
         {scrim !== 'none' && <div className={scrim === 'center' ? 'rt-scrim-center' : 'rt-scrim-bottom'} />}
       </div>
       {children}

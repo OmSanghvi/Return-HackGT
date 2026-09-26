@@ -43,6 +43,7 @@ function useMaterial(arch: boolean) {
       uTexA: { value: flat }, uDepA: { value: flat }, uTexB: { value: flat }, uDepB: { value: flat },
       uAspA: { value: 16 / 9 }, uAspB: { value: 16 / 9 }, uMix: { value: 1 }, uMist: { value: 1 }, uTime: { value: 0 }, uZoom: { value: 0 },
       uRadius: { value: 32 }, uDpr: { value: 1 }, uArch: { value: arch ? 1 : 0 }, uAlpha: { value: 0 }, uHalo: { value: 0 }, uLight: { value: 0.1 }, uDusk: { value: 0 },
+      uBlur: { value: 0 }, uPetals: { value: 0 }, uPhoto: { value: 0 },
       uRect: { value: new THREE.Vector4() }, uRes: { value: new THREE.Vector2() }, uPointer: { value: new THREE.Vector2() }, uFog: { value: FOG.day.clone() },
     },
   }), [arch]);
@@ -58,7 +59,7 @@ function MainWindow() {
   useMemo(() => { cache.set(SCENES[initial].image, Promise.resolve(initImg)); cache.set(SCENES[initial].depth, Promise.resolve(initDep)); }, [initial, initImg, initDep]);
   const mat = useMaterial(false);
   const { gl, size } = useThree();
-  const s = useRef({ scene: null as SceneKey | null, t: 1, dur: 2.8, el: null as HTMLElement | null, radius: 0, from: null as Rect | null, shown: [0, 0, 0, 0] as Rect, mt: 1, mist: 1, zoom: 0 });
+  const s = useRef({ scene: null as SceneKey | null, t: 1, dur: 2.8, el: null as HTMLElement | null, radius: 0, from: null as Rect | null, shown: [0, 0, 0, 0] as Rect, mt: 1, mist: 1, zoom: 0, blur: 0, petals: 0 });
 
   // Load the rest of the paintings after the first frame, off the critical path.
   useEffect(() => {
@@ -124,8 +125,10 @@ function MainWindow() {
     pointer.speed *= Math.max(0, 1 - dt * 3);
     st.mist += (w.mist - st.mist) * Math.min(1, dt * 2.2);
     st.zoom += (w.zoom - st.zoom) * Math.min(1, dt * 3);
+    st.blur += (w.blur - st.blur) * Math.min(1, dt * 2.2);
+    st.petals += ((w.petals ? 1 : 0) - st.petals) * Math.min(1, dt * 1.5);
     u.uMix.value = st.t < 1 ? ease(st.t) : 1;
-    u.uMist.value = st.mist; u.uZoom.value = st.zoom;
+    u.uMist.value = st.mist; u.uZoom.value = st.zoom; u.uBlur.value = st.blur; u.uPetals.value = st.petals;
     u.uAlpha.value += ((st.shown[2] > 0 ? 1 : 0) - u.uAlpha.value) * Math.min(1, dt * 3);
     u.uLight.value += ((0.08 + Math.min(0.3, pointer.speed * 0.3)) - u.uLight.value) * Math.min(1, dt * 4);
     u.uTime.value = state.clock.elapsedTime;
@@ -164,6 +167,7 @@ function PortalWindow() {
       mat.uniforms.uDepA.value = mat.uniforms.uDepB.value = t;
     }).catch(() => {});
     else mat.uniforms.uDepA.value = mat.uniforms.uDepB.value = flat;
+    mat.uniforms.uPhoto.value = sceneUrls.has(portal.src) ? 0 : 1;
     const el = portal.el;
     const on = () => { h.current = true; }, off = () => { h.current = false; };
     el.addEventListener('pointerenter', on); el.addEventListener('pointerleave', off);
@@ -179,12 +183,16 @@ function PortalWindow() {
     u.uRect.value.set(r.left, r.top, r.width, r.height);
     const hover = h.current || el.dataset.state === 'entering';
     u.uHalo.value += ((hover ? 0.75 : 0.35) * u.uAlpha.value - u.uHalo.value) * Math.min(1, dt * 4);
-    u.uZoom.value += ((el.dataset.state === 'entering' ? 2.5 : hover ? 0.25 : 0) - u.uZoom.value) * Math.min(1, dt * 2);
+    const idleZoom = 0.12 + 0.08 * Math.sin(state.clock.elapsedTime * 0.25);
+    u.uZoom.value += ((el.dataset.state === 'entering' ? 2.5 : hover ? 0.25 : idleZoom) - u.uZoom.value) * Math.min(1, dt * 2);
     u.uTime.value = state.clock.elapsedTime;
     u.uDpr.value = gl.getPixelRatio();
+    u.uBlur.value = 0;
     u.uRes.value.set(size.width * gl.getPixelRatio(), size.height * gl.getPixelRatio());
     u.uPointer.value.set(Math.max(-0.6, Math.min(0.6, (pointer.sx * innerWidth - r.left) / r.width - 0.5)), Math.max(-0.6, Math.min(0.6, (pointer.sy * innerHeight - r.top) / r.height - 0.5)));
-    (u.uFog.value as THREE.Color).copy(FOG.dusk);
+    (u.uFog.value as THREE.Color).lerp(dusk() ? FOG.dusk : FOG.day, Math.min(1, dt * 1.5));
+    u.uDusk.value += ((dusk() ? 1 : 0) - u.uDusk.value) * Math.min(1, dt * 1.5);
+    u.uPetals.value = 1 - u.uDusk.value;
   });
   return <mesh material={mat} visible={!!portal} frustumCulled={false} renderOrder={1}><planeGeometry /></mesh>;
 }
