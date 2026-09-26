@@ -11,27 +11,52 @@ have something trustworthy to key off. Two kinds of caller show up here:
 
 Selection follows this repo's existing pluggable pattern (``create_store`` in
 storage.py, ``create_subject_labeler`` in subject_labeler.py): one selector
-env var (``SKETCHSCAPE_AUTH_MODE``, ``mock`` | ``clerk``), and the third-party
-SDK (``clerk-backend-api``) is imported lazily, only inside the ``clerk``
-branch, so the base install (``mock`` mode, the default) never needs it
-installed.
+env var (``SKETCHSCAPE_AUTH_MODE``, ``mock`` | ``clerk`` | ``demo``), and the
+third-party SDK (``clerk-backend-api``) is imported lazily, only inside the
+``clerk`` branch, so the base install (``mock`` mode, the default) never
+needs it installed.
 
-Meta room tokens for Quest headsets are a separate verifier added by step 18
-(meta-quest-identity). ``require_identity`` is the extension point for it: a
-room-token mode would add a third branch here and use the already-declared
-``via="meta"`` value, not a rewrite.
+``demo`` mode is the real, permanent identity model for the Collaborative VR
+track (decision 2026-09-26, see the ``collab-vr-accounts-and-gates`` skill),
+not a stand-in for Clerk/Meta account setup -- that plan (steps 13's account
+dashboards, step 14's Quest spike, step 18's Meta identity exchange) is
+retired. It has real per-project enforcement -- unlike ``mock``, which no-ops
+membership and ownership checks -- but skips Clerk verification entirely:
+the caller is one of exactly two hardcoded accounts, selected with the same
+``X-SketchScape-Dev-User`` header mock mode already uses, sent directly by
+both the website and Quest headsets. Clerk itself is left fully intact and
+dormant: it is not part of the active plan, but ``SKETCHSCAPE_AUTH_MODE=clerk``
+still works and is still tested, in case a real multi-user product is built
+later.
+
+R14: NemoClaw's service identity (``kind="service"``) no longer needs Clerk.
+A fourth, mode-independent branch checks for a shared bearer token
+(``SKETCHSCAPE_NEMOCLAW_TOKEN``), matching the existing
+``SKETCHSCAPE_WORKER_TOKEN`` pattern in ``main.py``'s ``worker_is_authorized``
+-- one secret, compared with ``secrets.compare_digest``. It is checked before
+the ``SKETCHSCAPE_AUTH_MODE`` dispatch below, so it works the same whether the
+deployment runs ``demo`` or ``clerk`` (a request lacking that bearer token, or
+running when the token isn't configured, falls through unchanged to the
+normal mode-specific check).
 """
 
 from __future__ import annotations
 
 import os
+import secrets
 from dataclasses import dataclass
 from typing import Literal
 
 from fastapi import Depends, HTTPException, Request
 
 IdentityKind = Literal["user", "service", "dev"]
-IdentityVia = Literal["clerk", "meta", "mock"]
+IdentityVia = Literal["clerk", "meta", "mock", "demo", "nemoclaw"]
+
+# R14: SKETCHSCAPE_NEMOCLAW_TOKEN must be at least this many characters when
+# set (matching the "≥32 random bytes" guidance in collab-vr-accounts-and-gates'
+# config matrix, e.g. secrets.token_urlsafe(32)). Enforced at startup, not just
+# documented, so a short/guessable value never silently reaches production.
+MIN_NEMOCLAW_TOKEN_LENGTH = 32
 
 
 @dataclass(frozen=True)
@@ -60,6 +85,38 @@ def web_origins() -> list[str]:
 def _mock_identity(request: Request) -> Identity:
     dev_user = request.headers.get("X-SketchScape-Dev-User") or "dev-user"
     return Identity(user_id=dev_user, kind="dev", via="mock")
+
+
+def demo_accounts() -> list[str]:
+    """The exactly-two hardcoded demo accounts, in order.
+
+    Overridable via ``SKETCHSCAPE_DEMO_USERS`` (comma-separated) so a demo
+    can rename them without a code change; two hardcoded defaults keep a
+    fresh checkout demo-ready with no configuration at all.
+    """
+    raw = os.environ.get("SKETCHSCAPE_DEMO_USERS", "demo-alice,demo-bob")
+    accounts = [item.strip() for item in raw.split(",") if item.strip()]
+    if len(accounts) != 2:
+        raise RuntimeError(
+            f"SKETCHSCAPE_DEMO_USERS must list exactly two accounts, got {accounts!r}."
+        )
+    return accounts
+
+
+def _demo_identity(request: Request) -> Identity:
+    """Exactly two hardcoded accounts, selected by the mock-mode dev-user header.
+
+    Real per-project enforcement applies (unlike ``mock``): this is what lets
+    the demo show one person unable to edit another's contributions.
+    """
+    dev_user = request.headers.get("X-SketchScape-Dev-User")
+    accounts = demo_accounts()
+    if dev_user not in accounts:
+        raise HTTPException(
+            401,
+            f"X-SketchScape-Dev-User must be one of the demo accounts: {', '.join(accounts)}.",
+        )
+    return Identity(user_id=dev_user, kind="user", via="demo")
 
 
 def _clerk_identity(request: Request) -> Identity:
@@ -98,19 +155,60 @@ def _clerk_identity(request: Request) -> Identity:
     raise HTTPException(401, detail="Unrecognized Clerk token payload.")
 
 
+def _nemoclaw_identity(request: Request) -> Identity | None:
+    """R14: bearer-token service identity for NemoClaw, independent of mode.
+
+    Mirrors ``main.worker_is_authorized``'s ``SKETCHSCAPE_WORKER_TOKEN``
+    pattern: one shared secret, compared with ``secrets.compare_digest``,
+    sent as ``Authorization: Bearer <token>``. Checked before the
+    ``SKETCHSCAPE_AUTH_MODE`` dispatch in ``require_identity`` so it works
+    the same in ``demo`` (the deployed track's real mode) without disturbing
+    ``clerk``'s own bearer-token handling.
+
+    Returns ``None`` (never raises) whenever the token isn't configured, no
+    bearer scheme is present, or the token doesn't match -- callers fall
+    through to that mode's normal identity check instead of being rejected
+    outright, so a mismatched/absent NemoClaw token never masks a legitimate
+    Clerk session token in ``clerk`` mode.
+    """
+    expected = os.environ.get("SKETCHSCAPE_NEMOCLAW_TOKEN")
+    if not expected:
+        return None
+    scheme, _, token = (request.headers.get("Authorization") or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+    if len(token) != len(expected) or not secrets.compare_digest(token, expected):
+        return None
+    # A single shared secret has no per-caller subject of its own; an optional
+    # header lets a NemoClaw runtime identify itself for the `author` field on
+    # revisions (matching the "nemoclaw:<subject>" shape the clerk m2m branch
+    # already produces), defaulting to a fixed id when omitted.
+    nemoclaw_id = (request.headers.get("X-SketchScape-NemoClaw-Id") or "default").strip() or "default"
+    return Identity(user_id=f"nemoclaw:{nemoclaw_id}", kind="service", via="nemoclaw")
+
+
 def require_identity(request: Request) -> Identity:
     """FastAPI dependency: who is calling, verified per ``SKETCHSCAPE_AUTH_MODE``.
 
+    - NemoClaw's shared bearer token (R14) is checked first, regardless of
+      mode -- see ``_nemoclaw_identity``.
     - ``mock`` (default): trusts an ``X-SketchScape-Dev-User`` header, for
       local development and the test suite. No network call, no secret.
+    - ``demo``: the same header, restricted to exactly two hardcoded accounts,
+      with real membership/ownership enforcement (see module docstring).
     - ``clerk``: verifies a real Clerk session or M2M bearer token.
     """
+    nemoclaw_identity = _nemoclaw_identity(request)
+    if nemoclaw_identity is not None:
+        return nemoclaw_identity
     mode = _auth_mode()
     if mode == "mock":
         return _mock_identity(request)
+    if mode == "demo":
+        return _demo_identity(request)
     if mode == "clerk":
         return _clerk_identity(request)
-    raise RuntimeError(f"Unknown SKETCHSCAPE_AUTH_MODE '{mode}'. Use 'mock' or 'clerk'.")
+    raise RuntimeError(f"Unknown SKETCHSCAPE_AUTH_MODE '{mode}'. Use 'mock', 'demo', or 'clerk'.")
 
 
 def require_user(identity: Identity = Depends(require_identity)) -> Identity:
@@ -130,14 +228,16 @@ def require_service(identity: Identity = Depends(require_identity)) -> Identity:
 def author_from_identity(identity: Identity) -> str | None:
     """Resolve the ``author`` to record on a new blueprint revision/publication.
 
-    Only a ``clerk``-verified identity is recorded: mock-mode/manual
-    authoring keeps ``author`` unset, matching today's mock-mode behavior
-    (Hard Rule 2) and the step-15 comment on ``ExperienceBlueprint.author``.
-    ``identity.user_id`` already carries the right shape per kind (a Clerk
-    ``sub`` for a user, or ``nemoclaw:<subject>`` for a service caller), so
-    no further branching is needed here.
+    Only a real, verified identity (``clerk``, ``demo``, or ``nemoclaw``) is
+    recorded: mock-mode/manual authoring keeps ``author`` unset, matching
+    today's mock-mode behavior (Hard Rule 2) and the step-15 comment on
+    ``ExperienceBlueprint.author``. ``identity.user_id`` already carries the
+    right shape per kind (a Clerk ``sub`` for a user, ``nemoclaw:<subject>``
+    for a Clerk m2m service caller, ``nemoclaw:<id>`` for R14's shared-token
+    service caller, or a fixed demo account id), so no further branching is
+    needed here.
     """
-    return identity.user_id if identity.via == "clerk" else None
+    return identity.user_id if identity.via in ("clerk", "demo", "nemoclaw") else None
 
 
 def require_mock_mode() -> None:
@@ -145,11 +245,12 @@ def require_mock_mode() -> None:
 
     Those routes predate the project/blueprint model, operate on unscoped
     process-global state, and carry no identity check of their own -- fine
-    for the mock-mode local demo, not something to leave reachable in a real
-    ``clerk`` deployment. Step 17/21's room API is the intended `clerk`-mode
-    replacement surface for headsets and the web app.
+    for the mock-mode local demo, not something to leave reachable once real
+    per-project enforcement applies (``demo`` or ``clerk``). Step 17/21's
+    room API is the intended replacement surface for headsets and the web
+    app in both of those modes.
     """
-    if _auth_mode() == "clerk":
+    if _auth_mode() != "mock":
         raise HTTPException(404)
 
 
@@ -161,6 +262,13 @@ def run_startup_checks() -> None:
     serving traffic under a configuration that would silently do the wrong
     thing.
     """
+    nemoclaw_token = os.environ.get("SKETCHSCAPE_NEMOCLAW_TOKEN")
+    if nemoclaw_token and len(nemoclaw_token) < MIN_NEMOCLAW_TOKEN_LENGTH:
+        raise RuntimeError(
+            f"SKETCHSCAPE_NEMOCLAW_TOKEN must be at least {MIN_NEMOCLAW_TOKEN_LENGTH} "
+            "characters when set (e.g. secrets.token_urlsafe(32)); leave it unset in "
+            "mock/local mode, where NemoClaw's service identity isn't needed."
+        )
     mode = _auth_mode()
     if mode == "clerk":
         if not os.environ.get("CLERK_SECRET_KEY"):
@@ -171,6 +279,14 @@ def run_startup_checks() -> None:
         if not origins or "*" in origins:
             raise RuntimeError(
                 "SKETCHSCAPE_AUTH_MODE=clerk requires SKETCHSCAPE_WEB_ORIGINS to list "
+                "one or more explicit web origins (no '*', and not empty)."
+            )
+    elif mode == "demo":
+        demo_accounts()  # raises if SKETCHSCAPE_DEMO_USERS isn't exactly two accounts
+        origins = web_origins()
+        if not origins or "*" in origins:
+            raise RuntimeError(
+                "SKETCHSCAPE_AUTH_MODE=demo requires SKETCHSCAPE_WEB_ORIGINS to list "
                 "one or more explicit web origins (no '*', and not empty)."
             )
     elif mode == "mock":
@@ -189,4 +305,4 @@ def run_startup_checks() -> None:
                 f"real deployment, or PIPELINE_MODE=mock for local/demo."
             )
     else:
-        raise RuntimeError(f"Unknown SKETCHSCAPE_AUTH_MODE '{mode}'. Use 'mock' or 'clerk'.")
+        raise RuntimeError(f"Unknown SKETCHSCAPE_AUTH_MODE '{mode}'. Use 'mock', 'demo', or 'clerk'.")

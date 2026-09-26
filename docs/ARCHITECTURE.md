@@ -35,7 +35,14 @@ This document explains the design; the build plan executes it.
 - **Backend** validates uploads, owns job status and scene JSON, and exposes
   only public-safe artifact URLs.
 - **Worker** is the only component allowed to load models and receive the
-  `SKETCHSCAPE_WORKER_TOKEN`.
+  `SKETCHSCAPE_WORKER_TOKEN`. The one exception is the guided tour bot
+  (Build Plan steps 30–34, decision 2026-09-26):
+  - The backend may call Muse Spark (Meta Model API) for the guide's
+    `guide_turn`, and may run MMS-TTS on CPU for its voice.
+  - It does this only through `/v1/rooms/{project_id}/guide/*`, and only
+    grounded in the active tour JSON. Every line passes a deterministic
+    validator before it reaches Unity.
+  - Unity never calls a model provider and never holds a model key.
 - **Terraform** creates a private bundle bucket, narrowly-scoped instance role,
   SSM access, and a single GPU host. It does not contain Hugging Face tokens.
 
@@ -166,16 +173,27 @@ Unity Cloud path below, specifically:
   GameObjects 2.x. Client-hosted Relay was rejected because Unity doesn't
   support host migration for Netcode for GameObjects there, so the room
   would close whenever the host left.
-- **Clerk is the account system**, used directly by the web app
-  (`@clerk/react`).
-- **The Quest uses the person's Meta account.**
-  - Unity Cloud signs in with `SignInWithOculusAsync`.
-  - The backend validates a Meta user-proof nonce, maps the Meta ID to the
-    linked Clerk user (linked once with a code entered on the website), and
-    issues a short-lived room token.
-  - Clerk has no Meta Quest login provider. The earlier plan of a Clerk
-    OAuth browser login on the headset was dropped because it was the
-    riskiest step.
+- **Two hardcoded accounts are the account system (revised 2026-09-26,
+  supersedes the earlier Clerk/Meta plan)** — see `collab-vr-accounts-and-gates`
+  for the full rationale. `SKETCHSCAPE_AUTH_MODE=demo`
+  (`SKETCHSCAPE_DEMO_USERS`) enforces real per-project
+  membership/ownership; there is no Clerk sign-in, no Meta Horizon app,
+  and no Quest↔account linking flow. `SKETCHSCAPE_AUTH_MODE=clerk` and
+  its code still exist for a possible future real-account product, but
+  nothing in this track depends on them.
+- **Account switcher (website and Quest):** the same picker in both
+  places, choosing between the accounts in `SKETCHSCAPE_DEMO_USERS`. Both
+  accounts view the **same** project — one shared room, one published
+  blueprint (step 15) — and only the *view* changes per account: which
+  objects are editable (step 17 ownership, already keyed to whichever
+  account uploaded the image) and which letters can be opened (step 28's
+  author-or-recipient access rule, which is exactly what lets one account
+  read a letter the other wrote them).
+- **The Quest's Multiplayer Services session uses anonymous Unity
+  sign-in** (`SignInAnonymouslyAsync`), tagged with a player property
+  holding the chosen account id. Distributed Authority and NGO 2.x don't
+  care which auth provider signed the player in, so this needs no Meta
+  account and no room token.
 - **A public, authenticated room API** (`/v1/rooms/{project_id}/state`,
   `/edits`) for headset saves. It enforces per-contributor ownership,
   bounds, and revision checks, and publishes server-side. Headsets never
@@ -188,7 +206,7 @@ Unity Cloud path below, specifically:
 
 Meta's Shared Spatial Anchors / colocation remains the option to revisit
 for co-located (same physical room) sessions; it wasn't chosen because the
-requirement is remote collaboration tied to Clerk accounts.
+requirement is remote collaboration between the two hardcoded accounts.
 
 Added 2026-09-25 (details in `docs/DATA_ARCHITECTURE.md` and Build Plan
 steps 26–29):
@@ -201,9 +219,10 @@ steps 26–29):
   - Jobs are durable and lease-based.
   - Uploads live in shared storage.
 - **Several objects per photo, several uploads at once:**
-  - The person selects objects on the website (click, box, or typed
-    name), one SAM 3.1 pass masks exactly those, then one Fast-SAM3D job
-    runs per object. Auto-detect only suggests selections.
+  - The person types a name for each object they want on the website
+    (a semantic SAM 3.1 text prompt), one SAM 3.1 pass masks exactly
+    those, then one Fast-SAM3D job runs per object. Auto-detect only
+    suggests selections.
   - GPU concurrency defaults to 1 and is raised only after an approved
     benchmark.
 - **Letters:**

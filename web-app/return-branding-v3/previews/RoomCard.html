@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+<head><meta charset="utf-8"><title>RoomCard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="../components/bundle.js"></script></head>
+<body>
+<div id="root"></div>
+<script>
+var R = window.Return, h = React.createElement;
+var IMG = { meadow: '../imagery/web/return-sky-day-meadow-lake.webp', plain: '../imagery/web/return-sky-day-golden-plain.webp', home: '../imagery/web/return-sky-day-hilltop-home.webp', beach: '../imagery/web/return-sky-day-morning-beach.webp', clouds: '../imagery/web/return-sky-day-cloud-field.webp', painted: '../imagery/web/return-sky-golden-painted-clouds.webp', cloudsea: '../imagery/web/return-sky-dusk-cloud-sea.webp', night: '../imagery/web/return-sky-dusk-night-lake.webp' };
+var LOGO = { lockupWhite: '../logos/return-lockup-white.svg', lockupInk: '../logos/return-lockup-ink.svg', markWhite: '../logos/return-mark-white.svg', markInk: '../logos/return-mark-ink.svg' };
+ReactDOM.createRoot(document.getElementById('root')).render(h('div', { className: 'rt-stage', style: { gap: 'var(--space-5)', padding: 'var(--space-6)' } },
+  h(R.RoomCard, { src: IMG.meadow, title: 'The lake house', place: 'Lake Norman', date: '2019-07-14', status: 'shared', onManage: function () {}, people: [{ name: 'Dylan Houle' }, { name: 'Mom' }, { name: 'Sam Park', here: true }, { name: 'Ava' }] }),
+  h(R.RoomCard, { src: IMG.home, title: "Grandma's porch", status: 'waiting', waitingFor: 'Sam', meta: '2 of 3 added photos', onManage: function () {} }),
+  h(R.RoomCard, { src: IMG.beach, title: 'Last day of summer', photoCount: 11, status: 'developing' }),
+  h(R.RoomCard, { src: IMG.painted, title: "Ava's birthday", meta: 'Ava Lin invited you', status: 'invited', action: [h(R.Button, { key: 1, variant: 'light', size: 'sm' }, 'Join room'), h(R.Button, { key: 2, variant: 'glass', size: 'sm' }, 'Decline')] })));
+</script>
+</body>
+</html>

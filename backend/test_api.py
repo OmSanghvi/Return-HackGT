@@ -122,8 +122,11 @@ class ReconstructionApiTests(unittest.TestCase):
         project = reloaded.get_project(project_id)
         self.assertIsNotNone(project)
         self.assertEqual(project.published_revision, 1)
-        self.assertEqual(len(project.asset_ids), 1)
-        restored_asset = reloaded.get_asset(project.asset_ids[0])
+        # New assets are linked via child items (Build Plan step 26), not
+        # appended to `project.asset_ids` -- see project_asset_ids's docstring.
+        linked_asset_ids = reloaded.list_linked_asset_ids(project_id)
+        self.assertEqual(len(linked_asset_ids), 1)
+        restored_asset = reloaded.get_asset(linked_asset_ids[0])
         self.assertIsNotNone(restored_asset)
         self.assertEqual(restored_asset.status, main.AssetStatus.READY)
         self.assertEqual(len(reloaded.list_blueprints(project_id)), 1)
@@ -415,13 +418,22 @@ class ContributorContributionApiTests(unittest.TestCase):
         with TestClient(app) as client:
             pid = self._make_project(client)
 
-            contributors = []
-            for name in ["Alice", "Bo", "Cass"]:
+            # Step 17: project create auto-registers the creator as member 1.
+            listed = client.get(f"/v1/projects/{pid}/contributors")
+            self.assertEqual(listed.status_code, 200)
+            contributors = listed.json()
+            self.assertEqual(len(contributors), 1)
+            self.assertEqual(contributors[0]["clerk_user_id"], "dev-user")
+            self.assertEqual(contributors[0]["display_name"], "Creator")
+
+            # Two more people join (unbound demo personas in mock mode).
+            for name in ["Alice", "Bo"]:
                 r = client.post(f"/v1/projects/{pid}/contributors", json={"display_name": name})
                 self.assertEqual(r.status_code, 201)
                 body = r.json()
                 self.assertEqual(body["display_name"], name)
                 self.assertEqual(body["project_id"], pid)
+                self.assertIsNone(body["clerk_user_id"])
                 contributors.append(body)
             self.assertEqual(len(contributors), 3)
 
@@ -502,6 +514,133 @@ class ContributorContributionApiTests(unittest.TestCase):
 
             # Nothing should have been recorded against the project.
             self.assertEqual(client.get(f"/v1/projects/{pid}/contributions").json(), [])
+
+
+def _png_bytes(width: int, height: int) -> bytes:
+    """A real (tiny-payload) PNG of the given size."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload))
+
+    rows = b"".join(b"\x00" + b"\xff" * width for _ in range(height))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
+    )
+
+
+class SketchAssetApiTests(unittest.TestCase):
+    """Verify Notability sketch cards and plaques (Build Plan step 7)."""
+
+    def _make_project(self, client) -> str:
+        return client.post("/v1/projects", json={"name": "Sketch room", "description": ""}).json()["project_id"]
+
+    def test_card_is_ready_immediately_and_sized_from_the_page(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            page = _png_bytes(300, 600)
+            r = client.post(
+                f"/v1/projects/{pid}/sketch-assets",
+                data={"label": "our treehouse"},
+                files={"image": ("page.png", io.BytesIO(page), "image/png")},
+            )
+            self.assertEqual(r.status_code, 201, r.text)
+            asset = r.json()
+            self.assertEqual(asset["kind"], "sketch_card")
+            self.assertEqual(asset["status"], "ready")
+            self.assertEqual(asset["label"], "our treehouse")
+            self.assertEqual(asset["suggested_scale"], [0.4, 0.8, 1.0])
+            image = client.get(asset["artifact_url"])
+            self.assertEqual(image.status_code, 200)
+            self.assertEqual(image.content, page)
+
+    def test_card_rejects_formats_unity_cannot_decode(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            r = client.post(
+                f"/v1/projects/{pid}/sketch-assets",
+                files={"image": ("page.webp", io.BytesIO(b"RIFF0000WEBP"), "image/webp")},
+            )
+            self.assertEqual(r.status_code, 415)
+
+    def test_jpeg_dimensions_are_read_from_the_frame_header(self) -> None:
+        # SOI, an APP0 segment, then a baseline SOF0 for 640x480.
+        jpeg = (
+            b"\xff\xd8"
+            + b"\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+            + b"\xff\xc0\x00\x11\x08\x01\xe0\x02\x80\x03\x01\x22\x00\x02\x11\x01\x03\x11\x01"
+        )
+        self.assertEqual(main.image_dimensions(jpeg), (640, 480))
+
+    def test_plaque_goes_through_the_existing_reconstruction(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            r = client.post(
+                f"/v1/projects/{pid}/sketch-assets",
+                data={"display": "plaque"},
+                files={"image": ("page.png", io.BytesIO(_png_bytes(20, 30)), "image/png")},
+            )
+            self.assertEqual(r.status_code, 202, r.text)
+            asset = r.json()
+            self.assertEqual(asset["kind"], "reconstruction")
+            self.assertTrue(asset["reconstruction_job_id"])
+            settled = client.get(f"/v1/projects/{pid}/assets/{asset['asset_id']}").json()
+            self.assertEqual(settled["status"], "ready")
+
+    def test_card_composes_and_compiles_as_a_sketch_card(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            photo = client.post(
+                f"/v1/projects/{pid}/assets",
+                data={"subject_hint": "mug"},
+                files={"image": ("mug.png", io.BytesIO(b"PNG-DATA"), "image/png")},
+            ).json()
+            self.assertEqual(client.get(f"/v1/projects/{pid}/assets/{photo['asset_id']}").json()["status"], "ready")
+            card = client.post(
+                f"/v1/projects/{pid}/sketch-assets",
+                files={"image": ("kitchen.png", io.BytesIO(_png_bytes(400, 300)), "image/png")},
+            ).json()
+            for name, asset, source_type in [("Alice", photo, "photo"), ("Bo", card, "sketch")]:
+                contributor = client.post(f"/v1/projects/{pid}/contributors", json={"display_name": name}).json()
+                r = client.post(
+                    f"/v1/projects/{pid}/contributions",
+                    json={
+                        "contributor_id": contributor["contributor_id"],
+                        "asset_id": asset["asset_id"],
+                        "source_type": source_type,
+                        "memory_text": "Sunday dinners",
+                    },
+                )
+                self.assertEqual(r.status_code, 201, r.text)
+
+            blueprint = client.post(f"/v1/projects/{pid}/connection/compose").json()["blueprint"]
+            card_object = next(item for item in blueprint["objects"] if item["asset_id"] == card["asset_id"])
+            self.assertGreater(card_object["position"][1], 0.9)
+            revision = client.post(f"/v1/projects/{pid}/blueprints", json=blueprint).json()["revision"]
+            scene = client.post(f"/v1/projects/{pid}/blueprints/{revision}/publish").json()["scene"]
+            compiled = next(item for item in scene["objects"] if item["id"] == card_object["id"])
+            self.assertEqual(compiled["source"], "sketch_card")
+            self.assertEqual(compiled["asset_url"], card["artifact_url"])
+            # A mug can be picked up; a card stays on its stand.
+            self.assertFalse(compiled["grabbable"])
+            mug = next(item for item in scene["objects"] if item["id"] != card_object["id"])
+            self.assertTrue(mug["grabbable"])
+
+    def test_only_small_reconstructions_are_pickup_sized(self) -> None:
+        def asset(label: str, bounds: list[float], kind: str = "reconstruction") -> main.ProjectAsset:
+            return main.ProjectAsset(
+                asset_id="a1", project_id="p1", label=label, status=main.AssetStatus.READY,
+                kind=kind, reconstruction_job_id="", bounds=bounds,
+            )
+
+        self.assertTrue(main.is_pickup_sized(asset("thing", [0.2, 0.3, 0.2])))
+        self.assertTrue(main.is_pickup_sized(asset("grandma's mug", [1.0, 1.0, 1.0])))
+        self.assertFalse(main.is_pickup_sized(asset("sofa", [1.0, 1.0, 1.0])))
+        self.assertFalse(main.is_pickup_sized(asset("drawing", [0.4, 0.3, 0.02], kind="sketch_card")))
 
 
 class ConnectionComposeApiTests(unittest.TestCase):
@@ -589,6 +728,60 @@ class ConnectionComposeApiTests(unittest.TestCase):
             self.assertEqual(len(positions), 4)
             for name in ["Alice", "Bo", "Cass", "Dev"]:
                 self.assertIn(name, body["insight"]["explanation"])
+
+    def test_three_contributor_room_is_attributed_and_edits_are_owner_only(self) -> None:
+        """Step 8: the published scene says who owns each object, and a
+        contributor session may only edit its own objects."""
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            contributions = [
+                self._contribute(client, pid, "Alice", "mug", "Tea at grandma's"),
+                self._contribute(client, pid, "Bo", "guitar", "First song I learned"),
+                self._contribute(client, pid, "Cass", "kite", ""),
+            ]
+            composed = self._assert_composes(client, pid, contributions)
+            revision = client.post(f"/v1/projects/{pid}/blueprints", json=composed["blueprint"]).json()["revision"]
+            published = client.post(f"/v1/projects/{pid}/blueprints/{revision}/publish")
+            self.assertEqual(published.status_code, 200, published.text)
+            scene = published.json()["scene"]
+
+            social = scene["meta"]["social"]
+            self.assertEqual(social["version"], 1)
+            self.assertEqual(len(social["objects"]), 3)
+            by_contribution = {item["contribution_id"]: item for item in contributions}
+            object_ids = {item["id"] for item in scene["objects"]}
+            for entry in social["objects"]:
+                self.assertIn(entry["object_id"], object_ids)
+                self.assertEqual(
+                    entry["contributor_id"], by_contribution[entry["contribution_id"]]["contributor_id"]
+                )
+            self.assertEqual(
+                {entry["contributor_display_name"] for entry in social["objects"]}, {"Alice", "Bo", "Cass"}
+            )
+            self.assertEqual(len({entry["attribution_color"] for entry in social["objects"]}), 3)
+
+            alice, bo = social["objects"][0], social["objects"][1]
+            edit = {"target_id": alice["object_id"], "action": "rotate_by", "value": [0.0, 15.0, 0.0]}
+            rejected = client.post("/v1/scene/actions", json={**edit, "contributor_id": bo["contributor_id"]})
+            self.assertEqual(rejected.status_code, 403)
+            accepted = client.post("/v1/scene/actions", json={**edit, "contributor_id": alice["contributor_id"]})
+            self.assertEqual(accepted.status_code, 200, accepted.text)
+            # Authoring (MCP/editor) callers without a contributor keep working.
+            authoring = client.post("/v1/scene/actions", json=edit)
+            self.assertEqual(authoring.status_code, 200, authoring.text)
+
+    def test_blueprint_with_mismatched_contribution_is_rejected(self) -> None:
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            contributions = [
+                self._contribute(client, pid, "Alice", "mug", ""),
+                self._contribute(client, pid, "Bo", "guitar", ""),
+            ]
+            blueprint = self._assert_composes(client, pid, contributions)["blueprint"]
+            first, second = blueprint["objects"][0], blueprint["objects"][1]
+            first["contribution_id"], second["contribution_id"] = second["contribution_id"], first["contribution_id"]
+            r = client.post(f"/v1/projects/{pid}/blueprints", json=blueprint)
+            self.assertEqual(r.status_code, 422)
 
     def test_compose_below_min_contributors_is_409(self) -> None:
         with TestClient(app) as client:
@@ -759,6 +952,893 @@ class RevisionConcurrencyApiTests(unittest.TestCase):
             self.assertEqual(main.store.get_live_revision(pid), 1)
             compiled = client.get(f"/v1/projects/{pid}/compiled-scene")
             self.assertEqual(compiled.status_code, 200)
+
+
+class MembershipOwnershipApiTests(unittest.TestCase):
+    """Build Plan step 17: invites, membership, Clerk binding, ownership."""
+
+    def setUp(self) -> None:
+        main.current_scene = main.placeholder_scene()
+
+    def _ready_asset(self, client, project_id: str, hint: str = "keepsake") -> dict:
+        r = client.post(
+            f"/v1/projects/{project_id}/assets",
+            data={"subject_hint": hint},
+            files={"image": (f"{hint}.png", io.BytesIO(b"PNG"), "image/png")},
+        )
+        self.assertEqual(r.status_code, 202, r.text)
+        asset = client.get(f"/v1/projects/{project_id}/assets/{r.json()['asset_id']}").json()
+        self.assertEqual(asset["status"], "ready")
+        return asset
+
+    def test_mock_mode_keeps_working_with_dev_user(self) -> None:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/projects",
+                json={"name": "Mock room", "creator_display_name": "Dev"},
+            )
+            self.assertEqual(created.status_code, 201)
+            body = created.json()
+            self.assertTrue(len(body["invite_code"]) >= 16)
+            self.assertEqual(body["created_by"], "dev-user")
+            self.assertIsNone(body["room_prompt"])
+
+            pid = body["project_id"]
+            patched = client.patch(f"/v1/projects/{pid}", json={"room_prompt": "cozy attic"})
+            self.assertEqual(patched.status_code, 200)
+            self.assertEqual(patched.json()["room_prompt"], "cozy attic")
+
+            rotated = client.post(f"/v1/projects/{pid}/invite/rotate")
+            self.assertEqual(rotated.status_code, 200)
+            self.assertNotEqual(rotated.json()["invite_code"], body["invite_code"])
+            self.assertTrue(len(rotated.json()["invite_code"]) >= 16)
+
+            # Bad invite is rejected even in mock when a code is supplied.
+            bad = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Eve", "invite_code": "definitely-not-the-code"},
+            )
+            self.assertEqual(bad.status_code, 403)
+
+    def test_owned_object_ids_for_three_contributors(self) -> None:
+        """Ownership is derived from contributions, never a stored second copy."""
+        with TestClient(app) as client:
+            pid = client.post(
+                "/v1/projects", json={"name": "Owned room", "creator_display_name": "Ada"}
+            ).json()["project_id"]
+            # Ada is creator (clerk_user_id=dev-user). Bo and Cass join unbound
+            # in mock; bind them by creating with distinct X-SketchScape-Dev-User.
+            invite = client.get(f"/v1/projects/{pid}").json()["invite_code"]
+            bo = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bo", "invite_code": invite},
+                headers={"X-SketchScape-Dev-User": "user-bo"},
+            ).json()
+            cass = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Cass", "invite_code": invite},
+                headers={"X-SketchScape-Dev-User": "user-cass"},
+            ).json()
+            self.assertEqual(bo["clerk_user_id"], "user-bo")
+            self.assertEqual(cass["clerk_user_id"], "user-cass")
+
+            ada = next(c for c in client.get(f"/v1/projects/{pid}/contributors").json() if c["clerk_user_id"] == "dev-user")
+            assets = {
+                "ada": self._ready_asset(client, pid, "ada-mug"),
+                "bo": self._ready_asset(client, pid, "bo-book"),
+                "cass": self._ready_asset(client, pid, "cass-lamp"),
+            }
+            for key, contributor in ("ada", ada), ("bo", bo), ("cass", cass):
+                client.post(
+                    f"/v1/projects/{pid}/contributions",
+                    json={
+                        "contributor_id": contributor["contributor_id"],
+                        "asset_id": assets[key]["asset_id"],
+                        "source_type": "photo",
+                        "memory_text": f"{key} memory",
+                    },
+                )
+
+            blueprint = main.ExperienceBlueprint(
+                project_id=pid,
+                revision=1,
+                created_at=main.utc_now(),
+                experience=main.ExperienceSettings(mode="vr", theme="test", units="meters"),
+                objects=[
+                    main.BlueprintObject(
+                        id="obj_ada",
+                        asset_id=assets["ada"]["asset_id"],
+                        position=[0, 0, 1],
+                    ),
+                    main.BlueprintObject(
+                        id="obj_bo",
+                        asset_id=assets["bo"]["asset_id"],
+                        position=[1, 0, 1],
+                    ),
+                    main.BlueprintObject(
+                        id="obj_cass",
+                        asset_id=assets["cass"]["asset_id"],
+                        position=[-1, 0, 1],
+                    ),
+                    # NemoClaw environment object — no contribution → unowned.
+                    main.BlueprintObject(
+                        id="obj_env",
+                        asset_id=assets["ada"]["asset_id"],
+                        position=[0, 0, 2],
+                    ),
+                ],
+            )
+            # Force env object to a fake asset id so it matches no contribution.
+            blueprint.objects[3] = main.BlueprintObject(
+                id="obj_env",
+                asset_id="envasset000000000000000000000001",
+                position=[0, 0, 2],
+            )
+
+            self.assertEqual(main.owned_object_ids(pid, "dev-user", blueprint), {"obj_ada"})
+            self.assertEqual(main.owned_object_ids(pid, "user-bo", blueprint), {"obj_bo"})
+            self.assertEqual(main.owned_object_ids(pid, "user-cass", blueprint), {"obj_cass"})
+            self.assertEqual(main.owned_object_ids(pid, "stranger", blueprint), set())
+
+
+# -- clerk-mode membership tests (stubbed SDK, never calls real Clerk) --------
+
+_FAKE_TOKENS: dict[str, dict] = {}
+
+
+class _FakeRequestState:
+    def __init__(self, is_signed_in: bool, payload: dict | None = None, reason: str | None = None) -> None:
+        self.is_signed_in = is_signed_in
+        self.payload = payload
+        self.reason = reason
+
+
+class _FakeAuthenticateRequestOptions:
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+
+
+class _FakeClerk:
+    def __init__(self, bearer_auth: str | None = None) -> None:
+        self.bearer_auth = bearer_auth
+
+    def authenticate_request(self, request, options: _FakeAuthenticateRequestOptions) -> _FakeRequestState:
+        token = (request.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+        payload = _FAKE_TOKENS.get(token)
+        if payload is None:
+            return _FakeRequestState(False, reason="token-invalid")
+        azp = payload.get("azp")
+        authorized_parties = options.kwargs.get("authorized_parties")
+        if azp is not None and authorized_parties is not None and azp not in authorized_parties:
+            return _FakeRequestState(False, reason="token-invalid-authorized-parties")
+        return _FakeRequestState(True, payload=payload)
+
+
+class DemoMembershipApiTests(unittest.TestCase):
+    """Membership/ownership enforcement under SKETCHSCAPE_AUTH_MODE=demo.
+
+    Same enforcement as ClerkMembershipApiTests below, but through the two
+    hardcoded demo accounts instead of Clerk tokens -- this is what a live
+    two-person demo runs on ahead of step 13's real account setup.
+    """
+
+    def setUp(self) -> None:
+        from unittest.mock import patch
+
+        self._env = patch.dict(
+            os.environ,
+            {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com"},
+        )
+        self._env.start()
+
+    def tearDown(self) -> None:
+        self._env.stop()
+
+    def test_non_member_gets_403_on_reads_and_uploads(self) -> None:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/projects",
+                json={"name": "Private room", "creator_display_name": "Alice"},
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            self.assertEqual(created.status_code, 201, created.text)
+            pid = created.json()["project_id"]
+            invite = created.json()["invite_code"]
+            self.assertTrue(len(invite) >= 16)
+
+            # Bob is a known demo account but not a member of this project.
+            read = client.get(
+                f"/v1/projects/{pid}", headers={"X-SketchScape-Dev-User": "demo-bob"}
+            )
+            self.assertEqual(read.status_code, 403)
+
+            upload = client.post(
+                f"/v1/projects/{pid}/assets",
+                data={"subject_hint": "mug"},
+                files={"image": ("mug.png", io.BytesIO(b"PNG"), "image/png")},
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+            self.assertEqual(upload.status_code, 403)
+
+    def test_unknown_account_is_rejected_before_membership_is_checked(self) -> None:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/projects/does-not-exist", headers={"X-SketchScape-Dev-User": "not-a-demo-account"}
+            )
+        self.assertEqual(response.status_code, 401)
+
+    def test_bad_invite_code_is_403_and_duplicate_register_is_rejected(self) -> None:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/projects",
+                json={"name": "Invite room", "creator_display_name": "Alice"},
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            pid = created.json()["project_id"]
+            invite = created.json()["invite_code"]
+
+            bad = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bob", "invite_code": "wrong-code-xxxxxxxx"},
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+            self.assertEqual(bad.status_code, 403)
+
+            ok = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bob", "invite_code": invite},
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+            self.assertEqual(ok.status_code, 201)
+            self.assertEqual(ok.json()["clerk_user_id"], "demo-bob")
+
+            again = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bobby", "invite_code": invite},
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+            self.assertEqual(again.status_code, 409)
+
+    def test_member_cannot_edit_another_members_upload_selections(self) -> None:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/projects",
+                json={"name": "Shared room", "creator_display_name": "Alice"},
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            pid = created.json()["project_id"]
+            invite = created.json()["invite_code"]
+            client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bob", "invite_code": invite},
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+
+            uploaded = client.post(
+                f"/v1/projects/{pid}/uploads",
+                files={"image": ("mug.png", io.BytesIO(b"PNG"), "image/png")},
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            self.assertEqual(uploaded.status_code, 201, uploaded.text)
+            upload_id = uploaded.json()["upload_id"]
+
+            forbidden = client.post(
+                f"/v1/projects/{pid}/uploads/{upload_id}/selections",
+                json={"selections": [{"selection_id": "s1", "prompt": {"type": "text", "text": "mug"}}]},
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+            self.assertEqual(forbidden.status_code, 403)
+
+
+class ClerkMembershipApiTests(unittest.TestCase):
+    """Membership enforcement that only applies in SKETCHSCAPE_AUTH_MODE=clerk."""
+
+    def setUp(self) -> None:
+        import sys
+        import types
+        from unittest.mock import patch
+
+        _FAKE_TOKENS.clear()
+        _FAKE_TOKENS["alice"] = {"sub": "user_alice", "azp": "https://app.example.com"}
+        _FAKE_TOKENS["bob"] = {"sub": "user_bob", "azp": "https://app.example.com"}
+        _FAKE_TOKENS["m2m"] = {"subject": "nemoclaw_machine"}
+        fake = types.ModuleType("clerk_backend_api")
+        fake.Clerk = _FakeClerk  # type: ignore[attr-defined]
+        fake.AuthenticateRequestOptions = _FakeAuthenticateRequestOptions  # type: ignore[attr-defined]
+        self._modules = patch.dict(sys.modules, {"clerk_backend_api": fake})
+        self._env = patch.dict(
+            os.environ,
+            {
+                "SKETCHSCAPE_AUTH_MODE": "clerk",
+                "CLERK_SECRET_KEY": "sk_test_fake",
+                "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com",
+            },
+        )
+        self._modules.start()
+        self._env.start()
+
+    def tearDown(self) -> None:
+        self._env.stop()
+        self._modules.stop()
+        _FAKE_TOKENS.clear()
+
+    def test_non_member_gets_403_on_reads_and_uploads(self) -> None:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/projects",
+                json={"name": "Private room", "creator_display_name": "Alice"},
+                headers={"Authorization": "Bearer alice"},
+            )
+            self.assertEqual(created.status_code, 201, created.text)
+            pid = created.json()["project_id"]
+            invite = created.json()["invite_code"]
+            self.assertTrue(len(invite) >= 16)
+
+            # Bob is authenticated but not a member.
+            read = client.get(
+                f"/v1/projects/{pid}", headers={"Authorization": "Bearer bob"}
+            )
+            self.assertEqual(read.status_code, 403)
+
+            upload = client.post(
+                f"/v1/projects/{pid}/assets",
+                data={"subject_hint": "mug"},
+                files={"image": ("mug.png", io.BytesIO(b"PNG"), "image/png")},
+                headers={"Authorization": "Bearer bob"},
+            )
+            self.assertEqual(upload.status_code, 403)
+
+            # Service may read but must not see the invite code or upload.
+            service_read = client.get(
+                f"/v1/projects/{pid}", headers={"Authorization": "Bearer m2m"}
+            )
+            self.assertEqual(service_read.status_code, 200)
+            self.assertEqual(service_read.json()["invite_code"], "")
+
+            service_upload = client.post(
+                f"/v1/projects/{pid}/assets",
+                data={"subject_hint": "mug"},
+                files={"image": ("mug.png", io.BytesIO(b"PNG"), "image/png")},
+                headers={"Authorization": "Bearer m2m"},
+            )
+            self.assertEqual(service_upload.status_code, 403)
+
+    def test_bad_invite_code_is_403_and_duplicate_register_is_rejected(self) -> None:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/projects",
+                json={"name": "Invite room", "creator_display_name": "Alice"},
+                headers={"Authorization": "Bearer alice"},
+            )
+            pid = created.json()["project_id"]
+            invite = created.json()["invite_code"]
+
+            bad = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bob", "invite_code": "wrong-code-xxxxxxxx"},
+                headers={"Authorization": "Bearer bob"},
+            )
+            self.assertEqual(bad.status_code, 403)
+
+            ok = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bob", "invite_code": invite},
+                headers={"Authorization": "Bearer bob"},
+            )
+            self.assertEqual(ok.status_code, 201)
+            self.assertEqual(ok.json()["clerk_user_id"], "user_bob")
+
+            again = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Bobby", "invite_code": invite},
+                headers={"Authorization": "Bearer bob"},
+            )
+            self.assertEqual(again.status_code, 409)
+
+            # Alice (already creator) cannot register a second time either.
+            alice_again = client.post(
+                f"/v1/projects/{pid}/contributors",
+                json={"display_name": "Alice 2", "invite_code": invite},
+                headers={"Authorization": "Bearer alice"},
+            )
+            self.assertEqual(alice_again.status_code, 409)
+
+
+class RoomApiTests(unittest.TestCase):
+    """Build Plan step 21: /v1/rooms/{project_id}/state and /edits."""
+
+    NEMOCLAW_TOKEN = "nemoclaw-test-token-" + "x" * 20  # >= auth.MIN_NEMOCLAW_TOKEN_LENGTH
+
+    def setUp(self) -> None:
+        from unittest.mock import patch
+
+        self._env = patch.dict(
+            os.environ,
+            {
+                "SKETCHSCAPE_AUTH_MODE": "demo",
+                "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com",
+                "SKETCHSCAPE_NEMOCLAW_TOKEN": self.NEMOCLAW_TOKEN,
+            },
+        )
+        self._env.start()
+
+    def tearDown(self) -> None:
+        self._env.stop()
+
+    def _ready_asset(self, client, project_id: str, hint: str, header: str) -> dict:
+        r = client.post(
+            f"/v1/projects/{project_id}/assets",
+            data={"subject_hint": hint},
+            files={"image": (f"{hint}.png", io.BytesIO(b"PNG"), "image/png")},
+            headers={"X-SketchScape-Dev-User": header},
+        )
+        self.assertEqual(r.status_code, 202, r.text)
+        asset = client.get(
+            f"/v1/projects/{project_id}/assets/{r.json()['asset_id']}",
+            headers={"X-SketchScape-Dev-User": header},
+        ).json()
+        self.assertEqual(asset["status"], "ready")
+        return asset
+
+    def _build_room(self, client) -> dict:
+        """Alice + Bob, each owning one fully-interactive object, plus one
+        alice-owned object that only allows `inspect` (for the 422 test)."""
+        created = client.post(
+            "/v1/projects",
+            json={"name": "Room API test", "creator_display_name": "Alice"},
+            headers={"X-SketchScape-Dev-User": "demo-alice"},
+        )
+        pid = created.json()["project_id"]
+        invite = created.json()["invite_code"]
+        bob = client.post(
+            f"/v1/projects/{pid}/contributors",
+            json={"display_name": "Bob", "invite_code": invite},
+            headers={"X-SketchScape-Dev-User": "demo-bob"},
+        ).json()
+        alice = next(
+            c
+            for c in client.get(
+                f"/v1/projects/{pid}/contributors", headers={"X-SketchScape-Dev-User": "demo-alice"}
+            ).json()
+            if c["clerk_user_id"] == "demo-alice"
+        )
+
+        alice_asset = self._ready_asset(client, pid, "alice-lamp", "demo-alice")
+        bob_asset = self._ready_asset(client, pid, "bob-book", "demo-bob")
+        locked_asset = self._ready_asset(client, pid, "alice-frame", "demo-alice")
+
+        alice_contribution = client.post(
+            f"/v1/projects/{pid}/contributions",
+            json={"contributor_id": alice["contributor_id"], "asset_id": alice_asset["asset_id"], "source_type": "photo"},
+            headers={"X-SketchScape-Dev-User": "demo-alice"},
+        ).json()
+        bob_contribution = client.post(
+            f"/v1/projects/{pid}/contributions",
+            json={"contributor_id": bob["contributor_id"], "asset_id": bob_asset["asset_id"], "source_type": "photo"},
+            headers={"X-SketchScape-Dev-User": "demo-bob"},
+        ).json()
+        locked_contribution = client.post(
+            f"/v1/projects/{pid}/contributions",
+            json={"contributor_id": alice["contributor_id"], "asset_id": locked_asset["asset_id"], "source_type": "photo"},
+            headers={"X-SketchScape-Dev-User": "demo-alice"},
+        ).json()
+
+        blueprint_input = {
+            "experience": {"mode": "vr", "theme": "room api test", "units": "meters"},
+            "environment": {"lighting_preset": "neutral", "floor": True},
+            "objects": [
+                {
+                    "id": "obj_alice",
+                    "asset_id": alice_asset["asset_id"],
+                    "position": [0, 0, 1],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1],
+                    "interactions": ["translate", "rotate", "scale"],
+                    "contribution_id": alice_contribution["contribution_id"],
+                },
+                {
+                    "id": "obj_bob",
+                    "asset_id": bob_asset["asset_id"],
+                    "position": [1, 0, 1],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1],
+                    "interactions": ["translate", "rotate", "scale"],
+                    "contribution_id": bob_contribution["contribution_id"],
+                },
+                {
+                    "id": "obj_locked",
+                    "asset_id": locked_asset["asset_id"],
+                    "position": [2, 0, 1],
+                    "rotation": [0, 0, 0],
+                    "scale": [1, 1, 1],
+                    "interactions": ["inspect"],
+                    "contribution_id": locked_contribution["contribution_id"],
+                },
+            ],
+            "navigation": {"vr": "none", "ar": "none"},
+        }
+        drafted = client.post(
+            f"/v1/projects/{pid}/blueprints",
+            params={"base_revision": 0},
+            json=blueprint_input,
+            headers={"X-SketchScape-Dev-User": "demo-alice"},
+        )
+        self.assertEqual(drafted.status_code, 201, drafted.text)
+        revision = drafted.json()["revision"]
+        published = client.post(
+            f"/v1/projects/{pid}/blueprints/{revision}/publish",
+            headers={"X-SketchScape-Dev-User": "demo-alice"},
+        )
+        self.assertEqual(published.status_code, 200, published.text)
+        return {"project_id": pid, "revision": revision}
+
+    def test_room_state_shows_editable_by_me_per_account(self) -> None:
+        with TestClient(app) as client:
+            room = self._build_room(client)
+            pid = room["project_id"]
+
+            alice_state = client.get(f"/v1/rooms/{pid}/state", headers={"X-SketchScape-Dev-User": "demo-alice"})
+            self.assertEqual(alice_state.status_code, 200, alice_state.text)
+            body = alice_state.json()
+            self.assertEqual(body["live_revision"], room["revision"])
+            by_id = {obj["id"]: obj for obj in body["objects"]}
+            self.assertTrue(by_id["obj_alice"]["editable_by_me"])
+            self.assertFalse(by_id["obj_bob"]["editable_by_me"])
+            # obj_locked is also alice's (ownership is per-contribution), but its
+            # interactions list has no translate/rotate/scale -- see
+            # test_missing_interaction_is_422 for that separate rule.
+            self.assertTrue(by_id["obj_locked"]["editable_by_me"])
+            # Mock-mode reconstructions complete with status=ready but no
+            # actual PLY (Hard Rule 2 -- no GPU/network in mock), so
+            # artifact_urls is legitimately empty here; the field's presence
+            # and shape is what this checks.
+            self.assertIsInstance(body["artifact_urls"], dict)
+
+            bob_state = client.get(f"/v1/rooms/{pid}/state", headers={"X-SketchScape-Dev-User": "demo-bob"})
+            by_id_bob = {obj["id"]: obj for obj in bob_state.json()["objects"]}
+            self.assertFalse(by_id_bob["obj_alice"]["editable_by_me"])
+            self.assertTrue(by_id_bob["obj_bob"]["editable_by_me"])
+
+    def test_room_state_404_when_nothing_published(self) -> None:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/projects",
+                json={"name": "Unpublished room", "creator_display_name": "Alice"},
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            pid = created.json()["project_id"]
+            response = client.get(f"/v1/rooms/{pid}/state", headers={"X-SketchScape-Dev-User": "demo-alice"})
+            self.assertEqual(response.status_code, 404)
+
+    def test_room_state_304_when_since_revision_matches(self) -> None:
+        with TestClient(app) as client:
+            room = self._build_room(client)
+            response = client.get(
+                f"/v1/rooms/{room['project_id']}/state",
+                params={"since_revision": room["revision"]},
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            self.assertEqual(response.status_code, 304)
+
+    def test_room_state_etag_is_per_account(self) -> None:
+        # One headset switching Account 1 -> Account 2 resends the old
+        # If-None-Match; it must get Bob's body, not a 304 that keeps
+        # Alice's editable_by_me flags.
+        with TestClient(app) as client:
+            room = self._build_room(client)
+            url = f"/v1/rooms/{room['project_id']}/state"
+            alice = client.get(url, headers={"X-SketchScape-Dev-User": "demo-alice"})
+            etag = alice.headers["ETag"]
+            again = client.get(url, headers={"X-SketchScape-Dev-User": "demo-alice", "If-None-Match": etag})
+            self.assertEqual(again.status_code, 304)
+            bob = client.get(url, headers={"X-SketchScape-Dev-User": "demo-bob", "If-None-Match": etag})
+            self.assertEqual(bob.status_code, 200)
+            by_id = {obj["id"]: obj for obj in bob.json()["objects"]}
+            self.assertFalse(by_id["obj_alice"]["editable_by_me"])
+            self.assertTrue(by_id["obj_bob"]["editable_by_me"])
+
+    def test_owner_edit_returns_201_and_state_reflects_it(self) -> None:
+        with TestClient(app) as client:
+            room = self._build_room(client)
+            pid = room["project_id"]
+
+            edit = client.post(
+                f"/v1/rooms/{pid}/edits",
+                json={
+                    "base_revision": room["revision"],
+                    "client_edit_id": "edit-1",
+                    "edits": [{"object_id": "obj_alice", "position": [5, 0, 5]}],
+                },
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            self.assertEqual(edit.status_code, 201, edit.text)
+            new_revision = edit.json()["revision"]
+            self.assertEqual(edit.json()["live_revision"], new_revision)
+            self.assertGreater(new_revision, room["revision"])
+
+            state = client.get(f"/v1/rooms/{pid}/state", headers={"X-SketchScape-Dev-User": "demo-alice"}).json()
+            self.assertEqual(state["live_revision"], new_revision)
+            moved = next(o for o in state["objects"] if o["id"] == "obj_alice")
+            self.assertEqual(moved["position"], [5.0, 0.0, 5.0])
+
+    def test_non_owner_edit_is_403(self) -> None:
+        with TestClient(app) as client:
+            room = self._build_room(client)
+            edit = client.post(
+                f"/v1/rooms/{room['project_id']}/edits",
+                json={
+                    "base_revision": room["revision"],
+                    "client_edit_id": "edit-2",
+                    "edits": [{"object_id": "obj_bob", "position": [5, 0, 5]}],
+                },
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            self.assertEqual(edit.status_code, 403)
+
+    def test_missing_interaction_is_422(self) -> None:
+        with TestClient(app) as client:
+            room = self._build_room(client)
+            edit = client.post(
+                f"/v1/rooms/{room['project_id']}/edits",
+                json={
+                    "base_revision": room["revision"],
+                    "client_edit_id": "edit-3",
+                    "edits": [{"object_id": "obj_locked", "position": [1, 1, 1]}],
+                },
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            self.assertEqual(edit.status_code, 422)
+
+    def test_out_of_bounds_values_are_422(self) -> None:
+        with TestClient(app) as client:
+            room = self._build_room(client)
+            pid = room["project_id"]
+            too_far = client.post(
+                f"/v1/rooms/{pid}/edits",
+                json={
+                    "base_revision": room["revision"],
+                    "client_edit_id": "edit-4",
+                    "edits": [{"object_id": "obj_alice", "position": [500, 0, 0]}],
+                },
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            self.assertEqual(too_far.status_code, 422)
+
+            too_small = client.post(
+                f"/v1/rooms/{pid}/edits",
+                json={
+                    "base_revision": room["revision"],
+                    "client_edit_id": "edit-5",
+                    "edits": [{"object_id": "obj_alice", "scale": [0.001, 1, 1]}],
+                },
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            self.assertEqual(too_small.status_code, 422)
+
+    def test_non_finite_values_are_422(self) -> None:
+        import json as jsonlib
+
+        with TestClient(app) as client:
+            room = self._build_room(client)
+            payload = jsonlib.dumps(
+                {
+                    "base_revision": room["revision"],
+                    "client_edit_id": "edit-nan",
+                    "edits": [{"object_id": "obj_alice", "rotation": [float("nan"), 0, 0]}],
+                }
+            )
+            response = client.post(
+                f"/v1/rooms/{room['project_id']}/edits",
+                content=payload,
+                headers={"X-SketchScape-Dev-User": "demo-alice", "Content-Type": "application/json"},
+            )
+            self.assertEqual(response.status_code, 422)
+
+    def test_stale_base_revision_is_409(self) -> None:
+        with TestClient(app) as client:
+            room = self._build_room(client)
+            stale = client.post(
+                f"/v1/rooms/{room['project_id']}/edits",
+                json={
+                    "base_revision": 0,
+                    "client_edit_id": "edit-stale",
+                    "edits": [{"object_id": "obj_alice", "position": [1, 1, 1]}],
+                },
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            self.assertEqual(stale.status_code, 409, stale.text)
+            self.assertEqual(stale.json()["live_revision"], room["revision"])
+
+    def test_duplicate_client_edit_id_yields_one_revision(self) -> None:
+        with TestClient(app) as client:
+            room = self._build_room(client)
+            pid = room["project_id"]
+            body = {
+                "base_revision": room["revision"],
+                "client_edit_id": "edit-dup",
+                "edits": [{"object_id": "obj_alice", "position": [3, 0, 3]}],
+            }
+            first = client.post(f"/v1/rooms/{pid}/edits", json=body, headers={"X-SketchScape-Dev-User": "demo-alice"})
+            self.assertEqual(first.status_code, 201, first.text)
+            second = client.post(f"/v1/rooms/{pid}/edits", json=body, headers={"X-SketchScape-Dev-User": "demo-alice"})
+            self.assertEqual(second.status_code, 200, second.text)
+            self.assertEqual(second.json()["revision"], first.json()["revision"])
+            self.assertEqual(len(main.store.list_blueprints(pid)), first.json()["revision"])
+
+    def test_two_owners_rebase_after_conflict_and_both_survive(self) -> None:
+        with TestClient(app) as client:
+            room = self._build_room(client)
+            pid = room["project_id"]
+            base = room["revision"]
+
+            alice_edit = client.post(
+                f"/v1/rooms/{pid}/edits",
+                json={
+                    "base_revision": base,
+                    "client_edit_id": "alice-edit",
+                    "edits": [{"object_id": "obj_alice", "position": [9, 0, 9]}],
+                },
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            self.assertEqual(alice_edit.status_code, 201, alice_edit.text)
+            alice_revision = alice_edit.json()["revision"]
+
+            bob_first = client.post(
+                f"/v1/rooms/{pid}/edits",
+                json={
+                    "base_revision": base,
+                    "client_edit_id": "bob-edit",
+                    "edits": [{"object_id": "obj_bob", "position": [8, 0, 8]}],
+                },
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+            self.assertEqual(bob_first.status_code, 409, bob_first.text)
+            self.assertEqual(bob_first.json()["live_revision"], alice_revision)
+
+            bob_retry = client.post(
+                f"/v1/rooms/{pid}/edits",
+                json={
+                    "base_revision": alice_revision,
+                    "client_edit_id": "bob-edit-2",
+                    "edits": [{"object_id": "obj_bob", "position": [8, 0, 8]}],
+                },
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+            self.assertEqual(bob_retry.status_code, 201, bob_retry.text)
+
+            state = client.get(f"/v1/rooms/{pid}/state", headers={"X-SketchScape-Dev-User": "demo-alice"}).json()
+            by_id = {o["id"]: o for o in state["objects"]}
+            self.assertEqual(by_id["obj_alice"]["position"], [9.0, 0.0, 9.0])
+            self.assertEqual(by_id["obj_bob"]["position"], [8.0, 0.0, 8.0])
+
+    def test_service_identity_cannot_submit_room_edits(self) -> None:
+        with TestClient(app) as client:
+            room = self._build_room(client)
+            response = client.post(
+                f"/v1/rooms/{room['project_id']}/edits",
+                json={
+                    "base_revision": room["revision"],
+                    "client_edit_id": "nemoclaw-edit",
+                    "edits": [{"object_id": "obj_alice", "position": [1, 1, 1]}],
+                },
+                headers={"Authorization": f"Bearer {self.NEMOCLAW_TOKEN}"},
+            )
+            self.assertEqual(response.status_code, 403)
+
+    def test_non_member_gets_403_on_room_state_and_edits(self) -> None:
+        with TestClient(app) as client:
+            solo = client.post(
+                "/v1/projects",
+                json={"name": "Solo room", "creator_display_name": "Alice"},
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            ).json()
+            asset = self._ready_asset(client, solo["project_id"], "solo-thing", "demo-alice")
+            blueprint = client.post(
+                f"/v1/projects/{solo['project_id']}/blueprints",
+                params={"base_revision": 0},
+                json={
+                    "experience": {"mode": "vr", "theme": "solo", "units": "meters"},
+                    "environment": {"lighting_preset": "neutral", "floor": True},
+                    "objects": [
+                        {
+                            "id": "solo_obj",
+                            "asset_id": asset["asset_id"],
+                            "position": [0, 0, 0],
+                            "interactions": ["translate"],
+                        }
+                    ],
+                    "navigation": {"vr": "none", "ar": "none"},
+                },
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+            client.post(
+                f"/v1/projects/{solo['project_id']}/blueprints/{blueprint.json()['revision']}/publish",
+                headers={"X-SketchScape-Dev-User": "demo-alice"},
+            )
+
+            # Bob is a known demo account but never joined this project.
+            forbidden_state = client.get(
+                f"/v1/rooms/{solo['project_id']}/state", headers={"X-SketchScape-Dev-User": "demo-bob"}
+            )
+            self.assertEqual(forbidden_state.status_code, 403)
+
+            forbidden_edit = client.post(
+                f"/v1/rooms/{solo['project_id']}/edits",
+                json={
+                    "base_revision": 1,
+                    "client_edit_id": "x",
+                    "edits": [{"object_id": "solo_obj", "position": [1, 1, 1]}],
+                },
+                headers={"X-SketchScape-Dev-User": "demo-bob"},
+            )
+            self.assertEqual(forbidden_edit.status_code, 403)
+
+    def test_nemoclaw_may_read_room_state_and_project_assets(self) -> None:
+        with TestClient(app) as client:
+            room = self._build_room(client)
+            pid = room["project_id"]
+
+            state = client.get(f"/v1/rooms/{pid}/state", headers={"Authorization": f"Bearer {self.NEMOCLAW_TOKEN}"})
+            self.assertEqual(state.status_code, 200, state.text)
+            self.assertTrue(all(not o["editable_by_me"] for o in state.json()["objects"]))
+
+            assets = client.get(
+                f"/v1/projects/{pid}/assets", headers={"Authorization": f"Bearer {self.NEMOCLAW_TOKEN}"}
+            )
+            self.assertEqual(assets.status_code, 200, assets.text)
+            self.assertGreaterEqual(len(assets.json()), 3)
+
+            job_id = assets.json()[0]["reconstruction_job_id"]
+            artifact = client.get(
+                f"/v1/artifacts/{job_id}/gaussian_splat.ply",
+                headers={"Authorization": f"Bearer {self.NEMOCLAW_TOKEN}"},
+            )
+            # The route must accept the NemoClaw service token (never 401/403);
+            # a 404 here just means "wrong filename", not "rejected caller".
+            self.assertNotIn(artifact.status_code, (401, 403))
+
+    def test_nemoclaw_draft_never_becomes_live(self) -> None:
+        with TestClient(app) as client:
+            room = self._build_room(client)
+            pid = room["project_id"]
+            state_before = client.get(
+                f"/v1/rooms/{pid}/state", headers={"X-SketchScape-Dev-User": "demo-alice"}
+            ).json()
+            alice_asset_id = next(o for o in state_before["objects"] if o["id"] == "obj_alice")["asset_id"]
+
+            draft = client.post(
+                f"/v1/projects/{pid}/blueprints",
+                params={"base_revision": room["revision"]},
+                json={
+                    "experience": {"mode": "vr", "theme": "nemoclaw draft", "units": "meters"},
+                    "environment": {"lighting_preset": "neutral", "floor": True},
+                    "objects": [
+                        {
+                            "id": "obj_alice",
+                            "asset_id": alice_asset_id,
+                            "position": [99, 99, 99],
+                            "interactions": ["translate"],
+                        }
+                    ],
+                    "navigation": {"vr": "none", "ar": "none"},
+                },
+                headers={"Authorization": f"Bearer {self.NEMOCLAW_TOKEN}"},
+            )
+            self.assertEqual(draft.status_code, 201, draft.text)
+            self.assertNotEqual(draft.json()["revision"], room["revision"])
+
+            publish_attempt = client.post(
+                f"/v1/projects/{pid}/blueprints/{draft.json()['revision']}/publish",
+                headers={"Authorization": f"Bearer {self.NEMOCLAW_TOKEN}"},
+            )
+            self.assertEqual(publish_attempt.status_code, 403)
+
+            state_after = client.get(
+                f"/v1/rooms/{pid}/state", headers={"X-SketchScape-Dev-User": "demo-alice"}
+            ).json()
+            self.assertEqual(state_after["live_revision"], room["revision"])
+            still_original = next(o for o in state_after["objects"] if o["id"] == "obj_alice")
+            self.assertEqual(still_original["position"], [0.0, 0.0, 1.0])
 
 
 if __name__ == "__main__":

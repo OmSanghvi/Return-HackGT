@@ -1,0 +1,61 @@
+using System;
+using System.Threading.Tasks;
+using Return.Data;
+using Return.Design;
+using UnityEngine;
+
+namespace Return.UI
+{
+    public enum SessionState { Hub, Loading, InWorld }
+
+    /// <summary>Enter and leave worlds: fade out, swap hub for world, fade in. One transition at a time.</summary>
+    public class WorldSession
+    {
+        readonly IWorldLoader _loader; readonly ScreenFade _fade; readonly Transform _head; readonly Action<bool> _hubVisible;
+        public float fadeSeconds = 1.1f;
+        public SessionState State { get; private set; } = SessionState.Hub;
+        public Room Current { get; private set; }
+        public event Action<SessionState> StateChanged;
+        /// <summary>0..1 while Loading.</summary>
+        public float Progress { get; private set; }
+
+        public WorldSession(IWorldLoader loader, ScreenFade fade, Transform head, Action<bool> hubVisible)
+        { _loader = loader; _fade = fade; _head = head; _hubVisible = hubVisible; }
+
+        void Set(SessionState s) { State = s; StateChanged?.Invoke(s); }
+
+        /// <summary>White-out for day paintings, deep blue for dusk ones (ReturnMotion.Enter).</summary>
+        static Color FadeColor(Room r) => UIAssets.IsDusk(r.scene) ? (Color)ReturnColorsDusk.Canvas : Color.white;
+
+        public async Task EnterAsync(Room room)
+        {
+            if (State != SessionState.Hub) return;
+            Current = room; Progress = 0; Set(SessionState.Loading);
+            try
+            {
+                _fade.SetColor(FadeColor(room));
+                await _fade.FadeTo(1f, fadeSeconds);
+                _hubVisible(false);
+                await _loader.LoadAsync(room, _head, p => Progress = p);
+                Set(SessionState.InWorld);
+                await _fade.FadeTo(0f, fadeSeconds);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("Return: could not enter " + room.title + ": " + e);
+                await _loader.UnloadAsync(); _hubVisible(true); Current = null; Set(SessionState.Hub); await _fade.FadeTo(0f, fadeSeconds);
+            }
+        }
+
+        public async Task ExitAsync()
+        {
+            if (State != SessionState.InWorld) return;
+            _fade.SetColor(FadeColor(Current));
+            await _fade.FadeTo(1f, fadeSeconds);
+            await _loader.UnloadAsync();
+            _hubVisible(true);
+            Current = null; Set(SessionState.Hub);
+            await _fade.FadeTo(0f, fadeSeconds);
+        }
+    }
+}

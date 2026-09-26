@@ -7,8 +7,14 @@ for *how* to do each step (skill name, files, concrete steps, definition of
 done) — this file is only the *who* and *in what order*, chosen to minimize
 file collisions and blocked time.
 
-The Collaborative VR + web accounts track (Build Plan steps 13–29) is
-post-MVP and not assigned here. Whoever picks it up runs
+The Collaborative VR + web accounts track (Build Plan steps 13–29) and the
+guided tour bot track (steps 30–34) are post-MVP and not assigned here.
+The guide track's only overlap with an MVP track: step 31 adds a new
+NemoClaw tool (`author_guided_tour`) next to Track 3's step 6 tool. It adds
+a tool and edits none, and whoever builds it tells the Track 3 owner before
+merging. Steps 30 and 32 add new backend files and new, separately
+sectioned routes in `backend/main.py`, following the append-only rule
+below. Whoever picks it up runs
 `python3 scripts/check_collab_gates.py <step>` first (AGENT.md Hard Rule 9).
 
 Load `meta-track-alignment` (the standing skill) regardless of track — it's

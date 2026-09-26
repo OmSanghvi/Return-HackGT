@@ -32,8 +32,8 @@ this plan does not re-litigate them, only sequences the work.
 | 5 | `connection/compose` endpoint (mock path, then live NemoClaw path) | 1, 2, 4 | Mock path built; live path waits on 4 | `connection-compose-endpoint` |
 | 6 | `stage_immersive_reveal` + immersive scene-craft toolkit | 4, 5 | Part A (backend tool, `backend/scene_tools.py`) implemented and unit-tested; Part B (Unity-side toolkit: VR Builder / lighting / audio / haptics) blocked on Unity Editor being installed | `immersive-reveal-staging` |
 | 6a | NemoClaw environment objects from web images (`find_object_image`) | 4, 10 | Not started | `nemoclaw-environment-sourcing` |
-| 7 | Notability sketch: direct display (flat quad) + SAM3D memory-plaque path | — | Not started | `sketch-image-gen-backends` |
-| 8 | Unity: diegetic attribution + bounded per-contributor edit | 5, 6 | Not started | `unity-diegetic-attribution` |
+| 7 | Notability sketch: direct display (flat quad) + SAM3D memory-plaque path | — | Flat card built; plaque wired, legibility unverified on GPU | `sketch-image-gen-backends` |
+| 8 | Unity: diegetic attribution + bounded per-contributor edit | 5, 6 | Built (manifest, owner-only edits, base ring); not yet checked in Unity; staging cues wait on 6 | `unity-diegetic-attribution` |
 | 9 | Meta hardware polish (passthrough, hand tracking, MRC, Quest identity, Llama Guard) | 8 | Not started | `meta-hardware-polish` |
 | 10 | GPU end-to-end verification + cloud backend activation | — | GPU verified (L40S); cloud env vars on the EC2 API not set yet | `gpu-cloud-activation` |
 | 11 | Unity offline builder fix + real-PLY splat rendering | — | Core builder rebuilt and verified end-to-end through the real backend API (project → asset → publish → export → build), not just a fixture (2026-09-26, see step detail below); still needs a real Fast-SAM3D `.ply` (in progress separately) and the Quest/room-environment portion | `unity-offline-builder-and-rendering` |
@@ -46,35 +46,109 @@ above — load it whenever judgment calls come up mid-step.
 
 ### Collaborative VR + web accounts track (steps 13–29) — gated
 
-The web app with Clerk accounts (uploads, Notability sketches, optional
-text), Meta-account sign-in on Quest linked to Clerk, and live
-multi-headset rooms. Approved 2026-09-25 as a **post-MVP, gated** track:
+The web app (uploads, Notability sketches, optional text) and live
+multi-headset rooms, all under **two hardcoded accounts** — no Clerk, no
+Meta account linking. Approved 2026-09-25 as a **post-MVP, gated** track:
 it must never break or delay the MVP (steps 1–12), and every step is
 blocked until its prerequisites are verifiably done. See "Collaborative VR
 + web accounts track" below and AGENT.md Hard Rule 9.
 
+**Identity decision (revised 2026-09-26, supersedes the 2026-09-25 Clerk/Meta
+plan):** the two hardcoded accounts (`SKETCHSCAPE_AUTH_MODE=demo`,
+`SKETCHSCAPE_DEMO_USERS`) are the **real, permanent identity model** for
+this track, not a temporary stand-in. There is no Clerk sign-in, no Meta
+account linking, and no room-token exchange anywhere in this plan. See
+`collab-vr-accounts-and-gates` for the full identity model and rationale,
+and `docs/KNOWN_ISSUES.md` R13 for what this changed and why.
+
 | # | Step | Depends on | Status | Skill |
 |---|------|-----------|--------|-------|
-| 13 | Accounts: Clerk app, Meta Horizon app + test users, Unity Meta Quest provider | — | Unity Cloud linked; rest not confirmed | `collab-vr-accounts-and-gates` |
-| 14 | Quest Meta identity spike on a real headset | 13 | Not started | `meta-quest-identity` |
+| 13 | Scope approval for this track | — | Done | `collab-vr-accounts-and-gates` |
 | 15 | Backend revision safety (`based_on_revision` 409, conditional DynamoDB writes, LIVE pointer) | — | Done | `backend-revision-concurrency` |
-| 16 | Backend auth core: Clerk web sessions + NemoClaw M2M, mock mode, fail-fast config | 15 | Done | `backend-auth-clerk` |
-| 17 | Membership, invite codes, Contributor ↔ Clerk user, ownership, `room_prompt` | 2, 16 | Not started | `room-api-and-ownership` |
-| 18 | Meta identity exchange + Quest ↔ Clerk linking (backend, room tokens) | 14, 16 | Not started | `meta-quest-identity` |
-| 19 | Web app foundation: `app/` React + Vite + `@clerk/react`, API client, mock mode | 13, 16 | Not started | `web-app-foundation` |
-| 20 | Web uploads: person selects each object on a canvas (click/box/name) → SAM 3.1 masks → refine → generate PLYs; several photos at once; Notability sketches; optional text; invites; Link Quest page | 7, 17, 18, 19, 26 | Not started | `web-uploads-and-linking` |
-| 21 | Public room API `/v1/rooms/{project_id}/state` + `/edits` | 15, 17, 18 | Not started | `room-api-and-ownership` |
-| 22 | Unity networking: Meta sign-in, Multiplayer Services, NGO 2.x, Distributed Authority | 13, 14 | Not started | `unity-cloud-collaborative-vr` |
-| 23 | Unity backprop client: room token, save on settle, session-owner polling | 21, 22 | Not started | `vr-edit-cloud-backprop-sync` |
+| 16 | Backend auth core: hardcoded demo accounts, mock mode, fail-fast config | 15 | Done | `backend-auth-clerk` |
+| 17 | Membership, invite codes, Contributor ↔ account binding, ownership, `room_prompt` | 2, 16 | Done | `room-api-and-ownership` |
+| 19 | Web app foundation: `web-app/` React + Vite, hardcoded-account picker, API client, mock mode | 16 | Done (built in `web-app/`, the repo's existing React+Vite app, not a new `app/`) | `web-app-foundation` |
+| 20 | Web uploads: person types a name for each object → SAM 3.1 semantic masks → refine → generate PLYs; several photos at once; Notability sketches; optional text; invites | 7, 17, 19, 26 | Mostly done: upload/selections/refine/generate/batch polling/invites/room prompt built; Notability sketch upload is flat-card-only (no PDF→PNG, no plaque) from the web UI | `web-uploads-and-linking` |
+| 21 | Public room API `/v1/rooms/{project_id}/state` + `/edits`, and the Quest account switcher's backend half | 15, 17 | Done | `room-api-and-ownership` |
+| 22 | Unity networking: anonymous Unity sign-in + account switcher, Multiplayer Services, NGO 2.x, Distributed Authority | — | Not started | `unity-cloud-collaborative-vr` |
+| 23 | Unity backprop client: save on settle, session-owner polling | 21, 22 | Not started | `vr-edit-cloud-backprop-sync` |
 | 24 | NemoClaw room tools (`get_room_state`, `propose_room_edit`; publish approved on the web) | 3, 15, 16, 21 | Not started | `top-tier-nemoclaw-tool-design` |
 | 25 | End-to-end verification: web + two or more headsets | 20, 23, 29 | Not started | `collab-vr-device-verification` |
-| 26 | Durable jobs (no in-memory dict), uploads in shared storage, upload → selections → refine → generate API, batch job polling | 15 | Not started | `durable-jobs-and-multi-object-upload` |
-| 27 | GPU worker: SAM 3.1 masks from the person's selections (interactive points/box, semantic text), per-object Fast-SAM3D, dispatcher with leases, benchmarked concurrency | 26 | Not started | `gpu-multi-object-worker` |
-| 28 | Letters: upload + recipients, sealed access, recipient-only open, scene schema, web form | 17, 19, 21, 26 | Not started | `letters-backend-and-web` |
+| 26 | Durable jobs (no in-memory dict), uploads in shared storage, upload → selections → refine → generate API, batch job polling | 15 | Done | `durable-jobs-and-multi-object-upload` |
+| 27 | GPU worker: SAM 3.1 semantic masks from the person's typed names, per-object Fast-SAM3D, dispatcher with leases, benchmarked concurrency | 26 | Built, unit-tested; real-GPU verification pending user approval | `gpu-multi-object-worker` |
+| 28 | Letters: upload + recipients, sealed access (author + recipients, cross-visible between the two accounts), recipient-only open, scene schema, web form | 17, 19, 21, 26 | Not started | `letters-backend-and-web` |
 | 29 | Letters in VR: envelope, networked open animation, textured 3D paper page | 22, 28 | Not started | `letters-vr-envelope` |
 
-Every known issue these steps fix, with status, is in
-`docs/KNOWN_ISSUES.md`.
+### Guided tour bot track (steps 30–34) — gated, added 2026-09-26
+
+After NemoClaw builds the room, it also writes a **guided tour JSON**: the
+facts, stops, and elements the tour may use. The backend stores it in the
+authoring store (DynamoDB in cloud). A guide bot inside the VR room calls the
+backend; the backend calls **Muse Spark** with that JSON as the model's only
+knowledge, and returns validated actions (speak, move, highlight, reveal).
+The model can only reference ids that exist in the JSON, and every spoken
+line must cite facts from it. Full design: "Guided tour bot track" below.
+Same gate command as steps 13–29.
+
+| # | Step | Depends on | Status | Skill |
+|---|------|-----------|--------|-------|
+| 30 | Guided tour contract: `GuidedTour` JSON schema, validation, storage, authoring + activation API, mock tour author | 5 (mock), 15, 17 | Not started | `guided-tour-contract` |
+| 31 | NemoClaw `author_guided_tour` tool (live path; drafts a tour after the scene is built) | 3, 30, R14 token | Not started | `nemoclaw-tour-authoring` |
+| 32 | Guide runtime: `/v1/rooms/{id}/guide/*`, Muse Spark `guide_turn` tool call, grounding validator, session memory, MMS TTS audio | 30 | Not started | `muse-guide-runtime` |
+| 33 | Unity guide bot (single headset): client, action executor, input, spatial audio, highlight/reveal | 32 | Not started | `unity-guide-bot` |
+| 34 | Shared guide bot across headsets (one bot per room, session-owner drives it) | 22, 33 | Not started | `unity-guide-bot` |
+
+Steps 14 and 18 (the Quest Meta-identity spike, and the backend Meta
+identity exchange + Quest↔Clerk linking) are **retired** — see below. Every
+known issue these steps fix, with status, is in `docs/KNOWN_ISSUES.md`.
+
+**No Clerk, no Meta account, no room tokens (decided 2026-09-26).** Every
+person is one of the two hardcoded accounts
+(`SKETCHSCAPE_AUTH_MODE=demo`, `SKETCHSCAPE_DEMO_USERS`, default
+`demo-alice,demo-bob`), selected with the `X-SketchScape-Dev-User` header
+(`mock` mode's header, reused). This has **real per-project
+membership/ownership enforcement** (unlike `mock`, which no-ops those
+checks) — it is not a lightweight stand-in.
+
+- **Website:** no sign-in screen. An account picker (which of the two
+  hardcoded accounts is "you" right now) sets the header on every API
+  call. Step 19.
+- **Quest:** the same idea, as an in-headset "Account 1 / Account 2"
+  switcher — one headset, one shared Meta account for the hardware, but
+  the app-level identity is the chosen hardcoded account, sent the same
+  way the website sends it. Both accounts view the **same** shared
+  project/room (one published blueprint, step 15's LIVE pointer); only
+  the *view* changes per account — which objects are `editable_by_me`
+  (step 17 ownership) and which letters can be opened (step 28's
+  author-or-recipient rule, which is what lets one account read a letter
+  the other wrote them). Step 21/22.
+- **Unity Multiplayer Services session identity:** anonymous Unity
+  sign-in (`SignInAnonymouslyAsync`), tagged with a player property
+  holding the chosen hardcoded account id. This needs no Meta account and
+  no Clerk token; Distributed Authority and NGO 2.x don't care which
+  identity provider signed the player in. Step 22.
+- **NemoClaw's service identity** (`kind="service"`, used by step 24) no
+  longer depends on Clerk: `auth.py` now also accepts a shared bearer token
+  (`SKETCHSCAPE_NEMOCLAW_TOKEN`), matching the existing
+  `SKETCHSCAPE_WORKER_TOKEN` pattern, checked before the
+  `SKETCHSCAPE_AUTH_MODE` dispatch so it works in `demo` mode. Built as part
+  of step 21 (ahead of when the skill originally scheduled it, since the
+  room API needed a service-callable `GET /state` too). NemoClaw itself
+  (step 3) still hasn't started, so nothing calls this token in production
+  yet. See `docs/KNOWN_ISSUES.md` R14.
+- The `clerk` value of `SKETCHSCAPE_AUTH_MODE` and its code in
+  `backend/auth.py` are **left in place but off this plan** — nothing
+  here depends on it, tests still cover it, and it costs nothing to keep
+  as a possible future upgrade if this ever needs real accounts. Don't
+  build new work against it.
+
+**Retired: step 13's old scope (Clerk/Meta dashboards), step 14 (Quest Meta
+identity spike), step 18 (Meta identity exchange + Quest↔Clerk linking).**
+None of these are needed by anything else in this plan any more. Their
+research (Meta `GetUserProof`/`user_nonce_validate`, `SignInWithOculusAsync`,
+Clerk `authenticate_request`) stays recorded in `meta-quest-identity` and
+`backend-auth-clerk` for reference, in case a real multi-user product is
+built later, but it is not on the critical path and no step depends on it.
 
 **Gate command (mandatory before starting steps 13–29):**
 `python3 scripts/check_collab_gates.py <step>`. BLOCKED means stop. Done
@@ -185,6 +259,27 @@ implementations), `backend/test_storage.py` (new tests).
 
 **Definition of done:** both tools produce a schema-valid `ExperienceBlueprintInput` (validated against `shared/experience-blueprint.schema.json`) for a 2-object input and a 5-object input in the same test run.
 
+**NemoClaw note — object pickup (added 2026-09-26).** A simple pickup
+interface already exists without NemoClaw: the `grab` interaction on a
+`BlueprintObject` compiles to `grabbable: true` on the scene object, and Unity
+(`SketchScapePickup`) lets anyone pick it up with a controller (or left-click in
+the Editor) and floats it back to its place on release. Nothing is saved.
+Today the mock composer decides `grab` with a fixed rule (`is_pickup_sized` in
+`backend/main.py`: a reconstruction ≤ 0.6 m, or a known hand-held label such as
+"mug"; sketch cards never). When this step lands:
+- `place_objects_in_scene` should decide `grab` per object as part of the same
+  layout pass (it knows what the object is and how big it is), instead of the
+  fixed rule. Keep `is_pickup_sized` as the mock/fallback path.
+- Picking up someone's object is a natural moment for step 6's
+  `stage_immersive_reveal` (e.g. a cue that plays that contributor's memory
+  when their object is lifted). That needs a `staging_cue_id` per object
+  (already in the social manifest) and a Unity hook in
+  `SketchScapePickup.BeginHold`; don't let NemoClaw run anything live at
+  pickup time.
+- Moving an object *and keeping it moved* is not pickup: it goes through the
+  owner-checked room API (steps 21/23), and live replication of a held object
+  to other headsets is step 22.
+
 ---
 
 ## Step 4a — NemoClaw subject labeling for uploads
@@ -198,8 +293,8 @@ specific noun phrase to SAM 3.1 as `subject_hint`.
   returns a list of labels, capped by `SKETCHSCAPE_MAX_OBJECTS_PER_UPLOAD`
   (default 8). They're used only for the optional "Suggest objects"
   helper and for naming. The person chooses which objects to mask and
-  generate by clicking, boxing, or naming them on the website (steps 20,
-  26–27). The single-object
+  generate by typing (or accepting the suggested) name for them on the
+  website (steps 20, 26–27). The single-object
   path still works for existing callers.
 - A contributor-typed `subject_hint` always wins; NemoClaw only labels when
   it is empty.
@@ -652,41 +747,45 @@ which needs an actual photo to test, not a synthetic one.
 
 ## Collaborative VR + web accounts track (steps 13–29)
 
-**Goal:** people sign up on the SketchScape website and upload their photos,
+**Goal:** people use the SketchScape website and upload their photos,
 Notability sketches, and optional text there. In their Quest headsets they
 share one live Shared Room: one person's move/rotate/scale shows on every
 headset immediately and is saved, so the room looks the same after
 everyone leaves.
 
-**Architecture (decided 2026-09-25, don't re-litigate):**
+**Architecture (revised 2026-09-26 — replaces the 2026-09-25 Clerk/Meta
+plan below; don't re-litigate the revision without a new decision):**
 
-- **Accounts: Clerk.** Every person is a Clerk user, created on the
-  website.
-  - The website (`app/`, React + Vite + `@clerk/react`, replacing the old
-    Electron plan) sends Clerk session tokens.
-  - The backend verifies them with `clerk-backend-api`
-    (`session_token`, `authorized_parties` = web origins).
-- **Headset identity: the Meta account.** Clerk has no Meta Quest login
-  provider, so the headset never holds a Clerk token.
-  - The Quest proves the user with Meta Platform SDK `GetUserProof()`
-    nonces.
-  - Unity Cloud signs in with `SignInWithOculusAsync(nonce, userId)`.
-  - The backend validates a second nonce at
-    `graph.oculus.com/user_nonce_validate`, looks up the Clerk user linked
-    to that Meta ID, and issues a 1-hour **room token**.
-  - Linking happens once: the headset shows a code, and the person enters
-    it on the website's Link Quest page.
-  - `GetUserProof` needs Meta's Data Use Checkup. Until it's approved,
-    only Meta test users work.
-- **NemoClaw identity:** a Clerk M2M token (`kind="service"`).
+- **Accounts: two hardcoded accounts, not Clerk.** Every person is one of
+  the accounts named in `SKETCHSCAPE_DEMO_USERS` (default
+  `demo-alice,demo-bob`), verified server-side by
+  `SKETCHSCAPE_AUTH_MODE=demo` (`backend/auth.py`) with real per-project
+  membership/ownership enforcement.
+  - The website (`app/`, React + Vite, no `@clerk/react`) has an account
+    picker instead of a sign-in screen; it sends
+    `X-SketchScape-Dev-User` on every API call.
+- **Headset identity: the same hardcoded accounts, no Meta account
+  linking.** One headset, one shared Meta account for the hardware — the
+  app-level identity is an in-headset "Account 1 / Account 2" switcher
+  sending the same header, and Unity's Multiplayer Services session uses
+  **anonymous Unity sign-in** (`SignInAnonymouslyAsync`) tagged with a
+  player property holding the chosen account id. No `GetUserProof`, no
+  Data Use Checkup, no linking flow, no room token.
+- **NemoClaw identity:** a shared bearer token
+  (`SKETCHSCAPE_NEMOCLAW_TOKEN`), matching the existing
+  `SKETCHSCAPE_WORKER_TOKEN` pattern — not yet added to `auth.py` (small
+  step-16 follow-up, needed before step 24; NemoClaw/step 3 hasn't
+  started). See `docs/KNOWN_ISSUES.md` R14.
 - **Live layer:** Unity Multiplayer Services **Distributed Authority** +
   Netcode for GameObjects 2.x. Client-hosted Relay can't migrate the host,
-  so the room would close when the host left.
+  so the room would close when the host left. Unaffected by the identity
+  change above — DA doesn't care which auth provider signed a player in.
 - **Durable layer:** blueprint revisions stay the source of truth (Hard
   Rule 6).
   - Headsets save through the **public** room API (`/v1/rooms/*`, Hard
-    Rule 4), which checks ownership, allowed interactions, bounds, and
-    revision, then publishes server-side in one request.
+    Rule 4), authenticated with the hardcoded-account header, which
+    checks ownership, allowed interactions, bounds, and revision, then
+    publishes server-side in one request.
   - No Unity Cloud Save.
 - **NemoClaw** changes a live room only by drafting a revision; a person
   approves the publish on the website. It never changes a live room
@@ -699,11 +798,26 @@ everyone leaves.
   - **Cost decision (user): no per-user upload limits.** Every cloud
     upload may start a GPU job, which means uncapped spend.
 
+**Superseded 2026-09-25 plan (kept for reference only — not built, not on
+the critical path; see `meta-quest-identity` and `backend-auth-clerk`):**
+Clerk as the account system, Meta Platform SDK `GetUserProof()` +
+`SignInWithOculusAsync` + a backend-issued room token for Quest identity,
+linked once to a Clerk user via a website code. Retired because the
+project is using two hardcoded accounts as the real identity model instead
+of standing up Clerk and a Meta Horizon app. `SKETCHSCAPE_AUTH_MODE=clerk`
+and its code in `backend/auth.py` still exist and are still tested, in
+case a real multi-user product is built later — nothing in this plan
+depends on them.
+
 **Rejected alternatives (documented so nobody rebuilds them):**
 - Clerk OAuth + PKCE browser login on the headset federated via Unity
   OIDC. The browser redirect back into an immersive app was the riskiest
-  step, and it's unnecessary with Meta sign-in.
-- Electron desktop app, because Clerk's Electron support is unofficial.
+  step.
+- Meta account sign-in + linking (see "Superseded" above) — more setup
+  (Meta Horizon app, test users, Data Use Checkup) than two hardcoded
+  accounts need.
+- Electron desktop app, because Clerk's Electron support is unofficial
+  (moot now, but keeps this app/ a plain web app either way).
 - Next.js, because AGENT.md rules it out and it would add a Node server.
 - Unity Cloud Save, because its shared data is server-write-only and would
   be a second source of truth.
@@ -714,60 +828,56 @@ everyone leaves.
 - Facts no script can see are manual gates in
   `config/collab-vr/gates.json`, which only the user may confirm.
 - Every run also scans the repo, `app/.env*`, and the Unity project for
-  leaked secrets:
-  - Clerk `sk_` keys
-  - Meta `OC|app_id|app_secret` tokens
-  - `VITE_*SECRET*` variables, which Vite would ship in the public bundle
+  leaked secrets (Clerk `sk_` keys and `VITE_*SECRET*` variables are still
+  scanned for, since the `clerk` code path still exists).
 - `verify_local.sh` runs the status check, so a leak fails verification.
 
 **Config and secrets:** one matrix for local, dev, and prod lives in the
-`collab-vr-accounts-and-gates` skill. Secrets (`CLERK_SECRET_KEY`,
-`SKETCHSCAPE_META_APP_SECRET`, `SKETCHSCAPE_ROOM_TOKEN_SECRET`) live only
-in backend secret storage (and the Meta secret in the Unity dashboard).
-The backend refuses to start when misconfigured:
-- `clerk` mode without a secret key, or with `*` origins.
+`collab-vr-accounts-and-gates` skill. The backend refuses to start when
+misconfigured:
+- `demo` mode without `SKETCHSCAPE_WEB_ORIGINS`, or without exactly two
+  `SKETCHSCAPE_DEMO_USERS`.
 - `mock` mode against DynamoDB or a non-mock pipeline.
-- Meta enabled without its secrets.
 
 **Per-step detail lives in the skills** (table above). What each step
 delivers:
 
-- **13** — Clerk app, Meta app with test users, Unity Meta provider; the
-  config matrix.
-- **14** — proves Meta identity on a real Quest first: entitlement check,
-  two nonces, `SignInWithOculusAsync`, server validation.
-  *Results (fill in):* sign-in OK: ___ · nonce is_valid: ___ · test users
-  set up: ___
+- **13** — scope approval only (recorded, done).
 - **15** — fixes three concurrency bugs:
   - silent lost edits (no base-revision check)
   - the DynamoDB overwrite race (unconditional `put_item`, per-process
     lock)
   - the live room going backwards (publish compare-and-set on a `LIVE`
     pointer)
-- **16** — Clerk session/M2M verification, authors on revisions, CORS
+- **16** — hardcoded-account verification, authors on revisions, CORS
   locked to web origins, fail-fast startup.
-- **17** — invite codes, membership checks on every project route, Clerk
-  binding for contributors, ownership, `room_prompt`.
-- **18** — `/v1/auth/meta/session`, `/link-code`, `/link`: nonce
-  validation, unique Meta↔Clerk links, hashed single-use codes with
-  attempt limits, room tokens.
-- **19** — the web app shell with Clerk, an authenticated API client, and
-  a mock mode that works offline.
-- **20** — photo upload with progress; Notability flat card or 3D plaque
-  (PDF → PNG in the browser if needed; HEIC converted or rejected);
-  optional label, memory text, and room prompt; invites; Link Quest page.
+- **17** — invite codes, membership checks on every project route,
+  account binding for contributors, ownership, `room_prompt`.
+- **19** — done. Built directly in the existing `web-app/` (not a new `app/`):
+  a build-time switch (`VITE_SKETCHSCAPE_API_URL`, `src/config.ts`) so mock
+  mode (unset) behaves exactly as before, and real mode (set) swaps in an
+  account picker (`src/real/RealShell.tsx`) and a typed API client
+  (`src/api/client.ts`) instead of the fake sign-in. See `web-app/hardcode.MD`
+  section 0.
+- **20** — mostly done, same real-mode branch: photo upload with progress,
+  typed per-object names → selections → refine → generate, batch job polling
+  (ETag + backoff), room prompt, and project create/join by invite code
+  (`src/real/RealProjectPage.tsx`, `src/api/polling.ts`). Not yet from the web
+  UI: PDF → PNG for Notability exports and the 3D memory-plaque option (flat
+  card works); letters (step 28, out of scope here on purpose).
 - **21** — `/v1/rooms/*` with idempotent, owner-checked, bounded,
-  revision-checked edits built on the live revision.
-- **22** — Meta sign-in plus Distributed Authority networking from the VR
-  Multiplayer Template 2.1, ported with matching package versions; an
-  in-headset link-code screen.
+  revision-checked edits built on the live revision, authenticated with
+  the hardcoded-account header.
+- **22** — anonymous Unity sign-in, the account switcher, and Distributed
+  Authority networking from the VR Multiplayer Template 2.1, ported with
+  matching package versions.
 - **23** — save on release (debounced); 409 → rebase; retries with the
-  same `client_edit_id`; room-token refresh; session-owner polling.
+  same `client_edit_id`; session-owner polling.
 - **24** — NemoClaw drafts room edits; a person approves the publish on
   the website.
 - **25** — end-to-end verification on real hardware.
   *Results (fill in):* fps with N people: ___ · session survives owner
-  leaving: ___ · DUC status: ___ · quotas checked: ___
+  leaving: ___ · quotas checked: ___
 
 **Added 2026-09-25:**
 
@@ -783,34 +893,51 @@ delivers:
   TTL is a Terraform change that needs approval.
 - **Polling contract** (in DATA_ARCHITECTURE.md): one project-level jobs
   endpoint with ETag/304 for the web app, `since_revision` for the
-  headset, and a nonce-free link-status poll. Backoff, jitter, polling
-  pauses when the tab is hidden, and a separate rate-limit bucket.
+  headset. Backoff, jitter, polling pauses when the tab is hidden, and a
+  separate rate-limit bucket.
 - **26** — fixes three bugs that break multi-object and multi-user
   uploads: in-memory jobs, uploads on one API host's disk, and
   `asset_ids` appended inside the whole-project blob. Adds the
   **person-chosen** flow:
   1. Upload.
-  2. On the website, mark every wanted object: click (include/exclude),
-     box, or typed name.
+  2. On the website, type a name for every wanted object (a SAM 3.1
+     semantic text prompt).
   3. SAM 3.1 masks exactly those objects.
   4. Refine any one.
   5. Generate one PLY per object.
 
   Also adds batch polling. Auto-detect only suggests selections.
-- **27** — SAM 3.1 turns the person's selections into masks in one pass
-  per photo: points and boxes use the interactive predictor (one mask
-  each), and typed names use the semantic predictor (best instance plus
-  alternatives). Then one Fast-SAM3D job runs per chosen object through a
-  leased queue.
+- **27** — SAM 3.1's semantic predictor turns the person's typed names
+  into masks in one pass per photo (best instance plus alternatives).
+  Then one Fast-SAM3D job runs per chosen object through a leased queue.
   `SKETCHSCAPE_GPU_CONCURRENCY` defaults to 1 and is raised only after an
-  approved VRAM benchmark (a T4 stays at 1).
+  approved VRAM benchmark (a T4 stays at 1). **Built and unit-tested (this
+  pass), GPU-unverified:** `segment_selections`/`segment_many` in
+  `worker/segment_sam31_local.py` (torch/ultralytics imports are now lazy,
+  so this runs on CPU); the claim/lease dispatcher
+  `worker/gpu_dispatcher.py`; the backend's
+  `GET .../reconstructions/{job_id}/selections` and
+  `POST .../selections/{selection_id}/result` routes so one segment job's
+  several selections report back independently (Hard Rule 7); `aws-local`
+  now leaves a `segment` job `queued` for the dispatcher instead of
+  auto-failing; `worker_server.py` reads `SKETCHSCAPE_GPU_CONCURRENCY` and
+  `SKETCHSCAPE_WORKER_ID`; a `sketchscape-dispatcher` systemd unit in
+  `infra/aws/bootstrap_instance.sh`. 164 backend + 33 worker unit tests
+  pass (mocks/fakes only, no GPU, no AWS). **Still needed for `--done 27`:**
+  the user's approved real-GPU run (`gpu_multi_object_verified` in
+  `config/collab-vr/gates.json`) confirming one photo with 3 typed names
+  produces 3 correct masks and 3 PLYs, and two uploads submitted together
+  both completing.
   *Results (fill in):* instance: ___ · peak VRAM 1 job: ___ · 2 jobs: ___
-  · concurrency chosen: ___
+  · concurrency chosen: 1 (kept at 1 pending an approved benchmark; the
+  worker's shared Fast-SAM3D pipeline state isn't concurrency-safe yet —
+  see `worker/worker_server.py`'s `main()` and `worker/benchmark_concurrency.py`)
 - **28–29** — letters. The Notability page becomes a textured 3D paper
   mesh (legible, no GPU) sealed in an envelope. Only the addressed
   recipients can open it; everyone in the room sees the open animation
   live, and the opened state is saved. A sealed page is never served to
-  non-recipients.
+  non-recipients. This is also what lets one hardcoded account read a
+  letter the other wrote them.
 - **NemoClaw models:** Meta Model API (Muse Spark, the default), Grok API,
   or Nebius Token Factory through one OpenAI-compatible adapter (step 3,
   `nemoclaw-model-providers`).
@@ -828,8 +955,633 @@ delivers:
 
 ---
 
+## Guided tour bot track (steps 30–34)
+
+**Goal:** a guide bot inside the VR room walks visitors through what
+NemoClaw built. It speaks, moves between objects, highlights them, and
+reveals elements NemoClaw staged for the tour. It answers visitors'
+questions. Every word and every action comes **only** from a structured tour
+JSON that NemoClaw wrote after it built the scene. The model behind the bot
+is **Muse Spark** (`muse-spark-1.3`) on the Meta Model API.
+
+**Decision (user, 2026-09-26).** Recorded in AGENT.md under "Guided tour bot":
+- NemoClaw **authors** the tour, which covers what exists, what may be said,
+  and in what order. That is scene understanding, so it stays in NemoClaw.
+- At runtime a **backend-proxied** Muse Spark call **performs** the tour.
+  It's a read-only, grounded performer. It never composes, edits, or
+  publishes anything, so it doesn't conflict with "NemoClaw builds the
+  scene" (AGENT.md). It's the one approved runtime model call.
+- The headset never calls Muse directly (Hard Rule 4) and never holds
+  `META_MODEL_API_KEY`. It calls `/v1/rooms/{project_id}/guide/*` with the
+  same `X-SketchScape-Dev-User` header as every other room route.
+
+### Architecture
+
+```
+NemoClaw (after place_objects_in_scene + stage_immersive_reveal)
+  └─ author_guided_tour ──POST /v1/projects/{id}/tours──▶ backend validates ──▶ TOUR#<v> (draft)
+                                                            person activates on web ──▶ TOURLIVE pointer
+Quest guide bot (Unity)
+  └─ POST /v1/rooms/{id}/guide/sessions/{sid}/turns {event}
+        backend: load TOURLIVE tour + LIVE blueprint + GUIDESESSION memory
+          ├─ scripted event (next/repeat/start, no question pending) → deterministic turn, no model call
+          └─ model event (question/ask_about/more/linger) → Muse Spark, tool `guide_turn`
+                (schema built from this tour: every id is an enum) → grounding validator
+                → repair or scripted fallback
+        → MMS-TTS audio per line (cached in S3) → GUIDESESSION updated (compare-and-set)
+  ◀── {lines[{text, fact_ids, audio_url}], move_to, highlight_element_ids, reveal_element_ids, step_id, end}
+```
+
+### How "only the JSON" is enforced (four layers, all required)
+
+1. **The ids are closed sets.** Per request, the `guide_turn` tool schema is
+   generated from the active tour. `step_id`, every `fact_id`,
+   `highlight_element_ids`, `reveal_element_ids`, and `move_to` are JSON
+   Schema `enum`s of the ids in that tour. The model can't name an object,
+   step, or fact that isn't in the JSON.
+2. **Every spoken line cites facts.** Each `say[]` item needs at least one
+   `fact_id`. Cited facts must be in the allowed set for this turn: the
+   chosen step's facts, the facts of that step's focus elements, the theme
+   facts, and, for `ask_about`, the facts of that element.
+3. **Deterministic grounding check** (`backend/guide_validator.py`, no model):
+   - Every capitalized word that doesn't start a sentence, every number, and
+     every quoted span in `text` must appear (case-insensitive) in the cited
+     facts, the tour vocabulary (contributor names, element labels, theme
+     title, persona name), or a fixed small allowlist.
+   - A line that fails is **replaced** by its cited facts' own `text`,
+     verbatim.
+   - A turn that fails schema validation, times out
+     (`SKETCHSCAPE_GUIDE_MODEL_TIMEOUT_S`, default 8), or has no tool call
+     becomes the **scripted fallback**: the current step's `narration`,
+     verbatim.
+   - Unity never receives an unvalidated id or line.
+4. **Prompt and data separation.** The system prompt
+   (`backend/guide_prompts.py`, `GUIDE_PROMPT_VERSION = "guide-v1"`) says to
+   use only the tour JSON and to decline anything else with
+   `guardrails.off_topic_reply`. The tour JSON and the visitor's question go
+   in separate delimited blocks, marked as data. Contributor memory text in
+   the tour is data, never instructions: an injection inside `memory_text`
+   can only produce lines that still pass layers 1–3.
+
+Target, measured by step 32's eval: ≥ 95% of live turns pass layer 3
+without repair, and **100%** of turns delivered to Unity pass (repair
+guarantees this).
+
+### The tour JSON (the contract; `shared/guided-tour.schema.json`, step 30)
+
+```json
+{
+  "schema_version": 1,
+  "project_id": "p_123",
+  "tour_version": 3,
+  "based_on_revision": 7,
+  "status": "draft",
+  "authored_by": {"backend": "mock", "model": "mock-tour-v1", "tool": "compose_tour_mock", "prompt_version": null},
+  "created_at": "2026-09-26T18:00:00Z",
+  "persona": {"name": "Lumen", "voice": "mms-tts-eng", "style": "warm"},
+  "theme": {"title": "Home, carried with us", "fact_ids": ["f_theme", "f_explanation"]},
+  "facts": [
+    {"fact_id": "f_theme", "text": "The room's theme is Home, carried with us.", "source": {"kind": "connection_insight", "ref_id": "insight:4"}, "derived_from": []},
+    {"fact_id": "f_teapot_memory", "text": "My grandmother poured tea from this every Sunday.", "source": {"kind": "contribution_memory", "ref_id": "c_1"}, "derived_from": []},
+    {"fact_id": "f_teapot_owner", "text": "Maya brought the teapot.", "source": {"kind": "attribution", "ref_id": "c_1"}, "derived_from": []},
+    {"fact_id": "f_teapot_link", "text": "Maya's teapot and Sam's mug sit on one table because both are about Sunday mornings.", "source": {"kind": "authored", "ref_id": null}, "derived_from": ["f_teapot_memory", "f_mug_memory"]}
+  ],
+  "elements": [
+    {"element_id": "obj_teapot", "kind": "contribution", "object_id": "obj_teapot", "label": "teapot",
+     "contributor_id": "k_maya", "contributor_display_name": "Maya", "fact_ids": ["f_teapot_memory", "f_teapot_owner"], "initially_visible": true},
+    {"element_id": "motif_light_path", "kind": "motif", "object_id": null, "staging_cue_id": "cue_path_1", "label": "light path",
+     "contributor_id": null, "contributor_display_name": null, "fact_ids": ["f_teapot_link"], "initially_visible": false}
+  ],
+  "steps": [
+    {"step_id": "s_welcome", "title": "Welcome",
+     "stop": {"anchor_element_id": "obj_teapot", "offset_m": [0.8, 1.4, 0.6]},
+     "focus_element_ids": [], "reveal_element_ids": [],
+     "fact_ids": ["f_theme"],
+     "narration": {"text": "Welcome. The room's theme is Home, carried with us.", "fact_ids": ["f_theme"]},
+     "next_step_ids": ["s_teapot"], "min_dwell_s": 3}
+  ],
+  "start_step_id": "s_welcome",
+  "end_step_ids": ["s_together"],
+  "guardrails": {"off_topic_reply": "I can only tell you about this room and what everyone brought to it.", "max_lines_per_turn": 3}
+}
+```
+
+Rules that step 30's `validate_guided_tour` enforces. A violation is a 422
+naming the rule:
+- **Ids.** Every id matches `^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$` and is
+  unique within its kind. Every referenced id exists.
+- **Elements.**
+  - `kind` is `contribution`, `environment`, `letter`, or `motif`.
+  - For `contribution`, `environment`, and `letter`, `object_id` must be an
+    object in blueprint `based_on_revision`.
+  - For `contribution`, `contributor_id` must match that object's entry in
+    the social manifest (`compile_social_manifest`).
+  - For `motif`, `object_id` is null and `staging_cue_id` refers to step 6's
+    `StagingPlan`. The ref is only checked once step 6 exists.
+- **Reveals ("which elements to add").**
+  - An element with `initially_visible: false` is placed in the published
+    blueprint, but Unity hides it until a step reveals it.
+  - `reveal_element_ids` may only name `initially_visible: false`
+    elements.
+  - Every hidden element must be revealed by at least one step reachable
+    from the start.
+  - The guide never spawns anything that isn't in the blueprint or the
+    staging plan.
+- **Facts.**
+  - `text` is 1–500 chars.
+  - `source.kind` is one of `connection_insight`, `placement_rationale`,
+    `contribution_memory`, `attribution`, `room_prompt`, `letter_envelope`,
+    or `authored`.
+  - `contribution_memory` text must equal that contribution's `memory_text`
+    **verbatim**, or be a verbatim sentence from it.
+  - `authored` facts must list at least one `derived_from` fact, and pass
+    the same lexical grounding check against those facts. This makes
+    NemoClaw's own prose traceable back to what people actually wrote.
+- **Sealed letters.**
+  - `letter_envelope` facts may only say who a letter is from and who it is
+    for.
+  - A letter's `note_text` or page content is **never** a fact, because the
+    guide speaks to everyone in the room (step 28's sealed-access rule).
+- **Steps.**
+  - At most 30 steps, 400 facts, and 200 elements.
+  - `narration.text` is ≤ 600 chars, and its `fact_ids` are within the
+    step's facts.
+  - The step graph from `start_step_id` reaches every step, and every
+    non-end step has at least one `next_step_ids` entry.
+  - `stop.offset_m` components are within ±5 m.
+- **Size.** The serialized size is ≤ 256 KB. The DynamoDB item limit is
+  400 KB; the headroom covers metadata. Beyond that, reject: don't split,
+  and don't move it to S3.
+- **Language.** English only in v1, because MMS voice `mms-tts-eng` is
+  English.
+
+### Step 30 — Guided tour contract, storage, authoring API, mock author
+
+**Files:**
+- `shared/guided-tour.schema.json` (new)
+- `backend/main.py`: `GuidedTour` models, routes, `validate_guided_tour`,
+  `compose_tour_mock`
+- `backend/storage.py`: `AuthoringStore` methods in both stores
+- `backend/test_guided_tour.py` (new)
+
+1. Add Pydantic models that mirror the schema: `TourFact`, `TourElement`,
+   `TourStop`, `TourNarration`, `TourStep`, `TourGuardrails`, `TourPersona`,
+   `GuidedTourInput`, and `GuidedTour`. `GuidedTour` adds `project_id`,
+   `tour_version`, `status: draft|active|retired`, `created_at`, and
+   `author`. Add a test asserting that `GuidedTour.model_json_schema()` and
+   `shared/guided-tour.schema.json` accept and reject the same fixtures.
+2. Add storage to `AuthoringStore`, `LocalJsonStore`, and `DynamoDbStore`
+   (layout in `docs/DATA_ARCHITECTURE.md`):
+   - `append_tour(tour) -> GuidedTour`: conditional put on
+     `TOUR#<version padded 6>`.
+   - `get_tour`, `list_tours`.
+   - `get_active_tour_version`, and
+     `set_active_tour_version(project_id, expected, new)`: compare-and-set
+     on `TOURLIVE`, the same pattern as step 15's `set_live_revision`.
+3. Routes:
+   - `POST /v1/projects/{project_id}/tours/compose`
+     (`require_project_draft`):
+     - `SKETCHSCAPE_TOUR_AUTHOR=mock` (default) runs `compose_tour_mock`
+       over the LIVE blueprint, the latest `ConnectionInsight`, the
+       contributions, and the contributors, then stores a **draft**.
+     - `nemoclaw` returns 501 until step 31.
+     - Returns 409 if there's no LIVE revision or no insight.
+   - `POST /v1/projects/{project_id}/tours` (`require_project_draft`, or
+     NemoClaw's service identity once R14 lands): takes a
+     `GuidedTourInput`, runs `validate_guided_tour` against blueprint
+     `based_on_revision`, and stores a draft. Returns 201.
+   - `GET /v1/projects/{project_id}/tours` and
+     `GET /v1/projects/{project_id}/tours/{tour_version}`
+     (`require_project_read`).
+   - `POST /v1/projects/{project_id}/tours/{tour_version}/activate`:
+     person identities only (`require_user`, project write). A service
+     identity gets 403: NemoClaw drafts and a person approves, the same
+     rule as room edits. Compare-and-set on `TOURLIVE`. The previous active
+     tour becomes `retired`.
+4. `compose_tour_mock` is deterministic: same inputs, same tour. It uses no
+   network and no model.
+   - Step `s_welcome`: theme and explanation facts.
+   - One step per contributed object, in blueprint order: attribution,
+     `memory_text`, and placement-rationale facts. Its stop is anchored on
+     that object with offset `[0.8, 1.4, 0.6]`, rotated to face the room
+     centre.
+   - Step `s_together`: focuses every contribution and reveals every
+     `initially_visible: false` element.
+   - Environment objects (step 6a) and letters (step 28) become elements;
+     letters get `letter_envelope` facts only.
+   - `authored_by.backend = "mock"`.
+   - Works with 3+ contributors. Tests never use exactly two.
+5. **Staleness, not invalidation.** Room edits (step 21/23) create new
+   blueprint revisions that move objects but keep their ids. A tour stays
+   valid across edits because stops are relative to anchor elements.
+   `GET /v1/rooms/{id}/guide/tour` (step 32) computes `stale_element_ids`:
+   element `object_id`s that are no longer in the LIVE blueprint. Steps
+   anchored on a stale element are skipped. If more than half the steps are
+   skipped, the room reports `tour_available: false`.
+
+**Tests** (`backend/test_guided_tour.py`):
+- The mock tour is deterministic and valid for 3 and for 4 contributors.
+- One 422 test per validator rule:
+  - unknown object
+  - wrong contributor
+  - `memory_text` not verbatim
+  - an authored fact without `derived_from`
+  - an authored fact that adds a name
+  - a letter `note_text` used as a fact
+  - an unreachable step
+  - a hidden element never revealed
+  - more than 256 KB
+- A service identity can't activate (403). Compare-and-set activation
+  returns 409 on a stale `expected` version.
+- The DynamoDB store round-trips a tour against the in-memory fake table
+  that `backend/test_storage.py` already uses.
+
+**Definition of done:** `--done 30` and `verify_local.sh` pass. In mock
+mode, compose → activate works with zero external calls.
+
+### Step 31 — NemoClaw `author_guided_tour` (live path)
+
+**Files:** NemoClaw tool code (next to step 4/6 tools; coordinate with
+the Track 3 owner, see `docs/TEAM_TASK_SPLIT.md`),
+`config/nemoclaw/sketchscape-tools.json` (`tour.draft`, `tour.activate`).
+
+0. Add `GET /v1/projects/{project_id}/connection/insights`
+   (`require_project_read`). NemoClaw needs to read the latest insight,
+   and no read route exists today.
+1. The tool is `author_guided_tour(project_id) -> GuidedTourInput`. It runs
+   after `stage_immersive_reveal` and in the same NemoClaw session, so the
+   tour order follows the staging's reveal order. NemoClaw's inputs:
+   - `GET /v1/projects/{id}/compiled-scene`: LIVE objects plus the social
+     manifest.
+   - The latest `ConnectionInsight`.
+   - The contributions: `memory_text` as delimited data.
+   - The `StagingPlan`, if step 6 exists.
+2. NemoClaw writes the JSON with its configured provider (`meta` → Muse
+   Spark by default). Structured output goes through a tool call whose
+   parameters are the schema. On a 422, NemoClaw gets the rule that failed
+   and retries at most 2 times; after that it fails loudly. The live author
+   still records `authored_by` = {`backend`, `model`, `tool`,
+   `prompt_version`}.
+3. It posts to `POST /v1/projects/{id}/tours` using the service identity
+   (`SKETCHSCAPE_NEMOCLAW_TOKEN`, R14). It **never** activates. The
+   registry has `tour.activate` with `approval_required: true`, so a person
+   clicks Activate on the website (step 19/20 web app: one "Guided tour"
+   panel listing drafts with Activate).
+4. `SKETCHSCAPE_TOUR_AUTHOR=nemoclaw` makes `/tours/compose` return 202 and
+   start the NemoClaw run. The web app polls `GET /tours` for the new draft.
+
+**Definition of done:** one approved live run (Hard Rule 3: explicit user
+approval, spend logged) produces a draft that validates on the first or a
+retried attempt. The draft is activated by a person. `tour.draft` shows as
+`implemented` in the registry.
+
+### Step 32 — Guide runtime: backend + Muse Spark + validator + memory + TTS
+
+**Files:**
+- `backend/guide.py` (new): the turn engine
+- `backend/guide_model.py` (new): OpenAI-compatible client
+- `backend/guide_tools.py` (new): per-tour `guide_turn` schema
+- `backend/guide_validator.py` (new)
+- `backend/guide_prompts.py` (new)
+- `backend/guide_tts.py` (new)
+- `backend/requirements-tts.txt` (new)
+- `backend/main.py` (routes)
+- `backend/storage.py` (session items)
+- `backend/test_guide.py` (new)
+- `scripts/guide_cli.py` (new)
+- `scripts/eval_guide_live.py` (new)
+
+**32.0 — Muse Spark compatibility spike (first, needs approval, about $0.10).**
+Make 10 live calls with a fixture tour and record the results in the table
+below before building 32.3:
+- Is `tools` accepted?
+- Is `tool_choice="required"` honored? If not, use `"auto"`; the missing
+  tool call becomes the scripted fallback.
+- Is `enum` inside tool parameters honored?
+- Is `temperature` accepted? Reasoning models sometimes reject it. Only
+  send it if it's accepted.
+- p50 and p95 latency.
+- Input and output tokens per turn.
+
+*Results (fill in):* tools: ___ · tool_choice required: ___ · enum
+honored: ___ · temperature accepted: ___ · p50/p95 latency: ___ / ___ ·
+tokens in/out per turn: ___ / ___
+
+**32.1 — Routes.** All use the same identity header and membership check as
+`/v1/rooms/*` (step 21's `require_project_read`). They work before step 21
+lands because they only need step 17's membership.
+
+- `GET /v1/rooms/{project_id}/guide/tour` returns
+  `{tour_available, tour_version, persona, steps[{step_id, stop,
+  focus_element_ids, reveal_element_ids}], elements[{element_id, object_id,
+  staging_cue_id, initially_visible}], stale_element_ids}`, with an ETag.
+  Unity uses it at scene load to hide `initially_visible: false` objects
+  and to know the stops. Fact text is not sent, because Unity doesn't need
+  it.
+- `POST /v1/rooms/{project_id}/guide/sessions` returns `201 {session_id,
+  tour_version, turn}`. `turn` is the deterministic `start` turn.
+  - One active session per `(project_id, account)`. A new POST retires the
+    old one.
+  - Step 34 makes this one session per room, owned by the Unity session
+    owner.
+- `POST /v1/rooms/{project_id}/guide/sessions/{session_id}/turns`, body
+  `{client_turn_id, turn_seq, event}`. `event.type` is one of:
+  - `start`, `next`, `repeat`, `end`
+  - `more`: tell me more about the current step
+  - `ask_about` with `element_id`: the visitor pointed at an object and
+    pressed Ask
+  - `linger` with `element_id`: head gaze on an element not yet discussed
+    for 6 s. Sent at most once per element per session.
+  - `question` with `text` (≤ 300 chars, untrusted): the optional voice
+    path in step 33.
+
+  Response `GuideTurnResponse`. It's JsonUtility-friendly: no
+  dictionaries, and "absent" is an empty string or array, never null.
+
+  ```json
+  {"turn_seq": 5, "step_id": "s_teapot", "end": false,
+   "lines": [{"line_id": "t5_0", "text": "...", "fact_ids": ["f_teapot_memory"], "audio_url": "https://...", "duration_s": 3.4}],
+   "move_to": {"anchor_element_id": "obj_teapot", "offset_m": [0.8, 1.4, 0.6]},
+   "highlight_element_ids": ["obj_teapot"], "reveal_element_ids": [],
+   "source": "model", "backend": "meta", "model": "muse-spark-1.3",
+   "validation": {"passed": true, "repairs": []}, "latency_ms": 2410}
+  ```
+  `source` is `scripted`, `model`, `repaired`, or `fallback`.
+  `move_to.anchor_element_id` is `""` when the bot stays put.
+- Concurrency:
+  - `turn_seq` must equal the session's `turn_count`, else 409 with the
+    current turn. This is a compare-and-set on the session item.
+  - Repeating a `client_turn_id` returns the stored response with no new
+    model call.
+  - One turn in flight per session.
+
+**32.2 — Routing (`SKETCHSCAPE_GUIDE_ROUTING`, default `hybrid`).**
+- `start`, `next`, `repeat`, and `end` are **scripted**: the step's
+  `narration`, verbatim, with its pre-synthesized audio. There's no model
+  call, so latency is the store read plus a cached audio URL.
+- `more`, `ask_about`, `linger`, and `question` go to the **model**. These
+  are where Muse adds something: it picks facts the visitor hasn't heard,
+  answers questions from the JSON, and chooses whether to steer toward a
+  step.
+- `model_all` sends every event to the model, for evaluation only.
+
+**32.3 — The model call** (`guide_model.py`).
+- One OpenAI-SDK client. The provider comes from
+  `SKETCHSCAPE_GUIDE_MODEL_PROVIDER`: `mock` (default), `meta`, `xai`, or
+  `nebius`.
+  - The base URL and default model come from a small dict that mirrors
+    `config/nemoclaw/model-providers.example.json`. A test asserts that the
+    two match.
+  - The key comes from `META_MODEL_API_KEY`, `XAI_API_KEY`, or
+    `NEBIUS_API_KEY`, set only in the backend process environment.
+  - `SKETCHSCAPE_GUIDE_MODEL` overrides the model id; the default is
+    `muse-spark-1.3`.
+- Messages, in order:
+  1. `system`: the `guide-v1` prompt.
+  2. `user`: a `<tour_json>` block holding the active tour, then a
+     `<session_memory>` block holding structured memory, not a transcript:
+     `current_step_id`, `visited_step_ids`, `said_fact_ids`,
+     `revealed_element_ids`, and the last 8 events as `{type, element_id,
+     question}`.
+  3. `user`: the current event, with any visitor text inside `<visitor>`
+     tags, labelled untrusted.
+
+  The static tour block comes first, so a provider prefix cache can hit if
+  one exists. Don't claim caching savings unless 32.0 measured them.
+- `tools = [build_guide_tool(tour, allowed)]`. The tool is `guide_turn`
+  with parameters:
+  - `intent`: `answer|narrate|decline|end`
+  - `step_id`: enum of step ids
+  - `say`: 1–3 items of `{text ≤ 400 chars, fact_ids: enum[] minItems 1}`
+  - `highlight_element_ids`: enum[], ≤ 4
+  - `reveal_element_ids`: enum[] of hidden elements allowed at the chosen
+    step, ≤ 3
+  - `move_to_element_id`: enum of stop anchors, plus `""`
+- Muse's output is validated by `guide_validator.validate_turn(tour,
+  session, event, args)`, which returns `(turn, repairs)`. Its rules are
+  layers 1–3 above. It also enforces:
+  - A `decline` intent uses `guardrails.off_topic_reply`, verbatim.
+  - `reveal_element_ids` must be in the chosen step's `reveal_element_ids`.
+  - `move_to` must equal the chosen step's `stop.anchor_element_id`.
+- Mock provider (`SKETCHSCAPE_GUIDE_MODEL_PROVIDER=mock`), deterministic:
+  - `ask_about` or `linger` → the first unsaid fact of that element.
+  - `more` → the next unsaid fact of the current step.
+  - `question` → the fact with the highest keyword overlap (the same
+    tokenizer as `compose_connection_mock`), or `off_topic_reply` if the
+    overlap is 0.
+
+  It's labelled `backend="mock"`, `model="mock-guide-v1"`.
+
+**32.4 — Session memory** (the "memory" the model has between turns).
+- Item `GUIDESESSION#<session_id>`: `document` = `{tour_version, account,
+  current_step_id, visited_step_ids, said_fact_ids, revealed_element_ids,
+  events (last 20), turn_count, created_at}`.
+- Top-level `turn_count` for the compare-and-set, and `ttl` = now + 24 h.
+- Each turn also writes `GUIDETURN#<session_id>#<turn_seq padded 4>` with
+  the request, response, validation, token usage, and latency. `ttl` is
+  7 days. This is the audit trail for "did the model stay on the JSON?"
+
+**32.5 — Voice** (`guide_tts.py`, `SKETCHSCAPE_GUIDE_TTS=none|mms`,
+default `none` in tests and `mms` in the demo).
+- Meta MMS-TTS: `transformers.VitsModel` plus
+  `AutoTokenizer.from_pretrained("facebook/mms-tts-eng")`. It runs on the
+  API host's CPU, 16 kHz mono, and is encoded as 16-bit WAV.
+- The license is CC-BY-NC 4.0, already accepted for the demo in step 6.
+  Flag it before any commercial use.
+- Output goes to the artifact store at
+  `guide-audio/<project_id>/<sha256(voice + text)>.wav`, so the same line
+  is never synthesized twice.
+- `audio_url` uses the existing `/v1/artifacts/...` presigned-redirect
+  path, with membership checked.
+- Activating a tour (step 30) pre-synthesizes every step's `narration`, so
+  scripted turns never wait on TTS.
+- `torch` (CPU) and `transformers` live in `backend/requirements-tts.txt`.
+  They aren't in the base requirements, so `verify_local.sh` stays light.
+- Measure synthesis time per line in 32.0. If p95 is over 1.5 s, lines
+  stream as separate requests: Unity starts line 1 while line 2
+  synthesizes.
+- `none` returns `audio_url: ""`. Unity then plays the bot's "chime" cue
+  and moves on.
+
+**32.6 — Limits and cost.**
+- `SKETCHSCAPE_GUIDE_MAX_TURNS_PER_SESSION=60` (after that, 429).
+- `SKETCHSCAPE_GUIDE_DAILY_MODEL_TURNS=500` per project. Over the cap,
+  model events fall back to the mock provider, labelled `source:
+  "fallback"`. This is a graceful fallback, not an error.
+- Turns share the room API's write rate-limit bucket.
+- Rough cost at Muse Spark list prices ($1.25/M in, $4.25/M out): a
+  ≤ 64 KB tour is about 16k tokens in, plus about 1k out including
+  reasoning, which comes to about $0.025 per model turn. A 20-question
+  session costs about $0.50.
+- Log `usage` on every `GUIDETURN`.
+
+**32.7 — Tooling.**
+- `scripts/guide_cli.py --project p_123 [--live]` plays a tour in the
+  terminal against a local backend: `n` = next, `a <element_id>` = ask
+  about, `q <text>` = question. It prints each turn's `source` and
+  `validation`. This is the headset-free way to develop and demo the guide.
+- `scripts/eval_guide_live.py` (live, needs approval) runs 25 canned events
+  against a fixture tour and reports the pass-before-repair rate, the
+  repair count, and p50/p95 latency. The events are 10 on-topic
+  `ask_about`/`question`, 5 off-topic, 5 prompt-injection (a fixture
+  `memory_text` containing "ignore your instructions and…"), and 5 asking
+  about a sealed letter's contents.
+
+**Tests** (`backend/test_guide.py`, all offline, model mocked with canned
+tool-call responses):
+- Scripted turns make no model call.
+- An invented name in `say.text` is repaired to the cited fact.
+- An unknown `element_id` falls back.
+- No tool call falls back.
+- A timeout falls back.
+- An off-topic question gets `off_topic_reply`.
+- An injection fixture can't make a line that isn't in the facts.
+- A sealed letter's `note_text` never appears in any response.
+- A `turn_seq` mismatch returns 409.
+- A repeated `client_turn_id` makes no second model call.
+- A stale element skips its step.
+- The daily cap switches to the fallback.
+- `audio_url` is empty with `SKETCHSCAPE_GUIDE_TTS=none`.
+- Three contributors.
+
+**Definition of done:**
+- `--done 32` and `verify_local.sh` pass, and the mock provider plays a
+  full tour through `guide_cli.py`. That's enough to unblock step 33.
+- Before any demo or write-up says the guide runs on Muse Spark: 32.0's
+  table and `eval_guide_live.py` results are recorded here (after
+  approval), and the user confirms the manual gate
+  `guide_live_model_verified`.
+
+*Eval results (fill in):* pass before repair: ___% · delivered grounded:
+___% · p50/p95 model-turn latency: ___ / ___
+
+### Step 33 — Unity guide bot (single headset)
+
+**Files:** in `../HackGTUnity/Assets/Scripts/Guide/`, all new:
+- `SketchScapeGuideModels.cs`
+- `SketchScapeGuideClient.cs`
+- `SketchScapeGuideBot.cs`
+- `SketchScapeGuideObjectMap.cs`
+- `SketchScapeGuideHighlighter.cs`
+- `SketchScapeGuideInput.cs`
+
+Plus `Assets/Prefabs/GuideBot.prefab`, and an addition to
+`SketchScapeOfflineExperienceBuilder.cs`.
+
+1. **Models:** `[Serializable]` DTOs that match `GuideTurnResponse` and the
+   `/guide/tour` response, parsed with `JsonUtility`. The response is built
+   for this (32.1), so there's no Newtonsoft dependency.
+2. **Client:**
+   - `UnityWebRequest` to `apiBaseUrl`, the same serialized field pattern
+     as `SketchScapeExperienceCompiler`.
+   - It sends `X-SketchScape-Dev-User` from the account switcher (step 22),
+     or a serialized default account before step 22 exists.
+   - Timeout 15 s. It keeps `turn_seq`; on 409 it adopts the returned turn.
+   - It never holds a model key. The gate secret scan covers `Assets/`.
+3. **Object map:** `element_id` → GameObject through the existing
+   `NamedSceneInteractive` id (the builder names objects `item.id`).
+   `motif` elements map through a `staging_cue_id` → component registry,
+   which step 6 fills. Without step 6, motif elements are ignored.
+4. **At scene load** (`BuiltExperienceController` start):
+   `GET /guide/tour` → hide every `initially_visible: false` object →
+   spawn `GuideBot` at the start step's stop.
+   - If the tour is unavailable, no bot spawns. The room still works
+     (graceful degradation).
+5. **Bot** (a small floating light-orb companion, not a humanoid: cheap,
+   readable, fits the "light path" motif language). State machine: `Idle →
+   Thinking → Moving → Speaking → Idle`. Executing a turn:
+   1. Move: a tween to `anchor.position + anchor.rotation * offset_m`, at
+      ≤ 1.2 m/s, facing the anchor. Use step 6's chosen tween library, or
+      `Vector3.SmoothDamp` if step 6 isn't done.
+   2. Reveal: `SetActive(true)` plus a 0.6 s scale-in and a soft chime.
+   3. Highlight: `SketchScapeGuideHighlighter` shows an emissive rim, or a
+      spotlight cone from the bot for splats, where a rim shader doesn't
+      apply. It clears when the next turn starts.
+   4. Speak: download each `audio_url` with
+      `UnityWebRequestMultimedia.GetAudioClip(url, AudioType.WAV)` and play
+      it on an `AudioSource` on the bot (`spatialBlend = 1`, Resonance
+      Audio if step 6 installed it). Lines play in order.
+
+   While `Thinking` (a model turn, 2–6 s), the orb pulses slowly and a
+   soft loop plays, so there's never silent dead air. **No text panel and
+   no captions** (AGENT.md: felt, not read).
+6. **Input** (`SketchScapeGuideInput`, XRI 3.0.11 input actions):
+   - A (right) = `next`, B (right) = `repeat`.
+   - Right trigger while the ray hovers a mapped element = `ask_about`.
+   - Grip on the bot = `more`.
+   - Head-gaze raycast dwell of 6 s on an undiscussed element = `linger`.
+   - Input is ignored while a turn is in flight.
+   - **Optional voice (off by default):** Meta Voice SDK dictation →
+     `question`. The Wit.ai client token stays out of git: an ignored
+     `WitConfiguration` asset, injected at build. Only build this after
+     everything else in this step works.
+7. **Builder:** `SketchScapeOfflineExperienceBuilder` adds the
+   `GuideBot` prefab and `SketchScapeGuideInput` to the generated scene.
+   That's all; the tour itself is fetched at runtime.
+8. **Editor tooling:** the `Tools/SketchScape/Guide/Simulate Tour` menu
+   drives the bot in Play mode with keyboard keys (N/R/M, click-to-ask)
+   against the mock backend. No headset needed.
+
+**Definition of done:** `--done 33` passes. In the desktop simulator
+against a mock backend with 3 contributors, the bot walks every step,
+reveals the hidden element, and answers `ask_about` on each object. On one
+real Quest, the full tour plays with audio at 72 Hz and no frame drops
+while the bot moves. The user confirms the manual gate
+`guide_bot_verified`.
+
+### Step 34 — Shared guide across headsets
+
+**Files:** in `../HackGTUnity/Assets/Scripts/Guide/`: `SketchScapeGuideNetwork.cs` (new),
+changes to `SketchScapeGuideBot.cs`.
+
+1. **One guide per room.** The bot is a `NetworkObject` owned by the
+   Distributed Authority **session owner** (step 22). When the owner leaves,
+   ownership migrates, and the new owner reuses the same `session_id`,
+   stored in a session property.
+2. Only the owner calls `/turns`. Other players send their events to the
+   owner through `[Rpc(SendTo.Owner)] SubmitGuideEventRpc(type,
+   element_id)`. The owner queues them FIFO, one in flight.
+3. Replicated state, as `NetworkVariable`s:
+   - `currentStepId`
+   - `highlightedIds` (a fixed-size string array or a CSV string)
+   - `revealedIds`
+   - `speakingLineId`
+   - `speakingAudioUrl`
+   - `speakingStartServerTime`
+
+   Each client downloads and plays the audio itself, starting at
+   `speakingStartServerTime`, so everyone hears the line in sync. The bot's
+   transform uses `NetworkTransform`.
+4. Late joiners read the replicated state: hidden elements already revealed
+   are shown, and the current line isn't replayed.
+5. The backend `/guide/sessions` route gains `?scope=room` (one active
+   session per project rather than per account). The owner's account header
+   is recorded on each turn.
+
+**Definition of done:** `--done 34` passes. On two headsets, either person
+can ask about an object and both hear the answer from the same bot at the
+same time. The owner leaves mid-tour, and the tour continues on the other
+headset from the same step. The user confirms the manual gate
+`shared_guide_verified`, recorded in step 25's results.
+
+**Never do in this track:**
+- Call Muse (or any model) from Unity.
+- Put `META_MODEL_API_KEY` anywhere but the backend process environment.
+- Deliver a line to Unity that didn't pass the grounding validator.
+- Let the guide create objects that aren't in the blueprint or staging plan.
+- Include a sealed letter's contents in a tour.
+- Let NemoClaw activate a tour.
+- Show guide text on a floating panel.
+- Make scripted events call the model.
+
+---
+
 ## If time runs out
 
 Priority order if the full plan can't land before the deadline: **5 (compose endpoint, mock path only) → 1–2 (data model/API it depends on) → 8 (diegetic attribution, even a minimal version) → 11 (real splat rendering) → 12 (video)**. Steps 3–4 and 6 (NemoClaw agent + immersive staging) are what make the story *strong*, but 5's mock path alone is enough to demo the connection insight without a live agent — the mock output is judging-safe by design. Steps 7, 9, 10 are genuinely optional polish; skip them first. The
 Collaborative VR + web accounts track (13–29) is post-MVP: never pull time from steps
 1–12 for it before the demo is safe.
+The guided tour bot (30–34) is the same: after 1–12 are safe, the cheapest
+valuable slice is **30 → 32 (mock provider) → 33**. That's a bot that tours the
+room with zero model spend. Switch `SKETCHSCAPE_GUIDE_MODEL_PROVIDER=meta` only
+after 32.0's approved spike. Step 34 needs step 22.

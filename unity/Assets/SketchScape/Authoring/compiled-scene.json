@@ -1,0 +1,136 @@
+{
+  "status": "complete",
+  "scene": {
+    "objects": [
+      {
+        "id": "contribution-5cbec8c0a3364756b275eeda",
+        "type": "mug",
+        "position": [
+          0.0,
+          0.0,
+          1.35
+        ],
+        "rotation": [
+          0.0,
+          180.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "asset_url": null,
+        "source": "placeholder",
+        "actions": [
+          "rotate_by"
+        ],
+        "grabbable": true
+      },
+      {
+        "id": "contribution-27ebe16b580c4250b2c751d5",
+        "type": "kitchen drawing",
+        "position": [
+          1.169,
+          1.3,
+          -0.675
+        ],
+        "rotation": [
+          0.0,
+          300.0,
+          0.0
+        ],
+        "scale": [
+          0.6,
+          0.8,
+          1.0
+        ],
+        "asset_url": "/v1/projects/e7376c7ede644b34a68f3fb5c48fe584/assets/30f8b7a0d5be4fe284c8c19d6e7069e5/sketch/sketch.png",
+        "source": "sketch_card",
+        "actions": [
+          "rotate_by"
+        ],
+        "grabbable": false
+      },
+      {
+        "id": "contribution-d733cba37d284a7d93314f89",
+        "type": "teapot",
+        "position": [
+          -1.169,
+          0.0,
+          -0.675
+        ],
+        "rotation": [
+          0.0,
+          60.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "asset_url": null,
+        "source": "placeholder",
+        "actions": [
+          "rotate_by"
+        ],
+        "grabbable": true
+      }
+    ],
+    "instructions": [],
+    "meta": {
+      "pipeline": "experience-blueprint",
+      "project_id": "e7376c7ede644b34a68f3fb5c48fe584",
+      "revision": 1,
+      "experience": {
+        "mode": "vr",
+        "theme": "Around the kitchen table",
+        "units": "meters"
+      },
+      "environment": {
+        "lighting_preset": "warm_evening",
+        "skybox": null,
+        "floor": true,
+        "ambient_audio": null
+      },
+      "navigation": {
+        "vr": "teleport",
+        "ar": "none"
+      },
+      "portals": [],
+      "social": {
+        "version": 1,
+        "objects": [
+          {
+            "object_id": "contribution-5cbec8c0a3364756b275eeda",
+            "contribution_id": "5cbec8c0a3364756b275eedacb7bca1d",
+            "contributor_id": "c3e970608e064529a660af893301c903",
+            "contributor_display_name": "Alice",
+            "source_type": "photo",
+            "attribution_color": "#56B4E9",
+            "staging_cue_id": null
+          },
+          {
+            "object_id": "contribution-27ebe16b580c4250b2c751d5",
+            "contribution_id": "27ebe16b580c4250b2c751d50c3cccd4",
+            "contributor_id": "fc63e5ae9de6452ea0da1aa7f0a50f40",
+            "contributor_display_name": "Bo",
+            "source_type": "sketch",
+            "attribution_color": "#009E73",
+            "staging_cue_id": null
+          },
+          {
+            "object_id": "contribution-d733cba37d284a7d93314f89",
+            "contribution_id": "d733cba37d284a7d93314f893a80693c",
+            "contributor_id": "637a929c493d4e1f89b8b614c8eef5ba",
+            "contributor_display_name": "Cass",
+            "source_type": "photo",
+            "attribution_color": "#F0E442",
+            "staging_cue_id": null
+          }
+        ]
+      }
+    }
+  }
+}

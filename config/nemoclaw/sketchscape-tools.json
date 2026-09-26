@@ -80,16 +80,33 @@
       "id": "room.state.fetch",
       "method": "GET",
       "path": "/v1/rooms/{project_id}/state",
-      "purpose": "Collaborative VR: read the live revision, objects, and ownership of a room (callable name get_room_state). Authenticated with NemoClaw's Clerk M2M token. Build Plan steps 21 and 24; gated by scripts/check_collab_gates.py.",
+      "purpose": "Collaborative VR: read the live revision, objects, and ownership of a room (callable name get_room_state). Authenticated with NemoClaw's shared service token (SKETCHSCAPE_NEMOCLAW_TOKEN, built -- see docs/KNOWN_ISSUES.md R14). Build Plan step 21 (backend route: done); the NemoClaw tool wrapper itself waits on step 3/24.",
       "approval_required": false,
-      "implementation_status": "target"
+      "implementation_status": "backend-route-implemented-step21; nemoclaw-tool-pending-step3-24"
     },
     {
       "id": "room.edit.draft",
       "method": "POST",
       "path": "/v1/projects/{project_id}/blueprints?base_revision={live_revision}",
-      "purpose": "Collaborative VR: draft a room edit as a new revision based on the live revision (callable name propose_room_edit). Never publishes; publishing uses blueprint.publish with approval. Returns 409 if the room changed. A person approves the publish on the website. Build Plan step 24.",
+      "purpose": "Collaborative VR: draft a room edit as a new revision based on the live revision (callable name propose_room_edit). Never publishes; publishing uses blueprint.publish with approval. Returns 409 if the room changed. A person approves the publish on the website. Build Plan step 24; the underlying draft route (blueprint.draft, above) is already implemented.",
       "approval_required": false,
+      "implementation_status": "backend-route-implemented (see blueprint.draft); nemoclaw-tool-pending-step3-24"
+    },
+    {
+      "id": "tour.draft",
+      "method": "POST",
+      "path": "/v1/projects/{project_id}/tours",
+      "purpose": "Guided tour bot: save the GuidedTour JSON that author_guided_tour wrote after place_objects_in_scene and stage_immersive_reveal (shared/guided-tour.schema.json). Stored as a draft only; the backend validates every id against the blueprint and every fact against the contributions. Authenticated with SKETCHSCAPE_NEMOCLAW_TOKEN (R14). Build Plan steps 30-31.",
+      "approval_required": false,
+      "implementation_status": "target"
+    },
+    {
+      "id": "tour.activate",
+      "method": "POST",
+      "path": "/v1/projects/{project_id}/tours/{tour_version}/activate",
+      "purpose": "Guided tour bot: make a draft tour the one the in-room guide performs. People only: a service identity gets 403. A person clicks Activate on the website. Build Plan step 30.",
+      "approval_required": true,
+      "approval_reason": "Changes what the guide says to everyone in the room.",
       "implementation_status": "target"
     }
   ],

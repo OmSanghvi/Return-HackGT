@@ -1,0 +1,9 @@
+{
+  "name": "Return.UI.Tests",
+  "rootNamespace": "Return.UI.Tests",
+  "references": ["Return.UI", "UnityEngine.TestRunner", "UnityEditor.TestRunner"],
+  "includePlatforms": ["Editor"],
+  "overrideReferences": true,
+  "precompiledReferences": ["nunit.framework.dll"],
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"]
+}

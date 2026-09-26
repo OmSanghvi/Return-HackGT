@@ -75,6 +75,16 @@ SKETCHSCAPE_WORKER_PYTHON=$FASTSAM3D_ENV_DIR/bin/python
 SKETCHSCAPE_WORK_DIR=$APP_DIR/data/jobs
 SKETCHSCAPE_WORKER_SERVER_PORT=8001
 SKETCHSCAPE_WORKER_STARTUP_TIMEOUT=600
+# Build Plan step 27: shared by sketchscape-worker.service (so its result
+# callbacks satisfy the API's lease-ownership check) and
+# sketchscape-dispatcher.service (its own claim identity). One dispatcher
+# per instance, so a fixed id is fine. SKETCHSCAPE_GPU_CONCURRENCY stays at
+# 1 -- the only value verified safe on any instance type -- until an
+# approved VRAM benchmark (worker/benchmark_concurrency.py) says otherwise
+# for this specific instance type; record the result in docs/BUILD_PLAN.md
+# step 27 (Hard Rule 5).
+SKETCHSCAPE_WORKER_ID=gpu-host-1
+SKETCHSCAPE_GPU_CONCURRENCY=1
 SAM31_ENV_DIR=$SAM31_ENV_DIR
 SAM31_MODEL_DIR=$SAM31_MODEL_DIR
 SAM31_IMAGE_SIZE=$SAM31_IMAGE_SIZE
@@ -125,6 +135,14 @@ upsert_env SKETCHSCAPE_API_URL http://127.0.0.1:8000
 upsert_env SKETCHSCAPE_WORK_DIR "$APP_DIR/data/jobs"
 upsert_env SKETCHSCAPE_WORKER_SERVER_PORT 8001
 upsert_env SKETCHSCAPE_WORKER_STARTUP_TIMEOUT 600
+# Hosts created before step 27 have neither var; a fixed dispatcher id is
+# fine (one dispatcher per instance), concurrency stays at 1 until benchmarked.
+if ! grep -q '^SKETCHSCAPE_WORKER_ID=.' "$ENV_FILE"; then
+  upsert_env SKETCHSCAPE_WORKER_ID gpu-host-1
+fi
+if ! grep -q '^SKETCHSCAPE_GPU_CONCURRENCY=.' "$ENV_FILE"; then
+  upsert_env SKETCHSCAPE_GPU_CONCURRENCY 1
+fi
 upsert_env SAM31_ENV_DIR "$SAM31_ENV_DIR"
 upsert_env SAM31_MODEL_DIR "$SAM31_MODEL_DIR"
 upsert_env SAM31_IMAGE_SIZE "$SAM31_IMAGE_SIZE"
@@ -190,6 +208,26 @@ PrivateTmp=true
 WantedBy=multi-user.target
 EOF
 
+cat >/etc/systemd/system/sketchscape-dispatcher.service <<EOF
+[Unit]
+Description=SketchScape GPU-host job dispatcher (Build Plan step 27)
+After=network-online.target sketchscape-sam31.service sketchscape-worker.service
+Wants=network-online.target sketchscape-sam31.service sketchscape-worker.service
+
+[Service]
+Type=simple
+User=$APP_USER
+EnvironmentFile=$ENV_FILE
+ExecStart=$APP_DIR/backend/.venv/bin/python3 $APP_DIR/worker/gpu_dispatcher.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 cat >/etc/systemd/system/sketchscape.service <<EOF
 [Unit]
 Description=SketchScape single-GPU API
@@ -211,13 +249,16 @@ PrivateTmp=true
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable sketchscape-sam31.service sketchscape-worker.service sketchscape.service
+systemctl enable sketchscape-sam31.service sketchscape-worker.service sketchscape-dispatcher.service sketchscape.service
 systemctl restart sketchscape-sam31.service
 systemctl restart sketchscape-worker.service
+systemctl restart sketchscape-dispatcher.service
 systemctl restart sketchscape.service
 systemctl --no-pager --full status sketchscape-sam31.service
 systemctl --no-pager --full status sketchscape-worker.service
+systemctl --no-pager --full status sketchscape-dispatcher.service
 systemctl --no-pager --full status sketchscape.service
 echo "Bootstrap complete. Check readiness:"
 echo "  curl http://127.0.0.1:8002/health          # SAM 3.1 (warm)"
 echo "  curl http://127.0.0.1:8001/worker/health   # Fast-SAM3D"
+echo "  journalctl -u sketchscape-dispatcher -f    # step 27 claim/lease loop"

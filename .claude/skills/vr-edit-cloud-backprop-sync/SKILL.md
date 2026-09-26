@@ -1,6 +1,6 @@
 ---
 name: vr-edit-cloud-backprop-sync
-description: Use for Build Plan step 23 — "backprop" in HackGTUnity. After a live edit settles on one headset, save it through POST /v1/rooms/{project_id}/edits with the headset's room token, and have the session owner pull in revisions published from outside the session (web approvals of NemoClaw proposals, other clients). Live replication itself is step 22.
+description: Use for Build Plan step 23 — "backprop" in HackGTUnity. After a live edit settles on one headset, save it through POST /v1/rooms/{project_id}/edits with the headset's X-SketchScape-Dev-User account header (no room token — decision 2026-09-26, see collab-vr-accounts-and-gates), and have the session owner pull in revisions published from outside the session (web approvals of NemoClaw proposals, other clients). Live replication itself is step 22.
 ---
 
 # VR edit → cloud backprop (step 23)
@@ -18,24 +18,22 @@ description: Use for Build Plan step 23 — "backprop" in HackGTUnity. After a l
 
 **Never call the backend per frame while an object is held.**
 
-## Room token lifecycle
+## Account identity
 
-- Get a token from `POST /v1/auth/meta/session` with a fresh
-  `GetUserProof` nonce. It lasts 1 hour.
-- Refresh it about 5 minutes before expiry the same way, with a new nonce
-  each time.
-- On any 401, refresh once and retry. If that fails, go to the signed-out
-  / relink state.
-- Keep the token in memory only. Never log it, write it to disk, or put it
-  in `PlayerPrefs`.
+No room token, no expiry, no refresh (superseded plan, kept in
+`meta-quest-identity` for reference only). The account switcher (step 22)
+sets the `X-SketchScape-Dev-User` header for the session; this step's
+saves just reuse whatever the switcher currently has set. On a 401 (the
+header is missing or invalid, which shouldn't happen once the switcher has
+run), send the person back to the switcher rather than retrying.
 
 ## Upstream: saving a settled edit
 
 1. **Trigger:** the grab is released, then debounce 1.5 s per object.
    Another nudge inside the window resets the timer.
-2. **Who saves:** the person who made the edit, with their own room token.
-   The backend needs that identity to enforce ownership, so this isn't
-   done by the session owner.
+2. **Who saves:** the person who made the edit, with their own account
+   header. The backend needs that identity to enforce ownership, so this
+   isn't done by the session owner.
 3. Request fields:
    - `base_revision` = last known live revision.
    - `client_edit_id` = a new UUID per save. **Reuse it on network
@@ -46,7 +44,8 @@ description: Use for Build Plan step 23 — "backprop" in HackGTUnity. After a l
    - 409 → `GET /state`, re-apply only your own objects' current
      transforms, and retry (max 3). Then show an unobtrusive "not saved"
      and try again on the next release.
-   - 401 → refresh the token once.
+   - 401 → the account header is missing/invalid; send the person back to
+     the account switcher rather than retrying.
    - 403/422 → don't retry. Snap the object back to its last saved
      transform and log it. The ownership guard or allowlist should have
      prevented it.
@@ -94,6 +93,7 @@ published blueprint revisions as the truth.
    shows A's final position.
 2. A and B move their own objects in the same second; both survive.
 3. Wi-Fi off mid-save, then on → exactly one revision.
-4. The room token refreshes without interrupting the session.
+4. Switching accounts mid-session (if the UI allows it) doesn't corrupt
+   an in-flight save.
 5. A NemoClaw proposal approved on the website appears in the running
    room within about 5 s.

@@ -1,0 +1,145 @@
+/* return design tokens. Generated from tokens.json; edit that, not this.
+   Themes: day (default) and dusk. Set data-theme="dusk" on any element to switch that subtree. */
+
+@font-face { font-family: "Role Model"; src: url("./fonts/RoleModel-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Rusilla Serif"; src: url("./fonts/RusillaSerif-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Cormorant"; src: url("./fonts/Cormorant-wght.woff2") format("woff2"); font-weight: 300 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Cormorant"; src: url("./fonts/Cormorant-wght-Italic.woff2") format("woff2"); font-weight: 300 700; font-style: italic; font-display: swap; }
+@font-face { font-family: "Hanken Grotesk"; src: url("./fonts/HankenGrotesk-wght.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+
+:root, [data-theme="day"] {
+  color-scheme: light;
+  --canvas: #edeae4; /* Page ground around framed imagery (the warm cloud-white margin in day, deep night blue in dusk). */
+  --surface-100: #f6f4f0; /* Plain content areas: settings, long lists, anywhere without imagery. */
+  --surface-200: #ffffff; /* Cards and sheets on plain areas. */
+  --surface-300: #ebe7e0; /* Hover, selected rows, pressed states on plain surfaces. */
+  --line: #d9d4cc; /* Decorative dividers on plain surfaces. Not for control borders. */
+  --line-strong: #7d786b; /* Control borders on plain surfaces (inputs, secondary buttons). 3.2:1 or better on every surface in both themes. */
+  --ink: #141a2b; /* Primary text on canvas, surface-100/200/300 and glass-strong (12:1 or better in both themes). */
+  --ink-muted: #4a5166; /* Secondary text and metadata on any plain surface or glass-strong (6.1:1 or better). */
+  --ink-faint: #5f657a; /* Placeholders and disabled labels on any plain surface (4.6:1 or better). Never for content needed to act. */
+  --action: #141a2b; /* Primary button fill on plain surfaces and glass-strong. One per view. */
+  --on-action: #ffffff; /* Label and icon on an action fill (15:1 or better). */
+  --on-image: #ffffff; /* All text, icons and outlines placed directly on imagery or light glass. Always over image-scrim or with the text shadow from bundle.css. */
+  --on-light: #141a2b; /* Text and icons on white elements placed over imagery (the light button, the eyebrow badge, a white icon button) in both themes (17:1). */
+  --image-scrim: rgba(12, 16, 32, 0.38); /* Scrim behind on-image display text (headlines, card titles): radial center scrim or bottom gradient. Gets bright skies to 3:1 or better for text 24px and up. */
+  --image-scrim-strong: rgba(12, 16, 32, 0.58); /* Scrim behind small on-image text (body, captions, card meta): the bottom of card and hero gradients. Use when on-image text is under 24px. */
+  --glass: rgba(255, 255, 255, 0.58); /* Glass over imagery: nav pill, glass buttons, chips, hand menu. Always with glass-blur. Text on it is on-glass. Day glass is light frosted, dusk glass is smoked, so text stays readable on any sky. */
+  --glass-edge: rgba(255, 255, 255, 0.75); /* 1px border of any glass element over imagery. */
+  --on-glass: #141a2b; /* Text and icons on glass. Ink on day's light glass, white on dusk's smoked glass. */
+  --glass-strong: rgba(250, 248, 244, 0.78); /* Frosted panels that hold real content over imagery (share sheet, VR panel, dropzone). Text on it is ink / ink-muted. */
+  --sky: #2f5fa8; /* Links, selection and the default accent on plain surfaces and glass-strong (5.1:1 or better). */
+  --sky-soft: #e3ecf8; /* Tinted ground behind sky text: selected tab, info chip. */
+  --aurora: #0f6866; /* The connective color: other people, presence, invites, shared. Only for people. Text on plain surfaces or aurora-soft. */
+  --aurora-soft: #dff3f1; /* Tinted ground behind aurora text: shared chip, a person who is here now. */
+  --blossom: #a53a66; /* Highlight: the 'New' chip, a room's anniversary, an invitation, favorite. Use rarely. Text on plain surfaces or blossom-soft. */
+  --blossom-soft: #f8e6ee; /* Tinted ground behind blossom text. */
+  --sun: #855400; /* A room that's building: developing status and progress. Text on plain surfaces or sun-soft. */
+  --sun-soft: #f8ecd4; /* Tinted ground behind sun text. */
+  --success: #276c42; /* Ready / done. Always with a check icon and a word. */
+  --success-soft: #e2f1e7; /* Tinted ground behind success text. */
+  --danger: #b23a33; /* Failed or destructive. Always with an alert icon and a word. */
+  --danger-soft: #f9e3e0; /* Tinted ground behind danger text. */
+  --focus: #2f5fa8; /* Keyboard focus ring on plain surfaces and glass-strong: 2px solid, offset 2px. Over imagery the ring is on-image with a dark halo (see bundle.css). */
+  --sky-top: #8fb9e6; /* Top stop of the sky gradient used when no image is loaded, and for the VR hub skybox tint. */
+  --sky-bottom: #f3e6de; /* Bottom stop of the sky gradient (horizon haze). */
+  --shadow-float: 0 24px 60px rgba(20, 26, 43, 0.16);
+  --shadow-soft: 0 2px 12px rgba(20, 26, 43, 0.08);
+  --halo: 0 0 0 1px rgba(255, 255, 255, 0.7), 0 0 28px rgba(255, 255, 255, 0.45);
+  --glow-aurora: 0 0 0 2px rgba(15, 104, 102, 0.9), 0 0 16px rgba(127, 227, 223, 0.6);
+}
+
+[data-theme="dusk"] {
+  color-scheme: dark;
+  --canvas: #0a0f1f;
+  --surface-100: #11172d;
+  --surface-200: #19203d;
+  --surface-300: #232b4d;
+  --line: #2c3560;
+  --line-strong: #6f78a8;
+  --ink: #eef0fa;
+  --ink-muted: #b3b8d4;
+  --ink-faint: #8e94b4;
+  --action: #f4f1ea;
+  --on-action: #141a2b;
+  --on-image: #ffffff;
+  --on-light: #141a2b;
+  --image-scrim: rgba(6, 9, 20, 0.5);
+  --image-scrim-strong: rgba(6, 9, 20, 0.66);
+  --glass: rgba(10, 14, 30, 0.42);
+  --glass-edge: rgba(255, 255, 255, 0.22);
+  --on-glass: #ffffff;
+  --glass-strong: rgba(17, 23, 45, 0.74);
+  --sky: #9cc2ff;
+  --sky-soft: #1c2c52;
+  --aurora: #7fe3df;
+  --aurora-soft: #12353c;
+  --blossom: #f3a9c9;
+  --blossom-soft: #3a2037;
+  --sun: #f5c86a;
+  --sun-soft: #3a2f16;
+  --success: #8fd9a8;
+  --success-soft: #16352a;
+  --danger: #ff9d92;
+  --danger-soft: #3d1d22;
+  --focus: #b9d3ff;
+  --sky-top: #1b2150;
+  --sky-bottom: #4a3a6e;
+  --shadow-float: 0 24px 60px rgba(0, 0, 0, 0.5);
+  --shadow-soft: 0 2px 12px rgba(0, 0, 0, 0.35);
+  --halo: 0 0 0 1px rgba(255, 255, 255, 0.7), 0 0 28px rgba(255, 255, 255, 0.45);
+  --glow-aurora: 0 0 0 2px rgba(127, 227, 223, 0.95), 0 0 18px rgba(127, 227, 223, 0.45);
+}
+
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 80px;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-frame: 32px;
+  --radius-pill: 999px;
+  --glass-blur: blur(16px) saturate(140%);
+  --glass-blur-strong: blur(28px) saturate(150%);
+  --duration-fast: 160ms;
+  --duration-base: 320ms;
+  --duration-reveal: 1400ms;
+  --duration-develop: 2200ms;
+  --duration-enter: 2800ms;
+  --duration-drift: 60s;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --font-display: "Role Model", Cormorant, Georgia, serif;
+  --font-caps: "Rusilla Serif", Cormorant, Georgia, serif;
+  --font-accent: Cormorant, Georgia, serif;
+  --font-sans: "Hanken Grotesk", system-ui, sans-serif;
+}
+
+/* Display */
+.hero { font-family: var(--font-display); font-size: 104px; line-height: 1; font-weight: 400; letter-spacing: -0.015em; font-synthesis: none; }
+.display-l { font-family: var(--font-display); font-size: 72px; line-height: 1.02; font-weight: 400; letter-spacing: -0.01em; font-synthesis: none; }
+.display-m { font-family: var(--font-display); font-size: 48px; line-height: 54px; font-weight: 400; font-synthesis: none; }
+.title { font-family: var(--font-display); font-size: 32px; line-height: 38px; font-weight: 400; font-synthesis: none; }
+.room-title { font-family: var(--font-display); font-size: 28px; line-height: 32px; font-weight: 400; font-synthesis: none; }
+.accent-italic { font-family: var(--font-accent); font-size: 72px; line-height: 1; font-weight: 300; font-style: italic; font-synthesis: none; }
+.kicker { font-family: var(--font-caps); font-size: 20px; line-height: 26px; font-weight: 400; letter-spacing: 0.12em; text-transform: uppercase; font-synthesis: none; }
+
+/* Text */
+.body-l { font-family: var(--font-sans); font-size: 18px; line-height: 28px; font-weight: 400; }
+.body { font-family: var(--font-sans); font-size: 16px; line-height: 24px; font-weight: 400; }
+.label { font-family: var(--font-sans); font-size: 14px; line-height: 20px; font-weight: 500; }
+.caption { font-family: var(--font-sans); font-size: 13px; line-height: 18px; font-weight: 400; }
+.overline { font-family: var(--font-sans); font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
+
+/* Spatial */
+.vr-display { font-family: var(--font-display); font-size: 48px; line-height: 52px; font-weight: 400; }
+.vr-h1 { font-family: var(--font-sans); font-size: 32px; line-height: 40px; font-weight: 600; }
+.vr-h2 { font-family: var(--font-sans); font-size: 24px; line-height: 32px; font-weight: 600; }
+.vr-body { font-family: var(--font-sans); font-size: 18px; line-height: 26px; font-weight: 450; }
+.vr-caption { font-family: var(--font-sans); font-size: 14px; line-height: 20px; font-weight: 500; }

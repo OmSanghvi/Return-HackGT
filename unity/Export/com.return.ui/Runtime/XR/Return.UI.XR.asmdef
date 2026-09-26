@@ -1,0 +1,10 @@
+{
+  "name": "Return.UI.XR",
+  "rootNamespace": "Return.UI.XR",
+  "references": ["Return.UI", "Unity.XR.Interaction.Toolkit", "Unity.XR.CoreUtils", "Unity.InputSystem"],
+  "autoReferenced": true,
+  "defineConstraints": ["RETURN_XRI"],
+  "versionDefines": [
+    { "name": "com.unity.xr.interaction.toolkit", "expression": "3.0.0", "define": "RETURN_XRI" }
+  ]
+}

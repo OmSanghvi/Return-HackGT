@@ -74,6 +74,24 @@ any number.
   staging come from the same reasoning pass. Do not build a separate
   standalone "composition backend" that bypasses NemoClaw and calls a model
   API directly — the tools *are* the composition mechanism.
+- **Guided tour bot (decision, user, 2026-09-26; Build Plan steps 30–34).**
+  After NemoClaw builds the room, its `author_guided_tour` tool writes a
+  structured **guided tour JSON** (`shared/guided-tour.schema.json`). It
+  holds the facts, stops, and elements a tour may use, and it's stored in
+  the authoring store (DynamoDB in cloud). A person activates it on the
+  website.
+  - In the VR room, a guide bot performs that tour. The backend calls
+    **Muse Spark** with the tour JSON as the model's **only** knowledge,
+    through the `guide_turn` tool. That tool's ids are enums generated from
+    the tour.
+  - A deterministic grounding validator repairs or replaces any line that
+    isn't supported by the facts it cites. Nothing unvalidated reaches
+    Unity.
+  - This backend-proxied, read-only, runtime Muse call is the **one
+    approved exception** to "no standalone model call". The exception holds
+    because it never composes, edits, or publishes; it only performs what
+    NemoClaw authored.
+  - Unity never calls Muse and never holds a model key (Hard Rule 4).
 - NemoClaw's reasoning and vision model comes from one of three providers,
   all OpenAI-SDK compatible and chosen with `NEMOCLAW_MODEL_PROVIDER`
   (updated 2026-09-25; details in the `nemoclaw-model-providers` skill and
@@ -145,8 +163,9 @@ scene-authoring tools) is essential.
 **Do not scope-creep this MVP** into accounts, chat, real-time multiplayer,
 or notifications — those are explicitly post-hackathon. The one approved
 exception is the **Collaborative VR track** (live multi-headset rooms with
-Clerk accounts, `docs/BUILD_PLAN.md` steps 13–29). It is separate from the
-MVP, must never break or delay steps 1–12, and is gated by Hard Rule 9.
+two hardcoded accounts, `docs/BUILD_PLAN.md` steps 13–29). It is separate
+from the MVP, must never break or delay steps 1–12, and is gated by Hard
+Rule 9.
 
 ## Secondary / alternate competition track: Resilience Commons with Grok
 
@@ -191,9 +210,10 @@ there is no real-time networking anywhere in the shipped build. Do not expand
 the MVP into accounts, chat, real-time multiplayer, notifications, or a new
 social network. Those features are post-hackathon work. Real-time shared
 presence is now planned as the gated Collaborative VR track (Unity
-Multiplayer Services with Distributed Authority, Clerk identity) — see
-`docs/ARCHITECTURE.md` and `docs/BUILD_PLAN.md` steps 13–29. It does not
-change the MVP's sequential flow.
+Multiplayer Services with Distributed Authority, two hardcoded accounts —
+no Clerk, no Meta account linking) — see `docs/ARCHITECTURE.md` and
+`docs/BUILD_PLAN.md` steps 13–29. It does not change the MVP's sequential
+flow.
 
 ## Competition track: Resilience Commons with Grok
 
@@ -292,10 +312,10 @@ strengthens connection, and why AI is essential.
 ## Frontend app — the user's control surface
 
 The user interacts with SketchScape through a **web app** (decided
-2026-09-25, replacing the earlier Electron desktop-app plan because Clerk
-supports React web apps officially and Electron only unofficially). The app
+2026-09-25, replacing the earlier Electron desktop-app plan). The app
 is clean, dark, and minimal — the same aesthetic as Obsidian / logseq_new.
-Accounts are Clerk; building it is Build Plan steps 19–20 (skills
+Accounts are two hardcoded accounts picked from an in-app switcher, not
+Clerk (decision 2026-09-26); building it is Build Plan steps 19–20 (skills
 `web-app-foundation`, `web-uploads-and-linking`), gated like the rest of the
 Collaborative VR + web accounts track.
 
@@ -305,8 +325,8 @@ It communicates only with the SketchScape backend API at
 
 ### Stack
 - **Vite + React + TypeScript** — static web app (no Electron, no Next.js)
-- **`@clerk/react`** — sign-in; `useAuth().getToken()` → `Authorization: Bearer` on every API call
-- Runs without Clerk in offline mock mode against a `SKETCHSCAPE_AUTH_MODE=mock` backend
+- **Account picker** — choose between the two `SKETCHSCAPE_DEMO_USERS`; every API call sends `X-SketchScape-Dev-User`, no `@clerk/react`, no token
+- Runs the same way in offline mock mode against a `SKETCHSCAPE_AUTH_MODE=mock` backend (dev-user header, no picker needed)
 - **Zustand** — client state (current project, upload status, scene state)
 - **Tailwind CSS** — styling, dark theme by default
 - **lucide-react** — icons (same set as Obsidian / logseq_new)
@@ -325,8 +345,9 @@ Drag-and-drop area or file picker. Accepts:
   reconstructed as a 3D memory plaque; see `docs/BUILD_PLAN.md` step 7, not
   built yet)
 One photo can contain **several objects, and the person chooses them**:
-1. On a canvas over the uploaded photo, they mark each object they want in
-   3D: click it (include/exclude points), drag a box, or type its name.
+1. Next to the uploaded photo, they type a name for each object they want
+   in 3D (a SAM 3.1 semantic text prompt — decision 2026-09-26: typed
+   name only, no click/box selection).
 2. They add an optional label and memory text per object.
 3. Those selections are the SAM 3.1 prompts. SAM masks exactly those
    objects, and the person can refine any mask, then presses "Make 3D" to
@@ -358,13 +379,12 @@ after the Meta sign-in and Quest linking). `export_unity_experience.py`
 stays a developer tool run from a shell.
 
 **Added by the accounts track (steps 19–20):**
-- Clerk sign-in and sign-up.
+- An account picker between the two hardcoded accounts (no sign-in/sign-up).
 - Project invites: an invite link with the project's invite code.
 - Optional upload fields: object label ("what is it?"; NemoClaw labels it
   if blank), memory text, and a project room prompt.
 - Notability upload as a flat card or 3D plaque (PDF pages rendered to PNG
   in the browser).
-- A **Link Quest** page: enter the code the headset shows.
 - A Room page showing the live revision, where a person approves
   NemoClaw's proposed layout before it publishes.
 
@@ -402,9 +422,8 @@ Letter page (image, or a PDF page rendered to PNG in the browser)
 
 **Photo with several objects, chosen by the person** (Build Plan steps 20, 26–27)
 ```
-Photo → person marks objects on the website (click include/exclude, box, or name)
-      → SAM 3.1: points/box → interactive predictor (one mask each);
-                 names → semantic predictor (best instance + alternatives)
+Photo → person types a name for each object on the website
+      → SAM 3.1 semantic predictor (best instance + alternatives)
       → person refines/confirms masks → one Fast-SAM3D job per object → N .ply files
 ```
 
@@ -451,11 +470,17 @@ All .ply files in catalog
    shipped Unity player must never call NemoClaw, Unity MCP, the authoring
    backend, or any AWS service at runtime. Only the public backend API is
    allowed in a shipped build. For the Collaborative VR track, the public
-   API includes the `/v1/rooms/*` routes and `/v1/auth/meta/session` and
-   `/link-code`, and the player may also use the Meta Platform SDK and
-   Unity Multiplayer Services. Headsets authenticate with a backend room
-   token (from a verified Meta user proof), never with a Clerk secret, and
-   never call blueprint create/publish directly.
+   API includes the `/v1/rooms/*` routes, and the player may also use
+   Unity Multiplayer Services (anonymous sign-in,
+   decision 2026-09-26 — see `collab-vr-accounts-and-gates`). Headsets
+   authenticate to the backend the same way the website does: the
+   `X-SketchScape-Dev-User` header, restricted to the two
+   `SKETCHSCAPE_DEMO_USERS` in `demo` mode, sent directly by the headset —
+   never a Clerk secret, never a Meta room token (retired, R13). Headsets
+   never call blueprint create/publish directly. The guide bot's
+   `/v1/rooms/{project_id}/guide/*` routes (Build Plan step 32) are part of
+   this public room API. The backend makes the Muse Spark call behind them,
+   so the headset never calls a model provider and never holds a model key.
 
 5. **Within a job, SAM 3.1 and Fast-SAM3D never hold GPU memory at the
    same time.** Release SAM 3.1 memory before starting Fast-SAM3D.
@@ -478,10 +503,10 @@ All .ply files in catalog
    place of failed objects.
 
 8. **Run `bash scripts/verify_local.sh` after every backend change** and
-   confirm all tests pass before reporting done. Currently 102 tests (2 are
+   confirm all tests pass before reporting done. Currently 219 backend tests plus 33 worker tests (2 backend tests are
    skipped either way, depending on whether `boto3` is installed).
 
-9. **Collaborative VR + web accounts steps (13–29) are gated.** Before writing any code or
+9. **Collaborative VR + web accounts steps (13–29) and guided tour bot steps (30–34) are gated.** Before writing any code or
    config for one, run `python3 scripts/check_collab_gates.py <step>`. If
    it says BLOCKED, stop: don't implement, stub, fake, or work around the
    missing prerequisite. Tell the user what is missing and offer to do that
@@ -501,7 +526,7 @@ backend/           FastAPI backend — the only process Unity talks to
   storage.py        AuthoringStore — LocalJsonStore + DynamoDbStore
   artifact_store.py ArtifactStore — LocalArtifactStore + S3ArtifactStore
   subject_labeler.py identify_subject labeler (mock built; NemoClaw path is step 4a)
-  auth.py          Identity verification — SKETCHSCAPE_AUTH_MODE=mock|clerk (step 16)
+  auth.py          Identity verification — SKETCHSCAPE_AUTH_MODE=mock|demo|clerk (step 16)
   test_api.py       API contract tests (run these)
   test_storage.py   Storage + artifact store tests (run these)
   test_subject_labeler.py  Subject labeler tests (run these)
@@ -522,7 +547,7 @@ infra/aws/         Terraform — GPU EC2, DynamoDB, S3, IAM
 
 scripts/
   verify_local.sh           Run this after every change
-  check_collab_gates.py     Gate check for steps 13–29 + secret scan (Hard Rule 9)
+  check_collab_gates.py     Gate check for steps 13–34 + secret scan (Hard Rule 9)
   start_mock_demo.sh        Start the backend in mock mode for the Unity demo
   smoke_test_aws_storage.py Live DynamoDB + S3 verification
   export_unity_experience.py Package .ply files into Unity project
@@ -557,11 +582,12 @@ its current contents before relying on any of them.
 
 | Area | Status |
 |---|---|
-| Backend API (upload, poll, mock pipeline, safe edits) | ✅ done, 102 tests passing (2 skipped) |
-| Identity (`SKETCHSCAPE_AUTH_MODE=mock\|clerk`, authors on revisions) | ✅ done — Meta room tokens wait on Build Plan step 18 |
+| Backend API (upload, poll, mock pipeline, safe edits, room API) | ✅ done, 219 backend + 33 worker tests passing (2 skipped) |
+| Identity (`SKETCHSCAPE_AUTH_MODE=mock\|demo\|clerk`; `demo` — two hardcoded accounts — is the real identity model for this track, decision 2026-09-26; authors on revisions) | ✅ done, including NemoClaw's shared-bearer-token service identity (R14, `SKETCHSCAPE_NEMOCLAW_TOKEN`) |
+| Membership, invites, ownership, `room_prompt` | ✅ done — Build Plan step 17 |
 | `identify_subject` mock labeler (`SKETCHSCAPE_SUBJECT_LABELER=mock`) | ✅ done — live NemoClaw path waits on Build Plan step 3 |
 | GPU pipeline (SAM 3.1 → Fast-SAM3D, `worker_server.py`) | ✅ verified end-to-end on an L40S (g6e.xlarge): 70 s, 53 MB PLY; instance stopped |
-| Notability sketch direct display / SAM3D memory plaque | ⬜ not started — see Build Plan step 7 |
+| Notability sketch direct display / SAM3D memory plaque | 🟡 flat card built (`POST /v1/projects/{id}/sketch-assets`); plaque path wired to existing reconstruction but legibility unverified on GPU — Build Plan step 7 |
 | Project + asset catalog with multi-view provenance | ✅ done |
 | Versioned blueprint system with append-only publication log | ✅ done |
 | Local JSON store (atomic writes, restart-safe) | ✅ done |
@@ -579,7 +605,7 @@ its current contents before relying on any of them.
 
 | Area | What exists | What's missing |
 |---|---|---|
-| GPU worker | Verified for one object per job | Several objects per photo, durable jobs, dispatcher (Build Plan steps 26–27) |
+| GPU worker | Verified for one object per job (push path, unchanged). Step 27's multi-object segmentation, `worker/gpu_dispatcher.py` claim/lease loop, and per-selection result routes are built and unit-tested (mocks/fakes, no GPU) | An approved real-GPU run: one photo with 3 typed names -> 3 masks -> 3 PLYs, two uploads in flight, and the `SKETCHSCAPE_GPU_CONCURRENCY` benchmark (`worker/benchmark_concurrency.py`) or "kept at 1" recorded in `docs/BUILD_PLAN.md` step 27 |
 | Cloud backends on EC2 host | DynamoDB + S3 provisioned | Env vars not set on the running API process |
 | Gaussian-splat rendering | UnitySplats installed | Never loaded a real Fast-SAM3D `.ply`; Quest perf unverified |
 | Unity offline builder | Exists | Still falls back to placeholder primitives — needs that code removed |
@@ -602,7 +628,11 @@ its current contents before relying on any of them.
 Replaces the old sketch → image-generation → reconstruction pipeline, which
 was removed entirely (`POST /v1/sketches`, `backend/image_gen.py`). See
 `docs/BUILD_PLAN.md` step 7 for the two-path plan (flat-quad direct display,
-SAM3D-reconstructed memory plaque with embedded text). Not started.
+SAM3D-reconstructed memory plaque with embedded text). Path 1 (flat card)
+is built: `POST /v1/projects/{id}/sketch-assets` with `display=card`.
+`display=plaque` sends the page through the existing reconstruction
+unchanged; whether its text survives Fast-SAM3D legibly is not yet verified
+on the GPU, so treat it as opt-in.
 
 ### 2 — GPU instance end-to-end verification
 ✅ Done: verified on an L40S (g6e.xlarge, us-east-2) — see
@@ -832,7 +862,8 @@ working. Requires a GPU-side fusion strategy.
 **Not started. Now Build Plan steps 19–20 (gated).**
 
 Build `app/` in this repo as a Vite + React + TypeScript + Zustand +
-Tailwind + lucide-react web app with Clerk (`@clerk/react`). Match the
+Tailwind + lucide-react web app with an account picker between the two
+hardcoded accounts (no Clerk — decision 2026-09-26). Match the
 [logseq_new](https://github.com/OmSanghvi/logseq_new) repo's clean dark
 aesthetic — sidebar, main content area, clear visual hierarchy.
 
@@ -921,6 +952,17 @@ META_MODEL_API_KEY=                    # secret, runtime only
 XAI_API_KEY=                           # secret, runtime only
 NEBIUS_API_KEY=                        # secret, runtime only
 
+# Guided tour bot (Build Plan steps 30-34; not yet implemented).
+# The backend makes the Muse call; the key stays in the backend process env only.
+SKETCHSCAPE_TOUR_AUTHOR=mock           # mock | nemoclaw (step 31)
+SKETCHSCAPE_GUIDE_MODEL_PROVIDER=mock  # mock | meta (Muse Spark) | xai | nebius; uses META_MODEL_API_KEY etc.
+SKETCHSCAPE_GUIDE_MODEL=               # optional override (default muse-spark-1.3 on meta)
+SKETCHSCAPE_GUIDE_ROUTING=hybrid       # hybrid (next/repeat scripted, questions to the model) | model_all (eval only)
+SKETCHSCAPE_GUIDE_MODEL_TIMEOUT_S=8    # over this, the turn falls back to the step's scripted narration
+SKETCHSCAPE_GUIDE_TTS=none             # none | mms (Meta MMS-TTS, CPU; needs backend/requirements-tts.txt)
+SKETCHSCAPE_GUIDE_MAX_TURNS_PER_SESSION=60
+SKETCHSCAPE_GUIDE_DAILY_MODEL_TURNS=500  # per project; over it, model events fall back to the mock guide
+
 # Subject labeling for uploads (Build Plan step 4a; mock is built)
 SKETCHSCAPE_SUBJECT_LABELER=mock       # mock | nemoclaw
 
@@ -930,17 +972,22 @@ SKETCHSCAPE_GPU_CONCURRENCY=1          # raise only after an approved VRAM bench
 SKETCHSCAPE_JOB_MAX_ATTEMPTS=2
 SKETCHSCAPE_JOB_LEASE_SECONDS=900
 
-# Accounts (step 16 auth core is built; Meta room tokens / Quest linking are
-# step 18). mock: dev identity header, offline only; the API refuses to start
-# in mock mode with dynamodb storage or a non-mock pipeline. Secrets below
-# live only in backend secret storage.
-SKETCHSCAPE_AUTH_MODE=mock             # mock | clerk
-CLERK_SECRET_KEY=                      # secret — never in a file, commit, or chat
-SKETCHSCAPE_WEB_ORIGINS=http://localhost:5173  # CORS + Clerk authorized_parties; never * in clerk mode
-SKETCHSCAPE_META_ENABLED=false         # Quest Meta-account sign-in + linking
-SKETCHSCAPE_META_APP_ID=               # public
-SKETCHSCAPE_META_APP_SECRET=           # secret
-SKETCHSCAPE_ROOM_TOKEN_SECRET=         # secret, >=32 random bytes; signs headset room tokens
+# Accounts (step 16 auth core is built). demo: two hardcoded accounts, the
+# real identity model for this track (decision 2026-09-26, no Clerk/Meta
+# account setup — see collab-vr-accounts-and-gates). mock: dev identity
+# header, offline only; the API refuses to start in mock mode with
+# dynamodb storage or a non-mock pipeline.
+SKETCHSCAPE_AUTH_MODE=mock             # mock | demo | clerk (clerk is unused by this plan, kept for a possible future upgrade)
+SKETCHSCAPE_WEB_ORIGINS=http://localhost:5173  # CORS; never * in demo or clerk mode. Comma-separated;
+                                                # production example: http://localhost:5173,https://returnweb-hazel.vercel.app
+                                                # (the live web app's origin)
+SKETCHSCAPE_DEMO_USERS=demo-alice,demo-bob     # exactly two accounts, demo mode only; also what the
+                                                # website's and Quest's account switcher offers as
+                                                # "Account 1"/"Account 2" (collab-vr-accounts-and-gates)
+CLERK_SECRET_KEY=                      # secret, clerk mode only (unused by this plan) — never in a file, commit, or chat
+SKETCHSCAPE_NEMOCLAW_TOKEN=            # secret, shared bearer token for NemoClaw's service identity (R14,
+                                        # step 21/24) — >=32 chars, matches SKETCHSCAPE_WORKER_TOKEN's pattern.
+                                        # Leave unset locally; never in a file, commit, or chat.
 
 # Storage backend (local is default; dynamodb for cloud)
 SKETCHSCAPE_STORAGE_BACKEND=local
@@ -964,7 +1011,7 @@ step 7 for what replaces this.
 
 ```bash
 # After any backend Python change:
-bash scripts/verify_local.sh          # must pass, currently 102 tests (2 skipped)
+bash scripts/verify_local.sh          # must pass, currently 219 backend + 33 worker tests (2 skipped)
 
 # After any Terraform change:
 cd infra/aws
@@ -1025,7 +1072,7 @@ building, not a skill for the whole project at once.
 | `unity-offline-builder-and-rendering` | 11 (parallel) |
 | `demo-video-prep` | 12 |
 | `collab-vr-accounts-and-gates` | 13 (load first for any of 13–29) |
-| `meta-quest-identity` | 14, 18 |
+| `meta-quest-identity` | retired (14, 18 no longer built; kept for reference) |
 | `backend-revision-concurrency` | 15 |
 | `backend-auth-clerk` | 16 |
 | `room-api-and-ownership` | 17, 21 |
@@ -1039,4 +1086,8 @@ building, not a skill for the whole project at once.
 | `gpu-multi-object-worker` | 27 |
 | `letters-backend-and-web` | 28 |
 | `letters-vr-envelope` | 29 |
+| `guided-tour-contract` | 30 |
+| `nemoclaw-tour-authoring` | 31 |
+| `muse-guide-runtime` | 32 |
+| `unity-guide-bot` | 33, 34 |
 | `nemoclaw-model-providers` | 3 (model config), and any change to NemoClaw's model |

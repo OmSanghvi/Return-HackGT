@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+<head><meta charset="utf-8"><title>Button</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="../components/bundle.js"></script></head>
+<body>
+<div id="root"></div>
+<script>
+var R = window.Return, h = React.createElement;
+var IMG = { meadow: '../imagery/web/return-sky-day-meadow-lake.webp', plain: '../imagery/web/return-sky-day-golden-plain.webp', home: '../imagery/web/return-sky-day-hilltop-home.webp', beach: '../imagery/web/return-sky-day-morning-beach.webp', clouds: '../imagery/web/return-sky-day-cloud-field.webp', painted: '../imagery/web/return-sky-golden-painted-clouds.webp', cloudsea: '../imagery/web/return-sky-dusk-cloud-sea.webp', night: '../imagery/web/return-sky-dusk-night-lake.webp' };
+var LOGO = { lockupWhite: '../logos/return-lockup-white.svg', lockupInk: '../logos/return-lockup-ink.svg', markWhite: '../logos/return-mark-white.svg', markInk: '../logos/return-mark-ink.svg' };
+ReactDOM.createRoot(document.getElementById('root')).render(h('div', null,
+  h('div', { className: 'rt-stage', style: { alignItems: 'center' } },
+    h(R.Button, { variant: 'primary', arrow: 'arrowUpRight' }, 'Start your return'),
+    h(R.Button, { variant: 'primary', icon: 'headset' }, 'Return in VR'),
+    h(R.Button, { variant: 'secondary', icon: 'people' }, 'Share'),
+    h(R.Button, { variant: 'ghost' }, 'Cancel'),
+    h(R.Button, { variant: 'danger' }, 'Delete room'),
+    h(R.Button, { variant: 'primary', loading: true }, 'Uploading'),
+    h(R.Button, { variant: 'primary', disabled: true }, 'Build')),
+  h('div', { className: 'rt-hero rt-hero-bottom-left', style: { minHeight: 180, margin: '0 var(--space-5) var(--space-5)' } },
+    h('div', { className: 'rt-hero-media' }, h('img', { className: 'rt-img', src: IMG.meadow, alt: '' }), h('div', { className: 'rt-scrim-center' })),
+    h('div', { className: 'rt-stage', style: { alignItems: 'center', justifyContent: 'center', flex: 1 } },
+      h(R.Button, { variant: 'light', size: 'lg', arrow: true }, 'Walk back in'),
+      h(R.Button, { variant: 'glass', size: 'lg', arrow: 'arrowUpRight' }, 'Start your return'),
+      h(R.Button, { variant: 'glass', icon: 'play' }, 'Watch the film'),
+      h(R.Button, { variant: 'text', iconAfter: 'arrowRight' }, 'How it works')))));
+</script>
+</body>
+</html>

@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Prerequisite gates for the Collaborative VR + web accounts track (docs/BUILD_PLAN.md steps 13-29).
+"""Prerequisite gates for the Collaborative VR + web accounts track (docs/BUILD_PLAN.md steps
+13-29) and the guided tour bot track (steps 30-34). Identity is two hardcoded accounts (SKETCHSCAPE_AUTH_MODE=demo) selected with an
+in-app account switcher -- there is no Clerk or Meta account setup in this plan (decision
+2026-09-26). Steps 14 and 18, which were Quest Meta-identity work, are retired.
 
 Usage:
   python3 scripts/check_collab_gates.py <step>        # may I START this step? checks all prerequisites
@@ -24,7 +27,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BACKEND = ROOT / "backend"
-APP = ROOT / "app"
+APP = ROOT / "web-app"
 GATES_FILE = ROOT / "config" / "collab-vr" / "gates.json"
 TOOLS_FILE = ROOT / "config" / "nemoclaw" / "sketchscape-tools.json"
 UNITY = Path(os.environ.get("SKETCHSCAPE_UNITY_PROJECT", ROOT.parent / "HackGTUnity")).resolve()
@@ -35,7 +38,7 @@ SECRET_PATTERNS = {
     "xAI API key": re.compile(r"\bxai-[A-Za-z0-9]{20,}"),
     "secret assigned in a file": re.compile(
         r"\b(CLERK_SECRET_KEY|META_MODEL_API_KEY|XAI_API_KEY|NEBIUS_API_KEY|SKETCHSCAPE_META_APP_SECRET|"
-        r"SKETCHSCAPE_ROOM_TOKEN_SECRET|SKETCHSCAPE_WORKER_TOKEN)[ \t]*[=:][ \t]*[\"']?(?!<|your|\$)[A-Za-z0-9_.\-/+]{16,}"
+        r"SKETCHSCAPE_ROOM_TOKEN_SECRET|SKETCHSCAPE_WORKER_TOKEN|SKETCHSCAPE_NEMOCLAW_TOKEN)[ \t]*[=:][ \t]*[\"']?(?!<|your|\$)[A-Za-z0-9_.\-/+]{16,}"
     ),
 }
 VITE_SECRET_VAR = re.compile(r"\bVITE_[A-Z0-9_]*SECRET[A-Z0-9_]*\b")
@@ -80,21 +83,14 @@ def exists(path: Path) -> tuple[bool, str]:
     return path.exists(), f"{rel(path)} {'exists' if path.exists() else 'does not exist'}"
 
 
-def any_requirements(needle: str) -> tuple[bool, str]:
-    for req in BACKEND.glob("requirements*.txt"):
-        if needle in read(req):
-            return True, f"backend/{req.name} lists {needle}"
-    return False, f"no backend/requirements*.txt lists {needle}"
-
-
 def app_source_contains(needle: str, label: str) -> tuple[bool, str]:
     src = APP / "src"
     if not src.exists():
-        return False, "app/src does not exist"
+        return False, "web-app/src does not exist"
     for path in src.rglob("*"):
         if path.suffix in {".ts", ".tsx", ".js", ".jsx"} and needle in read(path):
             return True, f"{rel(path)} has {label}"
-    return False, f"nothing under app/src has {label}"
+    return False, f"nothing under web-app/src has {label}"
 
 
 def unity_cloud_linked() -> tuple[bool, str]:
@@ -156,7 +152,7 @@ def _candidate_files() -> list[Path]:
         paths = [ROOT / f for f in listed]
     except (OSError, subprocess.CalledProcessError):
         paths = [p for p in ROOT.rglob("*") if not {".venv", ".git", "node_modules"} & set(p.parts)]
-    # Vite bakes VITE_* variables from app/.env* into the public bundle even though .env is git-ignored.
+    # Vite bakes VITE_* variables from web-app/.env* into the public bundle even though .env is git-ignored.
     if APP.exists():
         paths += [p for p in APP.glob(".env*")]
     if UNITY.exists():
@@ -186,7 +182,6 @@ def no_leaked_secrets() -> tuple[bool, str]:
 MAIN = BACKEND / "main.py"
 STORAGE = BACKEND / "storage.py"
 AUTH = BACKEND / "auth.py"
-META = BACKEND / "meta_identity.py"
 TEST_API = BACKEND / "test_api.py"
 
 STEPS: dict[int, dict] = {
@@ -198,59 +193,48 @@ STEPS: dict[int, dict] = {
                    lambda: contains(MAIN, "/v1/projects/{project_id}/contributions", "contributions route")]},
     3: {"title": "NemoClaw agent + Unity MCP setup", "skill": "nemoclaw-agent-setup", "deps": [],
         "checks": [lambda: manual("nemoclaw_agent_ready")]},
+    5: {"title": "connection/compose endpoint (mock path)", "skill": "connection-compose-endpoint", "deps": [1, 2],
+        "checks": [lambda: contains(MAIN, "/v1/projects/{project_id}/connection/compose", "compose route")]},
     7: {"title": "Notability sketch assets (flat card + memory plaque)", "skill": "sketch-image-gen-backends", "deps": [],
         "checks": [lambda: contains(MAIN, "/sketch-assets", "sketch asset route")]},
-    13: {"title": "Accounts: Clerk app, Meta app + test users, Unity Meta provider", "skill": "collab-vr-accounts-and-gates", "deps": [],
-         "checks": [lambda: manual("scope_approved"), unity_cloud_linked, lambda: manual("clerk_app_ready"),
-                    lambda: manual("meta_app_ready"), lambda: manual("unity_meta_provider_configured")]},
-    14: {"title": "Quest Meta identity spike on a real headset", "skill": "meta-quest-identity", "deps": [13],
-         "checks": [lambda: manual("quest_meta_identity_spike_passed")]},
+    13: {"title": "Collaborative VR + web accounts: scope approval", "skill": "collab-vr-accounts-and-gates", "deps": [],
+         "checks": [lambda: manual("scope_approved")]},
     15: {"title": "Backend revision safety (based_on_revision, conditional writes, LIVE pointer)", "skill": "backend-revision-concurrency", "deps": [],
          "checks": [lambda: count_at_least(STORAGE, "attribute_not_exists", 2, "conditional puts"),
                     lambda: contains(MAIN, "base_revision", "base_revision handling"),
                     lambda: contains(STORAGE, "set_live_revision", "LIVE pointer compare-and-set"),
                     lambda: contains(TEST_API, "base_revision", "base_revision tests")]},
-    16: {"title": "Backend auth core (Clerk web sessions + NemoClaw M2M, mock mode, fail-fast)", "skill": "backend-auth-clerk", "deps": [15],
+    16: {"title": "Backend auth core (hardcoded demo accounts, mock mode, fail-fast)", "skill": "backend-auth-clerk", "deps": [15],
          "checks": [lambda: exists(AUTH),
                     lambda: contains(AUTH, "SKETCHSCAPE_AUTH_MODE", "SKETCHSCAPE_AUTH_MODE"),
-                    lambda: contains(AUTH, "session_token", "Clerk session_token verification"),
-                    lambda: contains(AUTH, "m2m_token", "Clerk m2m_token verification"),
-                    lambda: contains(AUTH, "authorized_parties", "authorized_parties check"),
-                    lambda: any_requirements("clerk-backend-api"),
+                    lambda: contains(AUTH, "SKETCHSCAPE_DEMO_USERS", "hardcoded demo accounts"),
                     lambda: exists(BACKEND / "test_auth.py")]},
-    17: {"title": "Membership, invites, contributor <-> Clerk user binding, object ownership", "skill": "room-api-and-ownership", "deps": [2, 16],
-         "checks": [lambda: contains(MAIN, "clerk_user_id", "clerk_user_id on Contributor"),
+    17: {"title": "Membership, invites, contributor <-> account binding, object ownership", "skill": "room-api-and-ownership", "deps": [2, 16],
+         "checks": [lambda: contains(MAIN, "clerk_user_id", "account id on Contributor"),
                     lambda: contains(MAIN, "invite_code", "project invite code"),
                     lambda: contains(TEST_API, "clerk_user_id", "membership/ownership tests")]},
-    18: {"title": "Meta identity exchange + Quest account linking (backend)", "skill": "meta-quest-identity", "deps": [14, 16],
-         "checks": [lambda: exists(META),
-                    lambda: contains(META, "user_nonce_validate", "Meta nonce validation"),
-                    lambda: contains(MAIN, "/v1/auth/meta/session", "Meta session route"),
-                    lambda: contains(MAIN, "/v1/auth/meta/link", "Meta link routes"),
-                    lambda: exists(BACKEND / "test_meta_identity.py")]},
-    19: {"title": "Web app foundation (app/: React + Vite + @clerk/react, API client)", "skill": "web-app-foundation", "deps": [13, 16],
-         "checks": [lambda: contains(APP / "package.json", "@clerk/react", "@clerk/react"),
-                    lambda: contains(APP / "package.json", "vite", "vite"),
-                    lambda: app_source_contains("getToken", "Clerk getToken() bearer calls")]},
-    20: {"title": "Web uploads with object-selection canvas, Notability sketches, optional text, Link Quest page", "skill": "web-uploads-and-linking", "deps": [7, 17, 18, 19, 26],
+    19: {"title": "Web app foundation (web-app/: React + Vite, hardcoded-account picker, API client)", "skill": "web-app-foundation", "deps": [16],
+         "checks": [lambda: contains(APP / "package.json", "vite", "vite"),
+                    lambda: app_source_contains("X-SketchScape-Dev-User", "account-picker header on every API call")]},
+    20: {"title": "Web uploads with object-name entry, Notability sketches, optional text, invites", "skill": "web-uploads-and-linking", "deps": [7, 17, 19, 26],
          "checks": [lambda: app_source_contains("/uploads", "upload call"),
-                    lambda: app_source_contains("/selections", "selection canvas submit"),
+                    lambda: app_source_contains("/selections", "selection submit"),
                     lambda: app_source_contains("/jobs", "batch job polling"),
                     lambda: app_source_contains("/sketch-assets", "sketch upload call"),
-                    lambda: app_source_contains("memory_text", "optional memory text"),
-                    lambda: app_source_contains("/v1/auth/meta/link", "Link Quest page")]},
-    21: {"title": "Public room API (/v1/rooms/{project_id}/state, /edits)", "skill": "room-api-and-ownership", "deps": [15, 17, 18],
+                    lambda: app_source_contains("memory_text", "optional memory text")]},
+    21: {"title": "Public room API (/v1/rooms/{project_id}/state, /edits), hardcoded-account switcher", "skill": "room-api-and-ownership", "deps": [15, 17],
          "checks": [lambda: contains(MAIN, "/v1/rooms/{project_id}/state", "room state route"),
                     lambda: contains(MAIN, "/v1/rooms/{project_id}/edits", "room edits route"),
                     lambda: contains(TEST_API, "/v1/rooms/", "room API tests")]},
-    22: {"title": "Unity networking (Meta sign-in, Multiplayer Services, NGO 2.x, Distributed Authority)", "skill": "unity-cloud-collaborative-vr", "deps": [13, 14],
-         "checks": [lambda: unity_has("com.unity.services.multiplayer"),
+    22: {"title": "Unity networking (anonymous sign-in + account switcher, Multiplayer Services, NGO 2.x, Distributed Authority)", "skill": "unity-cloud-collaborative-vr", "deps": [],
+         "checks": [unity_cloud_linked,
+                    lambda: unity_has("com.unity.services.multiplayer"),
                     lambda: unity_package_major("com.unity.netcode.gameobjects", 2),
-                    lambda: unity_script_contains("SignInWithOculusAsync"),
-                    lambda: unity_script_contains("WithDistributedAuthorityNetwork")]},
-    23: {"title": "Unity backprop client (room token, save on settle, session-owner polling)", "skill": "vr-edit-cloud-backprop-sync", "deps": [21, 22],
-         "checks": [lambda: unity_script_contains("v1/rooms/"),
-                    lambda: unity_script_contains("v1/auth/meta/session")]},
+                    lambda: unity_script_contains("WithDistributedAuthorityNetwork"),
+                    lambda: unity_script_contains("AccountSwitcher"),
+                    lambda: manual("account_switcher_verified")]},
+    23: {"title": "Unity backprop client (save on settle, session-owner polling)", "skill": "vr-edit-cloud-backprop-sync", "deps": [21, 22],
+         "checks": [lambda: unity_script_contains("v1/rooms/")]},
     24: {"title": "NemoClaw room tools", "skill": "top-tier-nemoclaw-tool-design", "deps": [3, 15, 16, 21],
          "checks": [lambda: tool_implemented("room.state.fetch"), lambda: tool_implemented("room.edit.draft")]},
     25: {"title": "Two-headset + web end-to-end verification", "skill": "collab-vr-device-verification", "deps": [20, 23, 29],
@@ -276,7 +260,30 @@ STEPS: dict[int, dict] = {
                     lambda: app_source_contains("/letters", "letter web form")]},
     29: {"title": "Letters in VR: envelope, networked open animation, 3D paper page", "skill": "letters-vr-envelope", "deps": [22, 28],
          "checks": [lambda: unity_script_contains("/letters/"),
-                    lambda: unity_script_contains("LetterEnvelope")]},
+                    lambda: unity_script_contains("LetterEnvelope"),
+                    lambda: unity_script_contains("NetworkVariable<")]},
+    30: {"title": "Guided tour contract: schema, validation, storage, authoring + activation API, mock author", "skill": "guided-tour-contract", "deps": [5, 15, 17],
+         "checks": [lambda: exists(ROOT / "shared" / "guided-tour.schema.json"),
+                    lambda: contains(MAIN, "/v1/projects/{project_id}/tours", "tour routes"),
+                    lambda: contains(MAIN, "def validate_guided_tour", "tour validator"),
+                    lambda: contains(STORAGE, "def set_active_tour_version", "TOURLIVE compare-and-set"),
+                    lambda: exists(BACKEND / "test_guided_tour.py")]},
+    31: {"title": "NemoClaw author_guided_tour (live tour authoring)", "skill": "nemoclaw-tour-authoring", "deps": [3, 30],
+         "checks": [lambda: contains(AUTH, "SKETCHSCAPE_NEMOCLAW_TOKEN", "NemoClaw service token (R14)"),
+                    lambda: tool_implemented("tour.draft")]},
+    32: {"title": "Guide runtime: room guide API, Muse Spark guide_turn, grounding validator, session memory, TTS", "skill": "muse-guide-runtime", "deps": [30],
+         "checks": [lambda: contains(MAIN, "/v1/rooms/{project_id}/guide/sessions", "guide session routes"),
+                    lambda: contains(BACKEND / "guide_tools.py", "guide_turn", "per-tour guide_turn tool schema"),
+                    lambda: contains(BACKEND / "guide_validator.py", "def validate_turn", "grounding validator"),
+                    lambda: exists(BACKEND / "test_guide.py"),
+                    lambda: exists(ROOT / "scripts" / "guide_cli.py")]},
+    33: {"title": "Unity guide bot (single headset)", "skill": "unity-guide-bot", "deps": [32],
+         "checks": [lambda: unity_script_contains("class SketchScapeGuideBot"),
+                    lambda: unity_script_contains("/guide/sessions"),
+                    lambda: manual("guide_bot_verified")]},
+    34: {"title": "Shared guide bot across headsets (session owner drives it)", "skill": "unity-guide-bot", "deps": [22, 33],
+         "checks": [lambda: unity_script_contains("SubmitGuideEventRpc"),
+                    lambda: manual("shared_guide_verified")]},
 }
 
 

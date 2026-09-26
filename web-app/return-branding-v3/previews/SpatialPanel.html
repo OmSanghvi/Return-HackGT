@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+<head><meta charset="utf-8"><title>SpatialPanel</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="../components/bundle.js"></script></head>
+<body>
+<div id="root" style="height:420px"></div>
+<script>
+var R = window.Return, h = React.createElement;
+var IMG = { meadow: '../imagery/web/return-sky-day-meadow-lake.webp', plain: '../imagery/web/return-sky-day-golden-plain.webp', home: '../imagery/web/return-sky-day-hilltop-home.webp', beach: '../imagery/web/return-sky-day-morning-beach.webp', clouds: '../imagery/web/return-sky-day-cloud-field.webp', painted: '../imagery/web/return-sky-golden-painted-clouds.webp', cloudsea: '../imagery/web/return-sky-dusk-cloud-sea.webp', night: '../imagery/web/return-sky-dusk-night-lake.webp' };
+var LOGO = { lockupWhite: '../logos/return-lockup-white.svg', lockupInk: '../logos/return-lockup-ink.svg', markWhite: '../logos/return-mark-white.svg', markInk: '../logos/return-mark-ink.svg' };
+ReactDOM.createRoot(document.getElementById('root')).render(h('div', { className: 'rt-vr-scene', style: { height: '100%' } }, h('img', { className: 'rt-img', src: IMG.plain, alt: '' }), h(R.SpatialPanel, { eyebrow: 'Lake Norman · July 14, 2019', title: 'The lake house', width: 620,
+  actions: [h(R.Button, { key: 1, variant: 'secondary', icon: 'people' }, 'Invite'), h(R.Button, { key: 2, variant: 'primary', icon: 'enter' }, 'Step inside')] },
+  'Built from 11 photos by Dylan, Mom and Sam. Sam is here now.')));
+</script>
+</body>
+</html>

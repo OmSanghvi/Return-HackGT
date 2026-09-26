@@ -1,0 +1,31 @@
+/* Clickable chapter dots: keep the 6px look, add a 24px hit area and a focus ring. */
+.app-dots button { all: unset; box-sizing: border-box; position: relative; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--on-image); opacity: .45; cursor: pointer;
+  transition: opacity var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out); }
+.app-dots button::after { content: ''; position: absolute; inset: -9px; } /* 24px hit area */
+.app-dots button.on { opacity: 1; transform: scale(1.4); }
+.app-dots button:focus-visible { outline: 2px solid var(--on-image); outline-offset: 5px; border-radius: 50%; }
+
+/* Chapters 1-3: text left, visual right. Chapter 0 keeps the centered single column. */
+.rt-hero-bottom-left .rt-hero-body.rt-hero-split { flex-direction: row; justify-content: space-between; align-items: end; gap: var(--space-6); }
+.rt-hero-split .rt-hero-text { display: flex; flex-direction: column; gap: var(--space-5); flex: 1 1 auto; min-width: 0; }
+.rt-hero-visual { flex: 0 0 auto; max-width: 320px; }
+
+/* Chapter 2: a fanned stack of three photos that spreads and lifts on hover. */
+.rt-landing-fan { position: relative; width: 220px; height: 250px; }
+.rt-landing-photo { position: absolute; inset: 0; margin: auto; width: 180px; height: 240px; border-radius: var(--radius-lg);
+  background-size: cover; background-position: center; box-shadow: var(--shadow-float);
+  transform: rotate(var(--r)); transition: transform 400ms var(--ease-out); }
+.rt-landing-photo:nth-child(1) { z-index: 1; }
+.rt-landing-photo:nth-child(2) { z-index: 2; }
+.rt-landing-photo:nth-child(3) { z-index: 1; }
+@media (hover: hover) {
+  .rt-landing-fan:hover .rt-landing-photo:nth-child(1) { transform: rotate(var(--rh)) translateY(-10px); }
+  .rt-landing-fan:hover .rt-landing-photo:nth-child(2) { transform: rotate(var(--rh)) translateY(-14px); }
+  .rt-landing-fan:hover .rt-landing-photo:nth-child(3) { transform: rotate(var(--rh)) translateY(-10px); }
+}
+
+@media (max-width: 1280px) {
+  .rt-hero-visual { max-width: 240px; }
+  .rt-landing-fan { width: 180px; }
+}

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+<head><meta charset="utf-8"><title>PhotoDrop</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="../components/bundle.js"></script></head>
+<body>
+<div id="root"></div>
+<script>
+var R = window.Return, h = React.createElement;
+var IMG = { meadow: '../imagery/web/return-sky-day-meadow-lake.webp', plain: '../imagery/web/return-sky-day-golden-plain.webp', home: '../imagery/web/return-sky-day-hilltop-home.webp', beach: '../imagery/web/return-sky-day-morning-beach.webp', clouds: '../imagery/web/return-sky-day-cloud-field.webp', painted: '../imagery/web/return-sky-golden-painted-clouds.webp', cloudsea: '../imagery/web/return-sky-dusk-cloud-sea.webp', night: '../imagery/web/return-sky-dusk-night-lake.webp' };
+var LOGO = { lockupWhite: '../logos/return-lockup-white.svg', lockupInk: '../logos/return-lockup-ink.svg', markWhite: '../logos/return-mark-white.svg', markInk: '../logos/return-mark-ink.svg' };
+function Demo() {
+  var s = React.useState([{ src: IMG.meadow, name: 'IMG_2231.jpg' }, { src: IMG.beach, name: 'IMG_2232.jpg' }, { src: IMG.home, name: 'IMG_2240.jpg' }]);
+  return h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-5)', padding: 'var(--space-5)' } },
+    h(R.PhotoDrop, { photos: s[0], max: 8, onFiles: function (f) { s[1](s[0].concat(f.map(function (x) { return { src: URL.createObjectURL(x), name: x.name }; }))); }, onRemove: function (i) { s[1](s[0].filter(function (_, j) { return j !== i; })); } }),
+    h('div', { className: 'rt-hero', style: { minHeight: 0, padding: 'var(--space-5)', alignSelf: 'start' } },
+      h('div', { className: 'rt-hero-media' }, h('img', { className: 'rt-img', src: IMG.clouds, alt: '' })),
+      h(R.PhotoDrop, { onImage: true, active: true })));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h(Demo));
+</script>
+</body>
+</html>

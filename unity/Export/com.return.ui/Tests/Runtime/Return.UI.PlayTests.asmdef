@@ -1,0 +1,8 @@
+{
+  "name": "Return.UI.PlayTests",
+  "rootNamespace": "Return.UI.PlayTests",
+  "references": ["Return.UI", "UnityEngine.TestRunner", "UnityEditor.TestRunner", "Unity.TextMeshPro"],
+  "overrideReferences": true,
+  "precompiledReferences": ["nunit.framework.dll"],
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"]
+}

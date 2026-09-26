@@ -16,9 +16,10 @@ object is the subject and hands SAM 3.1 a short noun phrase.
   `SKETCHSCAPE_MAX_OBJECTS_PER_UPLOAD` (default 8). They're used only for
   naming and the optional "Suggest objects" helper, where they become
   *suggested* text selections the person keeps or deletes. The person
-  chooses which objects to mask and generate by clicking, boxing, or
-  naming them on the website (Build Plan steps 20, 26–27). The
-  single-object legacy path uses the first label.
+  chooses which objects to mask and generate by typing (or accepting the
+  suggested) name for them on the website — text-only, decision
+  2026-09-26 (Build Plan steps 20, 26–27). The single-object legacy path
+  uses the first label.
 - **Labels are SAM 3.1 concept prompts:** a noun plus one or two
   distinguishing attributes ("wicker armchair", "blue ceramic mug"). Never a
   relational sentence ("the chair left of the table") — SAM 3.1 does not

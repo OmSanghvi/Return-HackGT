@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+<head><meta charset="utf-8"><title>GlassNav</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="../components/bundle.js"></script></head>
+<body>
+<div id="root"></div>
+<script>
+var R = window.Return, h = React.createElement;
+var IMG = { meadow: '../imagery/web/return-sky-day-meadow-lake.webp', plain: '../imagery/web/return-sky-day-golden-plain.webp', home: '../imagery/web/return-sky-day-hilltop-home.webp', beach: '../imagery/web/return-sky-day-morning-beach.webp', clouds: '../imagery/web/return-sky-day-cloud-field.webp', painted: '../imagery/web/return-sky-golden-painted-clouds.webp', cloudsea: '../imagery/web/return-sky-dusk-cloud-sea.webp', night: '../imagery/web/return-sky-dusk-night-lake.webp' };
+var LOGO = { lockupWhite: '../logos/return-lockup-white.svg', lockupInk: '../logos/return-lockup-ink.svg', markWhite: '../logos/return-mark-white.svg', markInk: '../logos/return-mark-ink.svg' };
+ReactDOM.createRoot(document.getElementById('root')).render(h('div', { className: 'rt-hero', style: { minHeight: 180, margin: 'var(--space-5)', justifyContent: 'space-around', alignItems: 'center' } },
+  h('div', { className: 'rt-hero-media' }, h('img', { className: 'rt-img', src: IMG.clouds, alt: '' })),
+  h(R.GlassNav, { brand: h('img', { src: LOGO.lockupInk, alt: 'return' }), items: [{ label: 'How it works', active: true }, { label: 'Rooms' }, { label: 'For families' }], cta: h(R.Button, { variant: 'light', size: 'sm' }, 'Start your return') }),
+  h(R.GlassNav, { brandCenter: true, brand: h('img', { src: LOGO.markInk, alt: 'return', style: { height: 26 } }), items: [{ label: 'How it works' }, { label: 'Rooms' }, { label: 'Pricing' }, { label: 'Journal' }] })));
+</script>
+</body>
+</html>

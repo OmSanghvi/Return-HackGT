@@ -111,6 +111,19 @@ and submits only `scale_by`, `translate_by`, or `rotate_by` to
 `POST /v1/scene/actions`. The backend remains the policy authority and returns
 the complete updated scene.
 
+**Per-contributor edits (Build Plan step 8).** A compiled project scene carries
+a social manifest at `scene.meta.social` (`shared/social-manifest.schema.json`)
+saying which contributor owns each object. Set `SceneInteractionController`'s
+active contributor (`SetActiveContributor`) and every action it sends includes
+`contributor_id`; the backend then returns `403` for any object not attributed
+to that contributor. Requests without `contributor_id` (MCP/editor authoring)
+are unaffected. The id is self-asserted until the room API (step 21) replaces
+it with the account the headset authenticated as (the hardcoded-account
+header — no room token; see `collab-vr-accounts-and-gates`). The offline
+builder adds a `ContributorAttribution`
+component per attributed object, which draws a glowing base ring in the
+contributor's color — attribution is diegetic, never a name tag or panel.
+
 The Unity project also includes `SketchScapeMcpBridge` and constrained menu
 entries under **Tools → SketchScape → MCP**. MCP automation may inspect the
 registry or execute the bridge's configured safe action; it cannot name an

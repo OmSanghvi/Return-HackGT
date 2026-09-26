@@ -92,6 +92,14 @@ stop.
   recipient opens it, a second headset sees the animation in sync, a
   non-recipient is refused, and handwriting is readable at reading
   distance.
+- **Single-headset account-switcher check:** with only one headset, use
+  the account switcher (`collab-vr-accounts-and-gates`) — as
+  `demo-alice`, send a letter to `demo-bob`; switch to `demo-bob` and
+  confirm the sealed envelope shows and opens for him; switch back to
+  `demo-alice` and confirm she still sees it as sent/opened. These are the
+  same room-state/open calls either account makes
+  (`room-api-and-ownership`), just switching which account's header is
+  sent.
 
 ## Definition of done
 

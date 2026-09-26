@@ -5,3 +5,4 @@ boto3>=1.34,<2.0
 # Validates NemoClaw's place_objects_in_scene output against
 # shared/experience-blueprint.schema.json (Build Plan step 4).
 jsonschema>=4.19,<5.0
+Pillow>=10,<12

@@ -134,6 +134,65 @@ class MockIdentityTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 403)
 
 
+class DemoIdentityTests(unittest.TestCase):
+    """SKETCHSCAPE_AUTH_MODE=demo: exactly two hardcoded accounts."""
+
+    def test_known_demo_account_is_accepted(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "demo"}):
+            identity = auth.require_identity(make_request({"X-SketchScape-Dev-User": "demo-alice"}))
+        self.assertEqual(identity, auth.Identity(user_id="demo-alice", kind="user", via="demo"))
+
+    def test_other_known_demo_account_is_accepted(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "demo"}):
+            identity = auth.require_identity(make_request({"X-SketchScape-Dev-User": "demo-bob"}))
+        self.assertEqual(identity, auth.Identity(user_id="demo-bob", kind="user", via="demo"))
+
+    def test_unknown_account_is_rejected(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "demo"}):
+            with self.assertRaises(HTTPException) as ctx:
+                auth.require_identity(make_request({"X-SketchScape-Dev-User": "someone-else"}))
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_missing_header_is_rejected(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "demo"}):
+            with self.assertRaises(HTTPException) as ctx:
+                auth.require_identity(make_request())
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_accounts_are_configurable(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_DEMO_USERS": "carol,dave"}
+        with patch.dict(os.environ, env):
+            identity = auth.require_identity(make_request({"X-SketchScape-Dev-User": "carol"}))
+            self.assertEqual(identity.user_id, "carol")
+            with self.assertRaises(HTTPException):
+                auth.require_identity(make_request({"X-SketchScape-Dev-User": "demo-alice"}))
+
+    def test_misconfigured_account_count_raises(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_DEMO_USERS": "solo-user"}
+        with patch.dict(os.environ, env):
+            with self.assertRaises(RuntimeError):
+                auth.require_identity(make_request({"X-SketchScape-Dev-User": "solo-user"}))
+
+    def test_require_user_accepts_demo_identity(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "demo"}):
+            identity = auth.require_user(
+                auth.require_identity(make_request({"X-SketchScape-Dev-User": "demo-alice"}))
+            )
+        self.assertEqual(identity.kind, "user")
+
+    def test_require_service_rejects_demo_identity(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "demo"}):
+            with self.assertRaises(HTTPException) as ctx:
+                auth.require_service(
+                    auth.require_identity(make_request({"X-SketchScape-Dev-User": "demo-alice"}))
+                )
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_author_from_identity_records_demo_user(self) -> None:
+        identity = auth.Identity(user_id="demo-alice", kind="user", via="demo")
+        self.assertEqual(auth.author_from_identity(identity), "demo-alice")
+
+
 class ClerkIdentityTests(unittest.TestCase):
     """SKETCHSCAPE_AUTH_MODE=clerk, against a stubbed clerk_backend_api."""
 
@@ -267,6 +326,12 @@ class LegacyDemoRoutesModeGateTests(unittest.TestCase):
             self.assertEqual(client.get("/v1/scene").status_code, 200)
             self.assertEqual(client.get("/scene").status_code, 200)
 
+    def test_legacy_routes_404_in_demo_mode(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com"}
+        with patch.dict(os.environ, env), TestClient(app) as client:
+            self.assertEqual(client.get("/v1/scene").status_code, 404)
+            self.assertEqual(client.get("/scene").status_code, 404)
+
     def test_legacy_routes_404_in_clerk_mode(self) -> None:
         env = {
             "SKETCHSCAPE_AUTH_MODE": "clerk",
@@ -331,6 +396,29 @@ class StartupChecksTests(unittest.TestCase):
         }
         self._run(env)  # must not raise
 
+    def test_demo_with_empty_web_origins_refuses_to_start(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_WEB_ORIGINS": ""}
+        with self.assertRaises(RuntimeError):
+            self._run(env)
+
+    def test_demo_with_wildcard_web_origins_refuses_to_start(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com,*"}
+        with self.assertRaises(RuntimeError):
+            self._run(env)
+
+    def test_demo_with_misconfigured_accounts_refuses_to_start(self) -> None:
+        env = {
+            "SKETCHSCAPE_AUTH_MODE": "demo",
+            "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com",
+            "SKETCHSCAPE_DEMO_USERS": "only-one",
+        }
+        with self.assertRaises(RuntimeError):
+            self._run(env)
+
+    def test_demo_with_valid_config_starts_cleanly(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com"}
+        self._run(env)  # must not raise
+
     def test_mock_with_dynamodb_storage_refuses_to_start(self) -> None:
         env = {"SKETCHSCAPE_AUTH_MODE": "mock", "SKETCHSCAPE_STORAGE_BACKEND": "dynamodb"}
         with self.assertRaises(RuntimeError):
@@ -362,6 +450,210 @@ class StartupChecksTests(unittest.TestCase):
             os.environ.pop("CLERK_SECRET_KEY", None)
             with self.assertRaises(RuntimeError):
                 asyncio.run(enter_and_exit_lifespan())
+
+
+class NemoClawTokenTests(unittest.TestCase):
+    """R14: SKETCHSCAPE_NEMOCLAW_TOKEN gives a kind="service" identity.
+
+    Checked before the SKETCHSCAPE_AUTH_MODE dispatch (see auth._nemoclaw_identity),
+    so it's exercised here against `demo` -- the track's real, deployed mode.
+    """
+
+    TOKEN = "nemoclaw-shared-secret-" + "a" * 16  # >= auth.MIN_NEMOCLAW_TOKEN_LENGTH
+
+    def test_matching_bearer_token_gives_service_identity(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_NEMOCLAW_TOKEN": self.TOKEN}
+        with patch.dict(os.environ, env):
+            identity = auth.require_identity(make_request({"Authorization": f"Bearer {self.TOKEN}"}))
+        self.assertEqual(identity.kind, "service")
+        self.assertEqual(identity.via, "nemoclaw")
+        self.assertEqual(identity.user_id, "nemoclaw:default")
+
+    def test_custom_nemoclaw_id_header_changes_the_author_id(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_NEMOCLAW_TOKEN": self.TOKEN}
+        with patch.dict(os.environ, env):
+            identity = auth.require_identity(
+                make_request(
+                    {"Authorization": f"Bearer {self.TOKEN}", "X-SketchScape-NemoClaw-Id": "prod-1"}
+                )
+            )
+        self.assertEqual(identity.user_id, "nemoclaw:prod-1")
+
+    def test_wrong_token_falls_through_to_demo_header_check(self) -> None:
+        env = {
+            "SKETCHSCAPE_AUTH_MODE": "demo",
+            "SKETCHSCAPE_WEB_ORIGINS": "https://app.example.com",
+            "SKETCHSCAPE_NEMOCLAW_TOKEN": self.TOKEN,
+        }
+        with patch.dict(os.environ, env):
+            with self.assertRaises(HTTPException) as ctx:
+                auth.require_identity(make_request({"Authorization": "Bearer not-the-token"}))
+        # Falls through to demo mode's header check, which sees no
+        # X-SketchScape-Dev-User at all -- an ordinary 401, not hijacked.
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_no_token_configured_never_produces_a_service_identity(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "mock"}):
+            os.environ.pop("SKETCHSCAPE_NEMOCLAW_TOKEN", None)
+            identity = auth.require_identity(make_request({"Authorization": "Bearer anything"}))
+        self.assertEqual(identity.kind, "dev")  # falls through to mock's own header check
+
+    def test_require_service_accepts_nemoclaw_identity(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_NEMOCLAW_TOKEN": self.TOKEN}
+        with patch.dict(os.environ, env):
+            identity = auth.require_service(
+                auth.require_identity(make_request({"Authorization": f"Bearer {self.TOKEN}"}))
+            )
+        self.assertEqual(identity.kind, "service")
+
+    def test_require_user_rejects_nemoclaw_identity(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "demo", "SKETCHSCAPE_NEMOCLAW_TOKEN": self.TOKEN}
+        with patch.dict(os.environ, env):
+            with self.assertRaises(HTTPException) as ctx:
+                auth.require_user(auth.require_identity(make_request({"Authorization": f"Bearer {self.TOKEN}"})))
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_author_from_identity_records_nemoclaw_service(self) -> None:
+        identity = auth.Identity(user_id="nemoclaw:default", kind="service", via="nemoclaw")
+        self.assertEqual(auth.author_from_identity(identity), "nemoclaw:default")
+
+    def test_short_token_refuses_to_start(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "mock", "PIPELINE_MODE": "mock", "SKETCHSCAPE_NEMOCLAW_TOKEN": "too-short"}
+        with patch.dict(os.environ, env):
+            with self.assertRaises(RuntimeError):
+                auth.run_startup_checks()
+
+    def test_long_token_starts_cleanly(self) -> None:
+        env = {"SKETCHSCAPE_AUTH_MODE": "mock", "PIPELINE_MODE": "mock", "SKETCHSCAPE_NEMOCLAW_TOKEN": self.TOKEN}
+        with patch.dict(os.environ, env):
+            auth.run_startup_checks()  # must not raise
+
+    def test_unset_token_starts_cleanly(self) -> None:
+        with patch.dict(os.environ, {"SKETCHSCAPE_AUTH_MODE": "mock", "PIPELINE_MODE": "mock"}):
+            os.environ.pop("SKETCHSCAPE_NEMOCLAW_TOKEN", None)
+            auth.run_startup_checks()  # must not raise
+
+
+class CorsPreflightTests(unittest.TestCase):
+    """Build Plan step 21: the production web app's origin passes CORS preflight.
+
+    main.py's CORSMiddleware is constructed exactly once, at import time, from
+    whatever env this process had when it first imported main -- so patching
+    os.environ and replaying a request through the already-imported `app`
+    (unlike identity/membership checks, which do read the environment per
+    request) can never observe a different live CORS configuration. This
+    instead calls ``main.cors_settings(...)``, the exact pure function
+    main.py's own middleware setup uses, and drives a real preflight
+    (OPTIONS + Access-Control-Request-*) against a fresh Starlette app built
+    from its result.
+    """
+
+    def test_production_vercel_origin_passes_preflight_in_demo_mode(self) -> None:
+        from fastapi.middleware.cors import CORSMiddleware
+        from starlette.applications import Starlette
+
+        env = {"SKETCHSCAPE_WEB_ORIGINS": "http://localhost:5173,https://returnweb-hazel.vercel.app"}
+        with patch.dict(os.environ, env):
+            origins, headers = main.cors_settings("demo")
+
+        probe = Starlette()
+        probe.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=False,
+            allow_methods=main.CORS_METHODS,
+            allow_headers=headers,
+            expose_headers=main.CORS_EXPOSE_HEADERS,
+        )
+        with TestClient(probe) as client:
+            response = client.options(
+                "/v1/rooms/any-project/state",
+                headers={
+                    "Origin": "https://returnweb-hazel.vercel.app",
+                    "Access-Control-Request-Method": "GET",
+                    "Access-Control-Request-Headers": "X-SketchScape-Dev-User",
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers.get("access-control-allow-origin"), "https://returnweb-hazel.vercel.app"
+        )
+
+    def test_unlisted_origin_is_rejected_in_demo_mode(self) -> None:
+        from fastapi.middleware.cors import CORSMiddleware
+        from starlette.applications import Starlette
+
+        env = {"SKETCHSCAPE_WEB_ORIGINS": "https://returnweb-hazel.vercel.app"}
+        with patch.dict(os.environ, env):
+            origins, headers = main.cors_settings("demo")
+
+        probe = Starlette()
+        probe.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=False,
+            allow_methods=main.CORS_METHODS,
+            allow_headers=headers,
+            expose_headers=main.CORS_EXPOSE_HEADERS,
+        )
+        with TestClient(probe) as client:
+            response = client.options(
+                "/v1/rooms/any-project/state",
+                headers={"Origin": "https://evil.example.com", "Access-Control-Request-Method": "GET"},
+            )
+        self.assertNotEqual(response.headers.get("access-control-allow-origin"), "https://evil.example.com")
+
+    def _demo_probe(self):
+        from fastapi.middleware.cors import CORSMiddleware
+        from starlette.applications import Starlette
+
+        with patch.dict(os.environ, {"SKETCHSCAPE_WEB_ORIGINS": "http://localhost:5173"}):
+            origins, headers = main.cors_settings("demo")
+        probe = Starlette()
+        probe.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=False,
+            allow_methods=main.CORS_METHODS,
+            allow_headers=headers,
+            expose_headers=main.CORS_EXPOSE_HEADERS,
+        )
+        return probe
+
+    def test_patch_and_delete_pass_preflight_in_demo_mode(self) -> None:
+        # R2: room_prompt save (PATCH) and selection removal (DELETE).
+        with TestClient(self._demo_probe()) as client:
+            for method in ("PATCH", "DELETE"):
+                response = client.options(
+                    "/v1/projects/any-project",
+                    headers={
+                        "Origin": "http://localhost:5173",
+                        "Access-Control-Request-Method": method,
+                        "Access-Control-Request-Headers": "X-SketchScape-Dev-User, Content-Type",
+                    },
+                )
+                self.assertEqual(response.status_code, 200, method)
+
+    def test_polling_conditional_get_passes_preflight_and_exposes_etag(self) -> None:
+        with TestClient(self._demo_probe()) as client:
+            preflight = client.options(
+                "/v1/projects/any-project/jobs",
+                headers={
+                    "Origin": "http://localhost:5173",
+                    "Access-Control-Request-Method": "GET",
+                    "Access-Control-Request-Headers": "If-None-Match, X-SketchScape-Dev-User",
+                },
+            )
+            self.assertEqual(preflight.status_code, 200)
+            actual = client.get("/anything", headers={"Origin": "http://localhost:5173"})
+            exposed = actual.headers.get("access-control-expose-headers", "").lower()
+            self.assertIn("etag", exposed)
+            self.assertIn("retry-after", exposed)
+
+    def test_mock_mode_default_allows_any_origin(self) -> None:
+        origins, headers = main.cors_settings("mock")
+        self.assertEqual(origins, ["*"])
+        self.assertEqual(headers, ["*"])
 
 
 if __name__ == "__main__":

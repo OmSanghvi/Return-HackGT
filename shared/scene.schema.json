@@ -4,7 +4,7 @@
   "type": "object",
   "required": ["objects", "instructions", "meta"],
   "properties": {
-    "objects": { "type": "array", "items": { "type": "object", "required": ["id", "type", "position", "rotation", "scale", "source", "actions"], "properties": { "id": { "type": "string" }, "type": { "type": "string" }, "position": { "$ref": "#/$defs/vector3" }, "rotation": { "$ref": "#/$defs/vector3" }, "scale": { "$ref": "#/$defs/vector3" }, "asset_url": { "type": ["string", "null"] }, "source": { "enum": ["placeholder", "sam3d"] }, "actions": { "type": "array", "uniqueItems": true, "items": { "enum": ["scale_by", "translate_by", "rotate_by"] } } } } },
+    "objects": { "type": "array", "items": { "type": "object", "required": ["id", "type", "position", "rotation", "scale", "source", "actions"], "properties": { "id": { "type": "string" }, "type": { "type": "string" }, "position": { "$ref": "#/$defs/vector3" }, "rotation": { "$ref": "#/$defs/vector3" }, "scale": { "$ref": "#/$defs/vector3" }, "asset_url": { "type": ["string", "null"] }, "source": { "enum": ["placeholder", "sam3d", "sketch_card"] }, "actions": { "type": "array", "uniqueItems": true, "items": { "enum": ["scale_by", "translate_by", "rotate_by"] } }, "grabbable": { "type": "boolean", "description": "Anyone may pick it up to look at it; it returns to its place when released." } } } },
     "instructions": { "type": "array" },
     "meta": { "type": "object" }
   },

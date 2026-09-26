@@ -1,24 +1,24 @@
 ---
 name: web-uploads-and-linking
-description: Use for Build Plan step 20 — the web app's content and account screens. Photo upload with reconstruction progress, Notability sketch upload (flat card or 3D memory plaque), optional user text (object label / subject hint, memory text, room prompt), project invites and contributor joining, and the Link Quest page that links a headset's Meta account to the Clerk user.
+description: Use for Build Plan step 20 — the web app's content and account screens. Photo upload with reconstruction progress, Notability sketch upload (flat card or 3D memory plaque), optional user text (object label / subject hint, memory text, room prompt), and project invites and contributor joining under the two hardcoded accounts (no Clerk, no Link Quest page — decision 2026-09-26, see collab-vr-accounts-and-gates).
 ---
 
-# Web uploads, sketches, optional text, and Quest linking (step 20)
+# Web uploads, sketches, and optional text (step 20)
 
 ## Gate
 
-`python3 scripts/check_collab_gates.py 20` (needs 7, 17, 18, 19, 26). BLOCKED
-means stop. The sketch backend (step 7) and Meta linking (step 18) must
-really exist; don't build UI against endpoints that aren't there.
+`python3 scripts/check_collab_gates.py 20` (needs 7, 17, 19, 26). BLOCKED
+means stop. The sketch backend (step 7) must really exist; don't build UI
+against endpoints that aren't there.
 
 ## Joining a project (uses step 17)
 
 - Creating a project makes the creator its first contributor (bound to
-  their Clerk user).
+  the account chosen in the picker — `collab-vr-accounts-and-gates`).
 - The project page shows an **invite link** containing the project's
-  `invite_code`. A signed-in person opening it calls the contributor
+  `invite_code`. Opening it, with an account chosen, calls the contributor
   registration route with the code. Without a valid code → 403. The display
-  name defaults to the Clerk user's name and can be edited.
+  name defaults to the account id and can be edited.
 
 ## Photo upload
 
@@ -32,31 +32,27 @@ really exist; don't build UI against endpoints that aren't there.
   1. **Upload:** drop one or more photos. Each goes to
      `POST /v1/projects/{id}/uploads` in parallel with its own progress bar
      (XHR upload progress). No GPU work starts yet.
-  2. **Select objects on a canvas** drawn over the returned `image_url`
-     (the server's EXIF-corrected image, so clicks line up). For each
-     object the person wants in 3D, they use one of three tools:
-     - **Click** on the object (an include point). Shift-click or the
-       "exclude" tool marks parts that aren't the object, for example a
-       table under a vase.
-     - **Drag a box** around the object.
-     - **Type its name** ("blue vase"), which finds that kind of object
-       and lets them pick which instance if there are several.
+  2. **Name each object** they want in 3D, next to the returned
+     `image_url` preview (the server's EXIF-corrected image): a text field
+     per object, e.g. "blue vase" — a SAM 3.1 semantic text prompt that
+     finds that kind of object and lets them pick which instance if there
+     are several. **Decision (user, 2026-09-26): typed name only** — no
+     click-to-select and no drag-a-box; this matches the semantic-only
+     segmentation the backend actually runs.
 
-     Each selection gets a colored chip in a side list. There they can
-     rename it (the label), add optional **memory text** ("why this
+     Each selection gets a chip in a side list. There they can edit the
+     name (also the label), add optional **memory text** ("why this
      matters", ≤1000 chars with a counter), or delete it. The chip list
-     shows the per-photo cap (default 8, from the server). Coordinates are
-     sent normalized 0–1, so screen size doesn't matter.
+     shows the per-photo cap (default 8, from the server).
   3. **Mask it:** "Find these objects" → `POST .../selections` with all
      chips at once (one SAM 3.1 job per photo). As masks arrive, each
      object is shown outlined in its chip's color with its score.
   4. **Fix or confirm:**
-     - A wrong mask can be fixed with more include/exclude clicks or a new
-       box (`POST .../selections/{selection_id}/refine`, which re-masks
-       only that object). For a typed name, the person can switch to
-       another found instance.
-     - Failed selections show the reason ("nothing found at that point;
-       try a box").
+     - A wrong mask can be fixed by typing a more specific or different
+       name (`POST .../selections/{selection_id}/refine`, which re-masks
+       only that object), or by switching to another found instance.
+     - Failed selections show the reason ("nothing found matching that
+       name; try being more specific").
   5. **Generate 3D:** "Make 3D" with the checked objects →
      `POST .../uploads/{upload_id}/generate`. One PLY job runs per
      object, and the server creates each contribution with its memory
@@ -65,9 +61,8 @@ really exist; don't build UI against endpoints that aren't there.
      selections as dashed chips that the person keeps or removes. Nothing
      is generated without a person's choice.
 
-  Accessibility: every canvas action also has a keyboard or list
-  equivalent (select a chip, nudge its box with arrow keys, type a name).
-  The canvas works with touch (tap = include point, long-press = exclude).
+  Accessibility: the name field and chip list are ordinary form controls —
+  no canvas, no pointer-only interaction to replicate.
 - **One polling loop for everything** (`docs/DATA_ARCHITECTURE.md`,
   polling contract):
   - `GET /v1/projects/{id}/jobs?active=1` with `If-None-Match`.
@@ -116,17 +111,6 @@ to step 28 (`letters-backend-and-web`). Don't build it here.
 - If step 5 isn't built yet, the field is still saved and shown; the
   button that composes the room stays hidden.
 
-## Link Quest page (uses step 18)
-
-- Shows the status from `GET /v1/auth/meta/link`: linked / not linked.
-- Code entry: 8 characters, case-insensitive, spaces ignored →
-  `POST /v1/auth/meta/link`. Show clear errors for expired, used, or
-  too-many-attempts (429, retry after 10 min).
-- Unlink button → `DELETE /v1/auth/meta/link`, with a confirmation.
-- Instructions: "Open SketchScape on your Quest, it shows a code, enter it
-  here." The headset polls the code's status without a nonce (step 18), so
-  it moves on by itself within about 5 s of linking.
-
 ## Text safety and limits (all screens)
 
 - Enforce the backend's limits client-side; the backend stays the
@@ -139,17 +123,14 @@ to step 28 (`letters-backend-and-web`). Don't build it here.
 ## Tests
 
 Vitest + Testing Library:
-- The selection canvas:
-  - point, box, and text chips send normalized coordinates, verified
-    against a known image size
-  - shift-click sends label 0
+- The selection form:
+  - a name chip sends `{text}`
   - the cap disables adding chips
-  - a refine sends only that selection
+  - a refine sends only that selection, with its new text
   - "Make 3D" is disabled until at least one object is masked
 - File type and size rejection; HEIC handling.
 - The PDF → PNG path, with a small fixture PDF.
 - Optional fields are omitted when empty.
-- Link-code input normalization and error states.
 - The invite flow sends the code.
 
 ## Definition of done

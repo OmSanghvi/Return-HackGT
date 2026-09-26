@@ -1,0 +1,2226 @@
+
+> <ide_selection>The user selected the lines 202 to 202 from
+  c:\Users\shaop\Documents\GitHub\Return-HackGT\docs\BUILD_PLAN.md:
+  NemoClaw note
+
+  This may or may not be related to the current task.</ide_selection>
+
+> Check my Backend-Agent-HackGT-Context.txt and run sonnet high subagents to
+  finish that since the previous session ran out
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● The context file is 4,347 lines, so I'll start by reading the beginning and
+  the end.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● The previous session's 4 Sonnet agents all failed on a rate limit. I'll check
+  whether any of their partial work (worktrees or branches) made it to this
+  machine.
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● None of the previous agents' work survived — the 4 worktree folders are empty
+  submodule stubs and no agent branches exist. I'll relaunch all four from
+  scratch, first checking the current gate state to keep the prompts accurate.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Steps 19, 21, 26, and 27 are ready to go, while step 28 remains blocked on
+  step 19. I'm relaunching the four Sonnet agents in their own worktrees,
+  embedding "high effort" as an instruction in each prompt since the tool only
+  lets me select the model.
+
+● 4 background agents launched (↓ to manage)
+   ├ Step 21 room API + NemoClaw auth
+   ├ Step 27 GPU multi-object worker
+   ├ DynamoDB + S3 storage verification
+   └ Wire web-app to backend API
+
+● I've relaunched the four Sonnet agents that ran out last session. None of
+  their earlier work survived, so they're starting from scratch. Each has its
+  own git worktree and branch, and none will push or deploy.
+
+  1. Step 21: room API, NemoClaw access and CORS. Adds /v1/rooms/{id}/state and
+     /edits, ownership checks for the two accounts, and 409 errors on stale
+     edits. Adds the SKETCHSCAPE_NEMOCLAW_TOKEN service login (R14) and
+     read-only access to a project's PLY files so your teammate's NemoClaw can
+     use them. Also allows the Vercel origin through CORS.
+  2. Step 27: GPU worker. Typed object names go to SAM 3.1 in one pass per
+     photo, which finds several objects. Each object then gets its own
+     Fast-SAM3D job. The worker claims jobs from a queue with timed locks, and
+     GPU concurrency is configurable. Everything uses mocks; nothing runs on a
+     real GPU.
+  3. DynamoDB + S3. Checks that the cloud storage behaves like local storage and
+     runs the storage tests against both using moto, which fakes AWS locally.
+     Checks that the Terraform matches what the code expects, and writes an
+     activation checklist. No real AWS calls.
+  4. Steps 19–20: web app connected to the backend. Adds an account picker
+     (Account 1/2) and real uploads, object naming, generating and job polling.
+     If VITE_SKETCHSCAPE_API_URL isn't set, the site behaves exactly as it does
+     now. Adds a vercel.json rewrite so the HTTPS site can reach the HTTP
+     backend on EC2.
+
+  Still left out:
+  - Your teammate's area: NemoClaw tooling and NemoClaw's object memory.
+  - Letters (step 28): blocked until step 19 is done.
+  - Needs your approval: any real AWS or GPU run.
+
+  The tool can't set effort level for each agent, so "high effort" is an
+  instruction in their prompts rather than a setting.
+
+  The last commit (386065c) added the four empty folders in .claude/worktrees/
+  to git by accident. Want me to remove them from the repo and gitignore that
+  folder?
+
+  I'll merge and check each branch as the agents finish.
+
+› Message from aab55a0c430f385d3
+  Branch: worktree-agent-aab55a0c430f385d3 (commit 5ac69b5, not pushed).
+
+  ## Files changed
+  - backend/storage.py — pagination fix (see bugs below)
+  - backend/test_storage.py — rewritten to use moto for DynamoDB/S3, shared
+  contract mixin for both backends
+  - backend/requirements-dev.txt — added `moto[dynamodb,s3]>=5.0,<6.0`
+  (test-only)
+  - infra/aws/main.tf — two IAM policy fixes (see bugs below)
+  - scripts/smoke_test_aws_storage.py — extended coverage
+  (contributors/contributions/insights, LIVE pointer, jobs, uploads/ S3 prefix)
+  + fixed cleanup
+  - backend/README.md — corrected stale claims, added full pk/sk item catalog,
+  added "Cloud backend activation" section with exact env vars + step-by-step
+  checklist
+  - AGENT.md — updated stale "151 tests" → 176 in three places
+
+  ## Real bugs found and fixed
+  1. **infra/aws/main.tf — S3 IAM policy gap.**
+  `aws_iam_role_policy.artifacts_bucket` only granted
+  `s3:PutObject/GetObject/DeleteObject` on `artifacts/*`.
+  `ArtifactStore.put_upload`/`open_upload` (Build Plan step 26) write under
+  `uploads/<project_id>/<upload_id>/...` — a completely different prefix. Once
+  activated, every real upload call would get `AccessDenied`. Fixed by adding
+  `uploads/*` to the Resource list.
+  2. **infra/aws/main.tf — DynamoDB IAM policy gap.**
+  `aws_iam_role_policy.dynamodb_authoring` only granted access to the base table
+  ARN. AWS IAM evaluates a `Query` with `IndexName` against the index's own ARN
+  (`.../index/<name>`), a distinct resource — so every `gsi1`/`gsi2` query
+  (`list_project_jobs`, `claim_next_job`, `release_expired_leases`) would get
+  `AccessDenied` even though plain reads/writes worked. Fixed by adding `"<table
+  arn>/index/*"`.
+  3. **backend/storage.py — missing pagination.** `list_project_jobs`,
+  `claim_next_job`, and `release_expired_leases` each issued a single
+  unpaginated DynamoDB `Query` (unlike the existing `_query_children`, which
+  already loops on `LastEvaluatedKey`). A busy project or job backlog beyond one
+  page would silently drop jobs from listings, or `claim_next_job` could return
+  "no job available" even when a matching-kind job existed on a later page.
+  Added a paginated `_query_index` helper mirroring `_query_children`'s loop and
+  switched all three methods to it. Added tests using a table-proxy that forces
+  `Limit=1` (via moto) to force genuine multi-page traversal at trivial item
+  counts, since a hermetic test can't otherwise make a real DynamoDB response
+  span pages.
+  4. **scripts/smoke_test_aws_storage.py — coverage gap that let bugs 1 and 2 go
+  undetected.** The live smoke test never exercised the `uploads/` S3 prefix,
+  jobs, contributors/contributions/insights, or the LIVE pointer — only the
+  legacy `artifacts/` PLY path and basic project/asset/blueprint CRUD. Extended
+  it to cover all of the above with matching cleanup (including the `JOB#` item,
+  which lives under its own pk and isn't swept by the `PROJECT#` scan). Dry-ran
+  the extended script against a moto-mocked table/bucket shaped exactly like
+  the real Terraform resources to confirm correctness before it's ever pointed
+  at real AWS — exit code 0, all checks passed.
+
+  ## Audited and found already correct
+  - Conditional writes for blueprint revisions (`attribute_not_exists(sk)`), the
+  LIVE-revision compare-and-set, and job claim/renew/complete/lease-release all
+  use real DynamoDB `ConditionExpression`s, not just the in-process lock (which
+  only serializes one instance).
+  - Contributions/uploads for the two hardcoded demo accounts are queried
+  per-project (`_query_children`, paginated) and filtered client-side by
+  `Contributor.clerk_user_id` / `UploadRecord.uploader_user_id` — sufficient for
+  two accounts without a new cross-project GSI, and consistent with how
+  main.py's route handlers already do it (e.g. `owned_object_ids`).
+  - Env var names in `infra/aws/SMOKE_TEST_GUIDE.md`
+  (`SKETCHSCAPE_STORAGE_BACKEND`, `SKETCHSCAPE_DYNAMODB_TABLE`,
+  `SKETCHSCAPE_ARTIFACTS_BACKEND`, `SKETCHSCAPE_ARTIFACTS_BUCKET`, `AWS_REGION`)
+  match the code exactly.
+  - Every `AuthoringStore` abstract method is implemented identically in both
+  `LocalJsonStore` and `DynamoDbStore` (verified by running the same
+  `StorageContractMixin` test bodies against both).
+
+  ## Test results
+  Created `backend/.venv` (wasn't present) and installed `requirements-dev.txt`
+  + moto. Full suite: `python -m unittest test_api.py test_storage.py
+  test_subject_labeler.py test_auth.py test_jobs.py` → **176 tests, all pass, 2
+  skipped** (boto3-absent paths, boto3 is installed here so these are
+  structurally-always-skipped edge cases). `bash scripts/verify_local.sh` also
+  passes (py_compile, JSON validation, collab-gate status, secret scan). No
+  `terraform plan`/`apply` was run, no AWS credentials were used, no network
+  calls were made — moto's `mock_aws` provided full in-memory emulation.
+
+  Note: this Windows worktree has no `backend/.venv/bin/python`, so
+  `verify_local.sh`'s own test-runner branch (which checks for the POSIX path)
+  silently skips and prints "Create backend/.venv..." even though the venv
+  exists at `.venv/Scripts/python.exe`. This is a pre-existing cross-platform
+  quirk in the script, not something I changed — I ran the tests directly
+  instead.
+
+  ## Remaining steps that need real AWS (not done, per Hard Rule 3 — explicit
+  approval required)
+  1. Confirm whether the IAM-policy fixes in `infra/aws/main.tf` have been
+  applied to the real account yet; if not, `terraform plan`/`apply` needs its
+  own explicit approval before activation (documented in backend/README.md's new
+  checklist).
+  2. Run the now-extended `scripts/smoke_test_aws_storage.py` against the real
+  table/bucket (env vars from `terraform output`) — this is the one thing
+  offline moto tests can't confirm: that the real table actually has GSI1/GSI2
+  and the real bucket's policy actually permits both prefixes.
+  3. Only after that passes, set `SKETCHSCAPE_STORAGE_BACKEND=dynamodb`,
+  `SKETCHSCAPE_DYNAMODB_TABLE`, `SKETCHSCAPE_ARTIFACTS_BACKEND=s3`,
+  `SKETCHSCAPE_ARTIFACTS_BUCKET` on the running EC2 API process and restart it.
+
+  Full checklist with exact commands is in backend/README.md's new "Cloud
+  backend activation (Build Plan step 10)" section.
+
+● The DynamoDB/S3 agent finished first. Before merging, I'll check its branch
+  myself.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Agent "DynamoDB + S3 storage verification" finished · 21m 3s
+
+● Both IAM fixes are correct. I'll rerun the tests myself in its worktree.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● All 176 tests pass. I'll fast-forward merge it into local main (no push).
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The DynamoDB + S3 branch is checked and merged into your local main
+  (fast-forward, not pushed). I reran the backend tests in its worktree and all
+  176 passed, with 2 skipped.
+
+  Three bugs fixed that would have broken cloud storage as soon as it was turned
+  on:
+  - S3 uploads denied: the IAM policy in infra/aws/main.tf only allowed the
+    artifacts/* folder of the bucket. Photos go under uploads/*, so every real
+    upload would have got AccessDenied.
+  - DynamoDB index lookups denied: the policy only covered the table itself, so
+    every query on the tables's secondary indexes would have been refused. Those
+    queries drive job listing, job claiming and releasing expired job locks.
+  - Jobs silently dropped: in backend/storage.py, three job queries only read
+    the first page of DynamoDB results. On a busy project, job lists would have
+    missed jobs, and the worker could be told "no job" when one was waiting on a
+    later page.
+
+  Also done:
+  - The storage tests now run against both local and cloud storage, using a fake
+    in-memory AWS (moto), so no network or credentials are needed.
+  - scripts/smoke_test_aws_storage.py was extended to cover the missed areas:
+    uploads, jobs, contributors and the published-revision pointer. It passed
+    against a fake table and bucket built like the Terraform resources.
+  - backend/README.md now has a step-by-step cloud activation checklist with the
+    exact environment variables.
+
+  Still needs your approval (real AWS cost):
+  1. terraform apply for the two IAM fixes.
+  2. Running the smoke test against the real table and bucket.
+  3. Switching the EC2 backend over to DynamoDB and S3.
+
+  The other three agents (room API, GPU worker, web app) are still running.
+
+› Message from aab159fbd0a0bf315
+  Done. Branch: `worktree-agent-aab159fbd0a0bf315` (this worktree), commit
+  `407bc65` — not pushed.
+
+  ## What was built
+
+  **Room API (Build Plan step 21)** — `backend/main.py`:
+  - `GET /v1/rooms/{project_id}/state`: member-or-service read, returns
+  `live_revision`, per-object `{id, asset_id, position, rotation, scale,
+  interactions, owner_contributor_id, editable_by_me}`, and `artifact_urls`
+  (asset_id → `/v1/artifacts/...`). 404 if unpublished. Cheap polling via
+  `?since_revision=N` and an `ETag` (304 when unchanged).
+  - `POST /v1/rooms/{project_id}/edits`: member-only (service → 403 via existing
+  `require_project_write`). Order matches the skill exactly: idempotency on
+  `client_edit_id` (added as a new `ExperienceBlueprint.client_edit_id` field) →
+  ownership (`owned_object_ids`) → interaction allowlist
+  (translate/rotate/scale) → bounds (position ±100, scale 0.05–20, rotation
+  normalized mod 360, NaN/Infinity rejected) → stale `base_revision` →
+  conditional append + LIVE pointer compare-and-set (reusing step 15's
+  `RevisionConflict`/`set_live_revision`). Per-user in-process rate limiter (5/s
+  edits, 20/s state polls; noted as needing a shared limiter for
+  multi-instance).
+
+  **R14 (NemoClaw service token)** — `backend/auth.py`:
+  - `SKETCHSCAPE_NEMOCLAW_TOKEN`: shared bearer secret compared with
+  `secrets.compare_digest`, checked in a new mode-independent branch before the
+  `SKETCHSCAPE_AUTH_MODE` dispatch (so it works the same under `demo`, without
+  disturbing `clerk`'s own bearer handling on mismatch/absence). Produces
+  `Identity(kind="service", via="nemoclaw", user_id="nemoclaw:<id>")` — `<id>`
+  from an optional `X-SketchScape-NemoClaw-Id` header, default `"default"`.
+  `author_from_identity` extended to record it. Startup fail-fast if the token
+  is set but under 32 characters (`MIN_NEMOCLAW_TOKEN_LENGTH`).
+  - NemoClaw never gets direct LIVE write: `require_project_write` already 403s
+  any service identity, so it's blocked from both `/v1/rooms/*/edits` and
+  blueprint `/publish`; it can only draft via `POST
+  /v1/projects/{id}/blueprints?base_revision=...`.
+
+  **NemoClaw read access to PLY/assets** — no new endpoint needed.
+  `require_project_read` (used by `GET /v1/projects/{id}/assets` and
+  `.../assets/{asset_id}`) and `require_identity` (used by `GET
+  /v1/artifacts/{job_id}/{filename}`) already permit `kind="service"`, so the
+  new token gives NemoClaw read access to a project's asset list and PLY bytes
+  for free.
+
+  **CORS** — extracted the inline origin/header selection in `main.py` into a
+  pure `cors_settings(mode)` function (behavior-identical) so it can be tested
+  directly, since `CORSMiddleware` is only ever constructed once at import time
+  and can't be re-observed by patching env later. Documented
+  `https://returnweb-hazel.vercel.app` as the production
+  `SKETCHSCAPE_WEB_ORIGINS` example in `backend/.env.example`,
+  `backend/README.md`, and `AGENT.md`. No deployed server touched.
+
+  ## Docs/config updated
+  `docs/BUILD_PLAN.md` (step 21 → Done, R14 paragraph updated),
+  `docs/KNOWN_ISSUES.md` (R14 → Done, N5 updated), `AGENT.md` (identity row, env
+  var block, test counts), `config/nemoclaw/sketchscape-tools.json`
+  (`room.state.fetch`/`room.edit.draft` set to a descriptive non-"implemented"
+  status — deliberately *not* `"implemented"` since that string is what
+  `check_collab_gates.py`'s `tool_implemented()` checks for step 24, which
+  correctly still shows NOT DONE since NemoClaw's runtime/step 3 hasn't
+  started). `config/collab-vr/gates.json` untouched — step 21 has no manual gate
+  entry.
+
+  ## Tests
+  28 new tests: `backend/test_api.py` (`RoomApiTests` — owner edit/state,
+  non-owner 403, missing-interaction 422, out-of-bounds 422, NaN 422, stale-base
+  409, duplicate `client_edit_id` idempotency, two-owner rebase-after-409,
+  service 403 on edits, non-member 403, NemoClaw read of state/assets/artifacts,
+  NemoClaw draft never becomes live) and `backend/test_auth.py`
+  (`NemoClawTokenTests`, `CorsPreflightTests` — real OPTIONS preflight against a
+  fresh `CORSMiddleware` built from `cors_settings()`).
+
+  Full suite: `test_api.py test_storage.py test_subject_labeler.py test_auth.py
+  test_jobs.py` → **180 passed, 2 skipped**, run via
+  `backend/.venv/Scripts/python.exe -m unittest ...` (this box is Windows;
+  `scripts/verify_local.sh`'s `.venv/bin/python` check is POSIX-only and
+  silently skips the unittest run here — I ran the equivalent invocation
+  directly). `python scripts/check_collab_gates.py --done 21` → DONE; `--done
+  24` correctly still NOT DONE (needs step 3). No leaked secrets.
+
+  ## Decisions / open gaps
+  - NemoClaw's shared token is checked mode-independently (works in `mock` too,
+  not just `demo`) — consistent with the existing `X-SketchScape-Worker-Token`
+  pattern, but means in `mock` mode a NemoClaw-token caller isn't
+  membership-restricted (mock mode no-ops all membership checks by design, Hard
+  Rule 2 — same as existing `require_upload_owner`).
+  - Pre-existing `KNOWN_ISSUES.md` R2 (CORS `allow_methods` missing
+  `PATCH`/`DELETE`) is untouched — out of scope for this task, and my new
+  preflight tests only exercise GET/POST so they don't mask it.
+  - The room-state ETag currently covers only `live_revision`; step 28 is
+  expected to fold in a letter-state version later (noted in the docstring, not
+  built now).
+
+● The room API branch is done. It was built on the old main, so I'll look at the
+  ETag logic and then merge it on top of the storage work.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Agent "Step 21 room API + NemoClaw auth" finished · 37m 4s
+
+● Confirmed the bug: since the ETag only encodes {project}:{revision} but not
+  editable_by_me, switching accounts on the same headset returns a stale 304
+  with the wrong edit permissions. I'll merge the branch, then fix the ETag
+  logic.
+
+● Bash(cd "c:/Users/shaop/Documents/GitHub/Return-HackGT"; git merge --no-ff
+      worktree-agent-aab159fbd0a0bf315 -m "Merge step 21 room API + R14 NemoClaw
+      token…)
+  ⎿  Updated AGENT.md (+19 -1)
+      482     place of failed objects.
+      483  
+      484  8. **Run `bash scripts/verify_local.sh` after every backend ch
+           ange** and
+      485 +<<<<<<< HEAD                                                  
+      486     confirm all tests pass before reporting done. Currently 176
+            tests (2 are
+      487 +=======                                                       
+      488 +   confirm all tests pass before reporting done. Currently 180
+          + tests (2 are                                                 
+      489 +>>>>>>> worktree-agent-aab159fbd0a0bf315                      
+      490     skipped either way, depending on whether `boto3` is install
+           ed).
+      491  
+      492  9. **Collaborative VR + web accounts steps (13–29) are gated.*
+           * Before writing any code or
+     ...
+      565  
+      566  | Area | Status |
+      567  |---|---|
+      568 +<<<<<<< HEAD                                                  
+      569  | Backend API (upload, poll, mock pipeline, safe edits) | ✅ d
+           one, 176 tests passing (2 skipped) |
+      570  | Identity (`SKETCHSCAPE_AUTH_MODE=mock\|demo\|clerk`; `demo` 
+           — two hardcoded accounts — is the real identity model for this
+            track, decision 2026-09-26; authors on revisions) | ✅ done —
+            NemoClaw's service identity needs a small follow-up (R14) bef
+           ore step 24 |
+      571 +=======                                                       
+      572 +| Backend API (upload, poll, mock pipeline, safe edits, room A
+          +PI) | ✅ done, 180 tests passing (2 skipped) |                
+      573 +| Identity (`SKETCHSCAPE_AUTH_MODE=mock\|demo\|clerk`; `demo` 
+          +— two hardcoded accounts — is the real identity model for this
+          + track, decision 2026-09-26; authors on revisions) | ✅ done, 
+          +including NemoClaw's shared-bearer-token service identity (R14
+          +, `SKETCHSCAPE_NEMOCLAW_TOKEN`) |                             
+      574 +>>>>>>> worktree-agent-aab159fbd0a0bf315                      
+      575  | Membership, invites, ownership, `room_prompt` | ✅ done — Bu
+           ild Plan step 17 |
+      576  | `identify_subject` mock labeler (`SKETCHSCAPE_SUBJECT_LABELE
+           R=mock`) | ✅ done — live NemoClaw path waits on Build Plan st
+           ep 3 |
+      577  | GPU pipeline (SAM 3.1 → Fast-SAM3D, `worker_server.py`) | ✅
+            verified end-to-end on an L40S (g6e.xlarge): 70 s, 53 MB PLY;
+            instance stopped |
+     ...
+      955  # header, offline only; the API refuses to start in mock mode 
+           with
+      956  # dynamodb storage or a non-mock pipeline.
+      957  SKETCHSCAPE_AUTH_MODE=mock             # mock | demo | clerk (
+           clerk is unused by this plan, kept for a possible future upgra
+           de)
+      949 -SKETCHSCAPE_WEB_ORIGINS=http://localhost:5173  # CORS; never *
+          - in demo or clerk mode                                        
+      958 +SKETCHSCAPE_WEB_ORIGINS=http://localhost:5173  # CORS; never *
+          + in demo or clerk mode. Comma-separated;                      
+      959 +                                                # production e
+          +xample: http://localhost:5173,https://returnweb-hazel.vercel.a
+          +pp                                                            
+      960 +                                                # (the live we
+          +b app's origin)                                               
+      961  SKETCHSCAPE_DEMO_USERS=demo-alice,demo-bob     # exactly two a
+           ccounts, demo mode only; also what the
+      962                                                  # website's an
+           d Quest's account switcher offers as
+      963                                                  # "Account 1"/
+           "Account 2" (collab-vr-accounts-and-gates)
+      964  CLERK_SECRET_KEY=                      # secret, clerk mode on
+           ly (unused by this plan) — never in a file, commit, or chat
+      965 +SKETCHSCAPE_NEMOCLAW_TOKEN=            # secret, shared bearer
+          + token for NemoClaw's service identity (R14,                  
+      966 +                                        # step 21/24) — >=32 c
+          +hars, matches SKETCHSCAPE_WORKER_TOKEN's pattern.             
+      967 +                                        # Leave unset locally;
+          + never in a file, commit, or chat.                            
+      968  
+      969  # Storage backend (local is default; dynamodb for cloud)
+     … 12 more lines (ctrl+o to expand)
+  ⎿  Updated backend\.env.example (+63 -43)
+       1 -# Development only. Do not put cloud credentials or HF tokens h
+         -ere.                                                           
+       2 -PIPELINE_MODE=mock                                             
+       3 -SKETCHSCAPE_DATA_DIR=./data                                    
+       4 -SKETCHSCAPE_ALLOWED_ORIGINS=*                                  
+       5 -                                                               
+       6 -# Set only on the GPU host, and use the same random value in it
+         -s worker.                                                      
+       7 -# SKETCHSCAPE_WORKER_TOKEN=                                    
+       8 -                                                               
+       9 -# Fast-SAM3D speed tuning (defaults tuned for T4 — change only 
+         -if quality is unacceptable)                                    
+      10 -# FASTSAM3D_MAX_INPUT_SIDE=512   # 512 cuts MoGe compute ~55% v
+         -s 768; raise to 768 for higher quality                         
+      11 -# FASTSAM3D_STAGE1_STEPS=8       # diffusion steps for sparse s
+         -tructure (min 6, max 20)                                       
+      12 -# FASTSAM3D_STAGE2_STEPS=8       # diffusion steps for SLaT (mi
+         -n 6, max 20)                                                   
+      13 -# FASTSAM3D_FP16=1               # 0 to disable FP16 (slower bu
+         -t more numerically stable)                                     
+      14 -                                                               
+      15 -# Authoring-state persistence backend: local (default JSON file
+         -) or dynamodb.                                                 
+      16 -SKETCHSCAPE_STORAGE_BACKEND=local                              
+      17 -# Required only when SKETCHSCAPE_STORAGE_BACKEND=dynamodb.     
+      18 -# Obtain the table name from: terraform output -raw dynamodb_ta
+         -ble_name                                                       
+      19 -# AWS credentials come from the standard credential chain (inst
+         -ance role, env,                                                
+      20 -# or profile) — never from this file.                          
+      21 -# SKETCHSCAPE_DYNAMODB_TABLE=sketchscape-authoring             
+      22 -# AWS_REGION=us-east-2                                         
+      23 -                                                               
+      24 -# Artifact storage backend: local (default, files under SKETCHS
+         -CAPE_DATA_DIR)                                                 
+      25 -# or s3 (stream PLY/mask/preview to the provisioned S3 bucket).
+      26 -SKETCHSCAPE_ARTIFACTS_BACKEND=local                            
+      27 -# Required only when SKETCHSCAPE_ARTIFACTS_BACKEND=s3.         
+      28 -# Obtain the bucket name from: terraform output -raw artifacts_
+         -bucket                                                         
+      29 -# The EC2 instance role has PutObject/GetObject/DeleteObject on
+         - artifacts/*                                                   
+      30 -# automatically when enable_artifacts_bucket=true in terraform.
+         -tfvars.                                                        
+      31 -# SKETCHSCAPE_ARTIFACTS_BUCKET=sketchscape-artifacts-xxxxxxxx  
+      32 -# AWS_REGION=us-east-2  (shared with DynamoDB when both are ena
+         -bled)                                                          
+      33 -                                                               
+      34 -# Image generation backend for Notability sketch → photorealist
+         -ic image conversion.                                           
+      35 -# mock (default, no network) | azure | hf                      
+      36 -SKETCHSCAPE_IMAGE_GEN_BACKEND=mock                             
+      37 -# Required only when SKETCHSCAPE_IMAGE_GEN_BACKEND=azure:      
+      38 -# SKETCHSCAPE_AZURE_OPENAI_ENDPOINT=https://<name>.openai.azure
+         -.com                                                           
+      39 -# SKETCHSCAPE_AZURE_OPENAI_KEY=<key>                           
+      40 -# SKETCHSCAPE_AZURE_OPENAI_DEPLOYMENT=dall-e-3                 
+     … 66 more lines (ctrl+o to expand)
+  ⎿  Updated backend\README.md (+42 -0)
+       81  (`owned_object_ids`) from contributions — not stored twice. Mo
+           ck mode
+       82  skips membership enforcement so local demos keep working.
+       83  
+       84 +## The room API (step 21)                                     
+       85 +                                                              
+       86 +`GET /v1/rooms/{project_id}/state` and `POST /v1/rooms/{projec
+          +t_id}/edits`                                                  
+       87 +are the only backend surface a shipped Unity player may call f
+          +or                                                            
+       88 +collaborative edits (AGENT.md Hard Rule 4) — headsets authenti
+          +cate with the                                                 
+       89 +same `X-SketchScape-Dev-User` account header as everything els
+          +e, no room                                                    
+       90 +token, no Clerk session.                                      
+       91 +                                                              
+       92 +- `GET .../state`: a project member or a service (NemoClaw, th
+          +e website) may                                                
+       93 +  read. Returns the live revision, every object's transform/in
+          +teractions/                                                   
+       94 +  `owner_contributor_id`/`editable_by_me`, and each asset's ar
+          +tifact URL.                                                   
+       95 +  404 if nothing is published. Supports `?since_revision=N` an
+          +d an `ETag`                                                   
+       96 +  for cheap polling (304 when unchanged).                     
+       97 +- `POST .../edits`: a member only — `require_project_write` re
+          +jects a                                                       
+       98 +  service identity with 403, so NemoClaw can never call this; 
+          +it drafts                                                     
+       99 +  through `POST /v1/projects/{id}/blueprints?base_revision=...
+          +` instead, and                                                
+      100 +  a person approves the publish (see `top-tier-nemoclaw-tool-d
+          +esign`).                                                      
+      101 +  Idempotent on `client_edit_id`; enforces per-object ownershi
+          +p, the                                                        
+      102 +  translate/rotate/scale interaction allowlist, and position/r
+          +otation/scale                                                 
+      103 +  bounds; 409 with the current `live_revision` on a stale `bas
+          +e_revision`.                                                  
+      104 +  Rate-limited per user (an in-process limiter; a multi-instan
+          +ce deployment                                                 
+      105 +  will need a shared one).                                    
+      106 +                                                              
+      107 +## NemoClaw's service identity (R14)                          
+      108 +                                                              
+      109 +A shared bearer token, `SKETCHSCAPE_NEMOCLAW_TOKEN` (≥32 chara
+          +cters — the                                                   
+      110 +backend refuses to start with a shorter one), gives `kind="ser
+          +vice"` and                                                    
+      111 +`author="nemoclaw:<id>"`, the same shape a Clerk M2M token alr
+          +eady produced.                                                
+      112 +Checked before the `SKETCHSCAPE_AUTH_MODE` dispatch, so it wor
+          +ks the same in                                                
+      113 +`demo` (the deployed mode) as in `clerk`. NemoClaw never gets 
+          +direct write                                                  
+      114 +access to a live room: it can read `/v1/rooms/*/state` and a p
+          +roject's                                                      
+      115 +assets (including fetching PLYs from `/v1/artifacts/{job_id}/{
+          +filename}`                                                    
+      116 +with the same token), and it can draft a blueprint revision, b
+          +ut publishing                                                 
+      117 +always needs a person's approval.                             
+      118 +                                                              
+      119  ## Contract test
+      120  
+     … 20 more lines (ctrl+o to expand)
+  ⎿  Updated config\nemoclaw\sketchscape-tools.json (+154 -154)
+        1 -{                                                             
+        2 -  "description": "Credential-free desired tool inventory for S
+          -ketchScape planning and development automation.",             
+        3 -  "format_status": "Documentation only. This is not claimed to
+          - be a native NemoClaw, OpenShell, MCP, or agent import format.
+          -",                                                            
+        4 -  "credentials": "Resolve authentication through the approved 
+          -runtime credential provider; never store credentials in this f
+          -ile.",                                                        
+        5 -  "http_operations": [                                        
+        6 -    {                                                         
+        7 -      "id": "project.create",                                 
+        8 -      "method": "POST",                                       
+        9 -      "path": "/v1/projects",                                 
+       10 -      "purpose": "Create a SketchScape project container.",   
+       11 -      "approval_required": false,                             
+       12 -      "implementation_status": "implemented-in-memory"        
+       13 -    },                                                        
+       14 -    {                                                         
+       15 -      "id": "gpu.start",                                      
+       16 -      "method": "POST",                                       
+       17 -      "path": "/v1/admin/gpu/start",                          
+       18 -      "purpose": "Start approved GPU inference capacity before
+          - bounded reconstruction work.",                               
+       19 -      "approval_required": true,                              
+       20 -      "implementation_status": "target"                       
+       21 -    },                                                        
+       22 -    {                                                         
+       23 -      "id": "asset.reconstruct",                              
+       24 -      "method": "POST",                                       
+       25 -      "path": "/v1/projects/{project_id}/assets",             
+       26 -      "purpose": "Submit one or more views and prompts to SAM 
+          -3.1 followed by Fast-SAM3D to create a catalog asset. subject_
+          -hint is optional: when empty and no mask is uploaded, NemoClaw
+          - identify_subject labels the object (Build Plan step 4a; SKETC
+          -HSCAPE_SUBJECT_LABELER=mock until the runtime exists).",      
+       27 -      "approval_required": true,                              
+       28 -      "approval_reason": "May start or consume metered GPU cap
+          -acity outside mock mode.",                                    
+       29 -      "implementation_status": "implemented-single-view"      
+       30 -    },                                                        
+       31 -    {                                                         
+       32 -      "id": "asset.list",                                     
+       33 -      "method": "GET",                                        
+       34 -      "path": "/v1/projects/{project_id}/assets",             
+       35 -      "purpose": "List reconstructed and curated assets availa
+          -ble to blueprints.",                                          
+       36 -      "approval_required": false,                             
+       37 -      "implementation_status": "implemented-in-memory"        
+       38 -    },                                                        
+       39 -    {                                                         
+       40 -      "id": "blueprint.draft",                                
+     … 268 more lines (ctrl+o to expand)
+  ⎿  Updated docs\KNOWN_ISSUES.md (+150 -150)
+        1 -# Known issues and their fixes                                
+        2 -                                                              
+        3 -Every issue found while planning the Collaborative VR + web ac
+          -counts track                                                  
+        4 -(research and code review, 2026-09-25), with the **current** f
+          -ix and where                                                  
+        5 -it lives. Fixes are gated Build Plan steps (`docs/BUILD_PLAN.m
+          -d`, steps                                                     
+        6 -13–29). Run `python3 scripts/check_collab_gates.py <step>` bef
+          -ore starting                                                  
+        7 -one (AGENT.md Hard Rule 9).                                   
+        8 -                                                              
+        9 -Status meanings:                                              
+       10 -- **Done (docs):** the fix is already made in the docs/rules. 
+       11 -- **Planned:** the fix is designed in the named step and skill
+          - but not                                                      
+       12 -  coded yet.                                                  
+       13 -- **Verify:** only a real device or GPU run can answer it.    
+       14 -- **Accepted:** a known risk the user chose to keep.          
+       15 -- **Superseded:** the issue no longer applies after a later de
+          -cision.                                                       
+       16 -                                                              
+       17 -## Scope and project                                          
+       18 -                                                              
+       19 -| # | Issue | Fix | Where | Status |                          
+       20 -| --- | --- | --- | --- | --- |                               
+       21 -| 1.1 | AGENT.md forbade accounts and real-time multiplayer | 
+          -Approved as a separate, gated post-MVP track that never delays
+          - steps 1–12 | AGENT.md, ARCHITECTURE.md, PROJECT_STATUS.md, TE
+          -AM_TASK_SPLIT.md, `meta-track-alignment` | Done (docs) |      
+       22 -| 1.2 | HackGTUnity (6000.2.10f1, XRI 3.0.11, OpenXR 1.15.1) h
+          -as no Netcode or Multiplayer Services | Port from VR Multiplay
+          -er Template 2.1 using its exact package versions | Step 22, `u
+          -nity-cloud-collaborative-vr` | Planned |                      
+       23 -| N26 | AGENT.md said `place_objects_in_scene` "publishes imme
+          -diately via Unity MCP", contradicting the approval rule | Tool
+          - returns a draft proposal; `blueprint.publish` needs a person'
+          -s approval; `trigger_unity_scene_update` only applies already-
+          -published scenes to the Editor | AGENT.md NemoClaw section | D
+          -one (docs) |                                                  
+       24 -                                                              
+       25 -## Backend and data                                           
+       26 -                                                              
+       27 -| # | Issue | Fix | Where | Status |                          
+       28 -| --- | --- | --- | --- | --- |                               
+       29 -| 2.1 | No authentication on any route | The `X-SketchScape-De
+          -v-User` account header, restricted to the two hardcoded accoun
+          -ts in `demo` mode, verified server-side with real membership/o
+          -wnership enforcement; used by the web app and headsets alike (
+          -R13 — no Clerk, no Meta room tokens); fail-fast config | Step 
+          -16; `backend-auth-clerk` | Done |                             
+       30 -| 2.2 | No base-revision check: stale saves silently erase new
+          -er edits | `based_on_revision` = live revision; 409 when stale
+          -; clients rebase their own objects | Step 15, `backend-revisio
+          -n-concurrency` | Done |                                       
+       31 -| 2.3 | DynamoDB `put_item` without condition and a per-proces
+          -s lock: revisions overwrite each other | `attribute_not_exists
+          -(sk)` on blueprint and publication appends, with retry | Step 
+          -15 | Done |                                                   
+       32 -| N2 | Whole-blob `ProjectRecord` saves let the live room go b
+          -ackwards | Compare-and-set `LIVE` pointer item | Step 15 | Don
+          -e |                                                           
+       33 -| N3 | An unapproved NemoClaw draft could get published by a r
+          -oom edit | Edits copy the live revision; publish is compare-an
+          -d-set on `based_on_revision` | Steps 15, 21 | Done (compare-an
+          -d-set publish, step 15) / Planned (room edits copy live, step 
+          -21) |                                                         
+       34 -| 2.4 | One process-wide `current_scene` for all projects | Ro
+          -oms read per-project live state only; room routes never touch 
+          -`current_scene` | Steps 15, 21 | Done (per-project LIVE pointe
+          -r, step 15) / Planned (room routes, step 21) |                
+       35 -| 2.5 | No ownership: "edit only your own object" is unenforce
+          -d (Netcode check is client-side) | Contributors bound to one o
+          -f the two hardcoded accounts; ownership derived from contribut
+          -ions; server returns 403 | Steps 17, 21; `room-api-and-ownersh
+          -ip` | Done (ownership helper + membership, step 17) / Planned 
+          -(room `/edits`, step 21) |                                    
+       36 -| 2.6 | No partial updates; every save is a full blueprint | D
+          -ebounced save on release; bounded, idempotent `/v1/rooms/*/edi
+          -ts` builds the revision server-side | Steps 21, 23 | Planned |
+       37 -| 2.7 | No push channel to live rooms | Session owner polls `/
+          -v1/rooms/{id}/state?since_revision=` with ETag/304 | Step 23, 
+          -DATA_ARCHITECTURE polling contract | Planned |                
+       38 -| 2.8 | No author on revisions | `author` on revisions and pub
+          -lications (the hardcoded account id, `nemoclaw:<id>` for servi
+          -ces) | Steps 15, 16 | Done |                                  
+       39 -| N1 | Headsets calling authoring routes breaks Hard Rule 4 | 
+          -Public room API `/v1/rooms/*`; Hard Rule 4 updated | Step 21, 
+          -AGENT.md | Done (docs) / Planned (code) |                     
+       40 -| N4 | Mock auth could reach the cloud | Backend refuses to st
+          -art: mock + DynamoDB or non-mock pipeline; clerk without secre
+          -t or with `*` origins | Step 16 | Done |                      
+     … 260 more lines (ctrl+o to expand)
+  ⎿  … 5 more files changed
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The conflicts are only test counts and prose. I'll keep the room-API wording
+  in AGENT.md and the moto description in the README, then fix the counts once I
+  know the combined total.
+
+● Bash(cd "c:/Users/shaop/Documents/GitHub/Return-HackGT"; grep -c "^<<<<<<<"
+      AGENT.md backend/README.md; python - <<'EOF'
+      import re…)
+  ⎿  2 files changed (binary, mode only or too large to show)
+
+● Now the ETag fix. The account goes into the ETag, and the since_revision
+  shortcut also has to account for it.
+
+● Update(backend\main.py)
+  ⎿  Added 6 lines, removed 1 line
+      1969      if live_revision is None:
+      1970          raise HTTPException(404, "This project has no publish
+            ed blueprint.")
+      1971  
+      1972 -    etag = f'"{project_id}:{live_revision}"'                 
+      1972 +    # The body is per-caller (editable_by_me), so the ETag mu
+           +st be too: one                                               
+      1973 +    # headset switching Account 1 -> Account 2 resends its ol
+           +d If-None-Match,                                             
+      1974 +    # and a revision-only tag would 304 it into keeping the o
+           +ther account's                                               
+      1975 +    # edit rights. ?since_revision has no identity in it, so 
+           +a client must                                                
+      1976 +    # drop it after an account switch (documented in room-api
+           +-and-ownership).                                             
+      1977 +    etag = f'"{project_id}:{live_revision}:{identity.user_id}
+           +"'                                                           
+      1978      if request.headers.get("if-none-match") == etag or since_
+            revision == live_revision:
+      1979          return Response(status_code=304, headers={"ETag": eta
+            g})
+      1980  
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● I'll add a regression test for the account-switch case and a line in the
+  skill.
+
+● Update(backend\test_api.py)  ⎿  Added 17 lines
+      1520              )
+      1521              self.assertEqual(response.status_code, 304)
+      1522  
+      1523 +    def test_room_state_etag_is_per_account(self) -> None:   
+      1524 +        # One headset switching Account 1 -> Account 2 resend
+           +s the old                                                    
+      1525 +        # If-None-Match; it must get Bob's body, not a 304 th
+           +at keeps                                                     
+      1526 +        # Alice's editable_by_me flags.                      
+      1527 +        with TestClient(app) as client:                      
+      1528 +            room = self._build_room(client)                  
+      1529 +            url = f"/v1/rooms/{room['project_id']}/state"    
+      1530 +            alice = client.get(url, headers={"X-SketchScape-D
+           +ev-User": "demo-alice"})                                     
+      1531 +            etag = alice.headers["ETag"]                     
+      1532 +            again = client.get(url, headers={"X-SketchScape-D
+           +ev-User": "demo-alice", "If-None-Match": etag})              
+      1533 +            self.assertEqual(again.status_code, 304)         
+      1534 +            bob = client.get(url, headers={"X-SketchScape-Dev
+           +-User": "demo-bob", "If-None-Match": etag})                  
+      1535 +            self.assertEqual(bob.status_code, 200)           
+      1536 +            by_id = {obj["id"]: obj for obj in bob.json()["ob
+           +jects"]}                                                     
+      1537 +            self.assertFalse(by_id["obj_alice"]["editable_by_
+           +me"])                                                        
+      1538 +            self.assertTrue(by_id["obj_bob"]["editable_by_me"
+           +])                                                           
+      1539 +                                                             
+      1540      def test_owner_edit_returns_201_and_state_reflects_it(sel
+            f) -> None:
+      1541          with TestClient(app) as client:
+      1542              room = self._build_room(client)
+
+● Update(.claude\skills\room-api-and-ownership\SKILL.md)
+  ⎿  Added 3 lines, removed 1 line
+      63  - **Cheap polling:** `?since_revision=N` plus an `ETag` over (l
+          ive
+      64    revision, letter-state version). Return `304` when unchanged.
+           Use a
+      65    separate, generous rate-limit bucket for this read. Step 28 a
+          dds
+      66 -  `letters[]` to the response.                                 
+      66 +  `letters[]` to the response. The ETag also includes the calle
+         +r's account,                                                   
+      67 +  because `editable_by_me` differs per account. `since_revision
+         +` doesn't                                                      
+      68 +  include it, so a headset must stop sending it after an accoun
+         +t switch.                                                      
+      69  
+      70  ### `POST /v1/rooms/{project_id}/edits`
+      71  
+
+  Ran 1 shell command (ctrl+o to expand)
+  ⎿  1 skill available
+
+● All 205 tests pass on the merged main, including the new account-switch test.
+  Next I'll update the stale test counts and commit the merge.
+
+● Bash(cd "c:/Users/shaop/Documents/GitHub/Return-HackGT"; grep -rln
+      "\b1[78][06] tests\b" AGENT.md backend/README.md docs 2>/dev/null; sed -i
+      -E 's/\b(176|180) tests\…)
+  ⎿  Updated AGENT.md (+3 -3)
+      482     place of failed objects.
+      483  
+      484  8. **Run `bash scripts/verify_local.sh` after every backend ch
+           ange** and
+      485 -   confirm all tests pass before reporting done. Currently 180
+          - tests (2 are                                                 
+      485 +   confirm all tests pass before reporting done. Currently 205
+          + tests (2 are                                                 
+      486     skipped either way, depending on whether `boto3` is install
+           ed).
+      487  
+      488  9. **Collaborative VR + web accounts steps (13–29) are gated.*
+           * Before writing any code or
+     ...
+      561  
+      562  | Area | Status |
+      563  |---|---|
+      564 -| Backend API (upload, poll, mock pipeline, safe edits, room A
+          -PI) | ✅ done, 180 tests passing (2 skipped) |                
+      564 +| Backend API (upload, poll, mock pipeline, safe edits, room A
+          +PI) | ✅ done, 205 tests passing (2 skipped) |                
+      565  | Identity (`SKETCHSCAPE_AUTH_MODE=mock\|demo\|clerk`; `demo` 
+           — two hardcoded accounts — is the real identity model for this
+            track, decision 2026-09-26; authors on revisions) | ✅ done, 
+           including NemoClaw's shared-bearer-token service identity (R14
+           , `SKETCHSCAPE_NEMOCLAW_TOKEN`) |
+      566  | Membership, invites, ownership, `room_prompt` | ✅ done — Bu
+           ild Plan step 17 |
+      567  | `identify_subject` mock labeler (`SKETCHSCAPE_SUBJECT_LABELE
+           R=mock`) | ✅ done — live NemoClaw path waits on Build Plan st
+           ep 3 |
+     ...
+      979  
+      980  ```bash
+      981  # After any backend Python change:
+      982 -bash scripts/verify_local.sh          # must pass, currently 1
+          -80 tests (2 skipped)                                          
+      982 +bash scripts/verify_local.sh          # must pass, currently 2
+          +05 tests (2 skipped)                                          
+      983  
+      984  # After any Terraform change:
+      985  cd infra/aws
+  ⎿  Updated backend\README.md (+1 -1)
+      124  .venv/bin/python -m unittest test_api.py test_storage.py test_
+           subject_labeler.py test_auth.py test_jobs.py
+      125  ```
+      126  
+      127 -176 tests (2 are skipped either way, depending on whether `bot
+          -o3` is                                                        
+      127 +205 tests (2 are skipped either way, depending on whether `bot
+          +o3` is                                                        
+      128  installed). They exercise only `PIPELINE_MODE=mock`; they don'
+           t contact AWS,
+      129  make any network call, or load a model. `test_storage.py`'s
+      130  `DynamoDbStoreContractTests` and `S3ArtifactStoreContractTests
+           ` run the exact
+
+● Step 21 is merged into local main (db89d5f, not pushed), including one bug fix
+  of mine. All 205 backend tests pass on the combined code.
+
+  What the room-API branch added:
+  - Room API: GET /v1/rooms/{id}/state and POST /v1/rooms/{id}/edits.
+    - Edits are refused if the caller doesn't own the object or isn't a project
+      member.
+    - Edits based on an outdated revision get a 409.
+    - Repeated submissions of the same edit are ignored, and positions and
+      scales must stay within limits.
+  - NemoClaw login (R14): SKETCHSCAPE_NEMOCLAW_TOKEN gives NemoClaw its own
+    service identity. The backend refuses to start if the token is shorter than
+    32 characters.
+    - It can read the room, the asset list and the PLY files through the
+      existing routes, so no new endpoint was needed.
+    - It can't edit the room or publish; it can only save drafts, which still
+      need approval.
+  - CORS: https://returnweb-hazel.vercel.app is documented as the production web
+    origin, with a test that it gets through.
+
+  Bug I fixed before merging: the room state's cache tag (ETag) only included
+  the room revision. The response also says which objects each account can edit,
+  and that differs by account. On one headset, switching from Account 1 to
+  Account 2 would have returned "unchanged" (304), so Account 2 would have kept
+  Account 1's edit rights. The tag now includes the account, a regression test
+  covers it, and the room-api-and-ownership skill notes that a headset must stop
+  sending since_revision after switching accounts.
+
+  Merge: the only conflicts were test counts and README wording, which I
+  resolved and updated to 205.
+
+  Still open: the CORS settings don't allow PATCH/DELETE requests yet (R2 in
+  docs/KNOWN_ISSUES.md). That will matter once the web app uses those methods.
+
+  The GPU worker and web app agents are still running.
+
+› Message from a515eb2d42792dd15
+  Done. Steps 19+20 implemented and committed on branch
+  `worktree-agent-a515eb2d42792dd15` (commit `41550c0`), in the worktree at
+  `.claude/worktrees/agent-a515eb2d42792dd15`.
+
+  ## What changed
+  All new/changed files under `web-app/`:
+  - `src/config.ts` — the one build-time switch: `REAL_MODE =
+  Boolean(VITE_SKETCHSCAPE_API_URL)`. When unset, mock mode is untouched
+  (verified: `App.tsx` now just does `REAL_MODE ? <RealModeRoot/> : <MockApp/>`,
+  and `MockApp` is byte-identical to the old `App()` body).
+  - `src/api/client.ts`, `types.ts`, `account.ts`, `polling.ts` — typed API
+  client (sends `X-SketchScape-Dev-User` from the picker's zustand+localStorage
+  store on every call), 401/403/409/413/415 error mapping, XHR upload progress,
+  and the batch job-polling contract (ETag/If-None-Match, 2s→5s→10s backoff with
+  ±20% jitter, paused on `document.hidden`, `Retry-After` honored, stops when
+  nothing's active).
+  - `src/real/` — `RealShell.tsx` (account picker header, "Account 1/2" derived
+  from config, never hardcoded), `RealProjectsPage.tsx` (create/join by invite
+  code), `RealProjectPage.tsx` (photo upload → typed per-object names → `POST
+  .../selections` → refine/delete → "Make 3D" `generate` → polling → ready
+  objects gallery; Notability flat-card sketch upload; room prompt),
+  `useAuthedImage.ts` (blob-URL fetch for image/mask routes, since `<img src>`
+  can't send the account header), `localProjects.ts` (local index of known
+  project ids — backend has no "list my projects" route).
+  - `web-app/src/App.tsx` — branches to real mode; mock routes/components
+  unchanged.
+  - `web-app/vercel.json` — added `/api/:path*` →
+  `http://REPLACE_WITH_EC2_BACKEND_HOST:8000/:path*` rewrite (ahead of the SPA
+  catch-all), so the browser only ever talks HTTPS same-origin and Vercel
+  proxies to the plain-HTTP EC2 backend server-side (no mixed content).
+  - `web-app/.env.example`, `.gitignore` (now `.env*` except `.env.example`,
+  matching the config-matrix convention — no secrets involved either way).
+  - `web-app/hardcode.MD` — new "0. Real mode" section documenting what's real
+  vs. still todo, plus the CORS gap below.
+  - `docs/BUILD_PLAN.md` — steps 19/20 rows and detail bullets updated (19 done,
+  20 mostly done: sketch upload is flat-card-only, no PDF→PNG, no plaque, from
+  the web UI).
+  - `config/collab-vr/gates.json` — untouched; steps 19/20 have no manual gates,
+  confirmed by reading `scripts/check_collab_gates.py`'s `STEPS` dict.
+
+  ## Vercel body-size research (for the mixed-content mitigation)
+  Fetched Vercel's live docs. The documented 4.5 MB request-body cap is specific
+  to **Vercel Functions** (`/docs/functions/limitations#request-body-size`).
+  External-origin rewrites are a different, proxy-style path with its own
+  documented limit: a 120s **Proxied Request Timeout**, not a stated body-size
+  cap. So it's plausible ≥16 MB photo uploads pass through the `/api/*` rewrite
+  fine, but this isn't confirmed in the docs either way. Documented in
+  `hardcode.MD`/commit message: treat it as unverified until tested against the
+  real host, and the durable fix is putting TLS directly on the EC2 backend
+  (Let's Encrypt via a reverse proxy, or ALB+ACM) so uploads bypass the Vercel
+  proxy entirely — the rewrite is a fine stopgap for the small JSON calls either
+  way.
+
+  ## How to run real mode locally
+  Backend: `SKETCHSCAPE_AUTH_MODE=demo
+  SKETCHSCAPE_DEMO_USERS=demo-alice,demo-bob
+  SKETCHSCAPE_WEB_ORIGINS=http://localhost:5173 PIPELINE_MODE=mock uvicorn
+  main:app --port 8000` (from `backend/`, inside a venv with
+  `requirements.txt`+`requirements-dev.txt`).
+  Frontend: put `VITE_SKETCHSCAPE_API_URL=http://localhost:8000` in
+  `web-app/.env.development` (git-ignored; I created one for testing), then `npm
+  run dev` from `web-app/`.
+
+  ## Verification performed
+  - `npm install`, `npm run build` (tsc -b && vite build) — pass, in both
+  default and `VITE_SKETCHSCAPE_API_URL=/api` builds.
+  - `npm test` (vitest) — 16/16 pass, including new `client.test.ts` (account
+  header, all 5 error-code mappings) and `polling.test.ts` (active→settled→idle
+  transitions, `stop()`).
+  - Backend's own suite, untouched: `python -m unittest test_api.py
+  test_storage.py test_subject_labeler.py test_auth.py test_jobs.py` → 152
+  passed, 2 skipped (pre-existing, unrelated to this change).
+  - Ran the real backend (demo auth, local JSON store, mock pipeline) + Vite dev
+  server together; confirmed CORS preflight succeeds for GET/POST from
+  `localhost:5173`.
+  - Fetch-based smoke test (Node script, mirrors `client.ts`'s exact
+  endpoints/headers) against the live local backend, both accounts: create
+  project (alice) → invite code → bob blocked pre-join (403) → bob joins → alice
+  uploads a photo → creates a typed selection ("blue vase") → bob (member,
+  non-owner) blocked from refining it (403) → polls `/jobs?active=1` with ETag
+  to settle → selection reaches `segmented` with a mask preview → mask fetch
+  requires the header (401 without it) → generate → polls to settle → bob lists
+  the ready asset → contribution's `memory_text` round-trips → room prompt PATCH
+  round-trips. All 22 checks passed.
+  - `python scripts/check_collab_gates.py --done 19` and `--done 20` both now
+  pass; `bash scripts/verify_local.sh` passes (its `backend/.venv/bin/python`
+  check is Unix-path-only and no-ops on this Windows box — pre-existing,
+  unrelated to this change; I ran the backend tests directly instead).
+  - Killed the local dev servers afterward; nothing left running.
+
+  ## Open gaps (noted in `hardcode.MD`, not fixed here)
+  1. **Backend CORS bug, found while testing, not fixed** (per instructions —
+  another agent owns `backend/main.py`): `CORSMiddleware`'s
+  `allow_methods=["GET", "POST"]` in `main.py` is hardcoded regardless of
+  `SKETCHSCAPE_AUTH_MODE`. A browser preflight for `PATCH /v1/projects/{id}`
+  (room prompt save) or `DELETE .../selections/{id}` (remove a chip) gets
+  `Access-Control-Allow-Methods: GET, POST` back and the browser blocks the real
+  request — confirmed with `curl -X OPTIONS ... -H
+  "Access-Control-Request-Method: PATCH"` → `400 Disallowed CORS method`. Only
+  bites cross-origin (i.e., local dev with Vite on a different port than the
+  backend); the production `/api` rewrite is same-origin so no preflight is sent
+  at all. Fix is adding `"PATCH"`/`"DELETE"` to that list.
+  2. Notability sketches: only the flat-card (PNG/JPEG) path is wired from the
+  web UI; no PDF→PNG (pdf.js) conversion, no 3D memory-plaque option yet.
+  3. No actual browser/Playwright run (Playwright isn't installed and pulling it
+  down felt out of scope) — verification is build/typecheck + unit tests + a
+  fetch-based smoke test that exercises the exact same endpoints/headers the
+  client uses, not a rendered-DOM check.
+  4. The account picker doesn't special-case a `mock`-auth backend (skill's
+  "skip the picker UI for mock mode" nuance) — real mode always shows the
+  picker; harmless since `mock` mode ignores the header's actual value anyway.
+  5. Known-projects list is per-browser localStorage only (backend has no "list
+  my projects" route) — a project is still always reachable by pasting its id +
+  invite code into "Join a project".
+
+
+● The web app branch is done. I'll merge it, then fix the CORS bug it confirmed
+  (PATCH/DELETE blocked; this is R2). The room-API agent has finished, so
+  main.py is free.
+
+● Bash(cd "c:/Users/shaop/Documents/GitHub/Return-HackGT"; git diff --stat
+      main...worktree-agent-a515eb2d42792dd15 | tail -40; git ls-tree -r
+      --name-only worktree-agen…)
+  ⎿  Updated docs\BUILD_PLAN.md (+18 -5)
+      67  | 15 | Backend revision safety (`based_on_revision` 409, condit
+          ional DynamoDB writes, LIVE pointer) | — | Done | `backend-revi
+          sion-concurrency` |
+      68  | 16 | Backend auth core: hardcoded demo accounts, mock mode, f
+          ail-fast config | 15 | Done | `backend-auth-clerk` |
+      69  | 17 | Membership, invite codes, Contributor ↔ account binding,
+           ownership, `room_prompt` | 2, 16 | Done | `room-api-and-owners
+          hip` |
+      70 +<<<<<<< HEAD                                                   
+      71  | 19 | Web app foundation: `app/` React + Vite, hardcoded-accou
+          nt picker, API client, mock mode | 16 | Not started | `web-app-
+          foundation` |
+      72  | 20 | Web uploads: person types a name for each object → SAM 3
+          .1 semantic masks → refine → generate PLYs; several photos at o
+          nce; Notability sketches; optional text; invites | 7, 17, 19, 2
+          6 | Not started | `web-uploads-and-linking` |
+      73  | 21 | Public room API `/v1/rooms/{project_id}/state` + `/edits
+          `, and the Quest account switcher's backend half | 15, 17 | Don
+          e | `room-api-and-ownership` |
+      74 +=======                                                        
+      75 +| 19 | Web app foundation: `web-app/` React + Vite, hardcoded-a
+         +ccount picker, API client, mock mode | 16 | Done (built in `web
+         +-app/`, the repo's existing React+Vite app, not a new `app/`) |
+         + `web-app-foundation` |                                        
+      76 +| 20 | Web uploads: person types a name for each object → SAM 3
+         +.1 semantic masks → refine → generate PLYs; several photos at o
+         +nce; Notability sketches; optional text; invites | 7, 17, 19, 2
+         +6 | Mostly done: upload/selections/refine/generate/batch pollin
+         +g/invites/room prompt built; Notability sketch upload is flat-c
+         +ard-only (no PDF→PNG, no plaque) from the web UI | `web-uploads
+         +-and-linking` |                                                
+      77 +| 21 | Public room API `/v1/rooms/{project_id}/state` + `/edits
+         +`, and the Quest account switcher's backend half | 15, 17 | Not
+         + started | `room-api-and-ownership` |                          
+      78 +>>>>>>> worktree-agent-a515eb2d42792dd15                       
+      79  | 22 | Unity networking: anonymous Unity sign-in + account swit
+          cher, Multiplayer Services, NGO 2.x, Distributed Authority | — 
+          | Not started | `unity-cloud-collaborative-vr` |
+      80  | 23 | Unity backprop client: save on settle, session-owner pol
+          ling | 21, 22 | Not started | `vr-edit-cloud-backprop-sync` |
+      81  | 24 | NemoClaw room tools (`get_room_state`, `propose_room_edi
+          t`; publish approved on the web) | 3, 15, 16, 21 | Not started 
+          | `top-tier-nemoclaw-tool-design` |
+     ...
+      664    locked to web origins, fail-fast startup.
+      665  - **17** — invite codes, membership checks on every project ro
+           ute,
+      666    account binding for contributors, ownership, `room_prompt`.
+      661 -- **19** — the web app shell with an account picker, an authen
+          -ticated API                                                   
+      662 -  client, and a mock mode that works offline.                 
+      663 -- **20** — photo upload with progress; Notability flat card or
+          - 3D plaque                                                    
+      664 -  (PDF → PNG in the browser if needed; HEIC converted or rejec
+          -ted);                                                         
+      665 -  optional label, memory text, and room prompt; invites.      
+      667 +- **19** — done. Built directly in the existing `web-app/` (no
+          +t a new `app/`):                                              
+      668 +  a build-time switch (`VITE_SKETCHSCAPE_API_URL`, `src/config
+          +.ts`) so mock                                                 
+      669 +  mode (unset) behaves exactly as before, and real mode (set) 
+          +swaps in an                                                   
+      670 +  account picker (`src/real/RealShell.tsx`) and a typed API cl
+          +ient                                                          
+      671 +  (`src/api/client.ts`) instead of the fake sign-in. See `web-
+          +app/hardcode.MD`                                              
+      672 +  section 0.                                                  
+      673 +- **20** — mostly done, same real-mode branch: photo upload wi
+          +th progress,                                                  
+      674 +  typed per-object names → selections → refine → generate, bat
+          +ch job polling                                                
+      675 +  (ETag + backoff), room prompt, and project create/join by in
+          +vite code                                                     
+      676 +  (`src/real/RealProjectPage.tsx`, `src/api/polling.ts`). Not 
+          +yet from the web                                              
+      677 +  UI: PDF → PNG for Notability exports and the 3D memory-plaqu
+          +e option (flat                                                
+      678 +  card works); letters (step 28, out of scope here on purpose)
+          +.                                                             
+      679  - **21** — `/v1/rooms/*` with idempotent, owner-checked, bound
+           ed,
+      680    revision-checked edits built on the live revision, authentic
+           ated with
+      681    the hardcoded-account header.
+  ⎿  Created web-app\.env.example (+16 -0)
+       1 +# Copy to .env.development / .env.production (both git-ignored)
+         + as needed.                                                    
+       2 +# Unset (or empty) VITE_SKETCHSCAPE_API_URL: the site is fully 
+         +client-side --                                                 
+       3 +# mock sign-in, photos as data URLs, timed animations. Nothing 
+         +below is used.                                                 
+       4 +# Set it: real mode -- an account picker, and real calls to the
+         + FastAPI                                                       
+       5 +# backend. See web-app/hardcode.MD and vercel.json.            
+       6 +                                                               
+       7 +# Local dev, talking straight to `uvicorn main:app` on your mac
+         +hine:                                                          
+       8 +# VITE_SKETCHSCAPE_API_URL=http://localhost:8000               
+       9 +                                                               
+      10 +# Production, once vercel.json's /api/:path* rewrite has a real
+         + backend host:                                                 
+      11 +# VITE_SKETCHSCAPE_API_URL=/api                                
+      12 +                                                               
+      13 +# Only ever the public account ids (never a secret -- Vite bake
+         +s every VITE_*                                                 
+      14 +# value into the public bundle). Optional; defaults to demo-ali
+         +ce,demo-bob to                                                 
+      15 +# match the backend's SKETCHSCAPE_DEMO_USERS default.          
+      16 +# VITE_SKETCHSCAPE_ACCOUNTS=demo-alice,demo-bob                
+  ⎿  Updated web-app\.gitignore (+6 -6)
+      1 -node_modules                                                    
+      2 -dist                                                            
+      3 -.env                                                            
+      4 -.env.local                                                      
+      5 -.vercel                                                         
+      6 -tsconfig.tsbuildinfo                                            
+      1 +node_modules                                                    
+      2 +dist                                                            
+      3 +.env*                                                           
+      4 +!.env.example                                                   
+      5 +.vercel                                                         
+      6 +tsconfig.tsbuildinfo                                            
+  ⎿  Updated web-app\hardcode.MD (+113 -61)
+        1 -# Hardcoded features (demo build)                             
+        2 -                                                              
+        3 -What the web app fakes on purpose so the demo can't break, wha
+          -t is still real, and what's left to hardcode.                 
+        4 -Rule from `features.txt`: fake the plumbing, never lie about i
+          -t. If a judge asks, "mock mode" is the answer.                
+        5 -                                                              
+        6 -Status: **done** = already hardcoded in `src/`, **todo** = sho
+          -uld be hardcoded, not yet.                                    
+        7 -                                                              
+        8 -## 1. Landing page                                            
+        9 -- **done** All copy, imagery and the VR chapter are static. No
+          - live stats, no counters.                                     
+       10 -- **done** Theme is always dusk. No clock, no toggle, no day m
+          -ode.                                                          
+       11 -                                                              
+       12 -## 2. Login                                                   
+       13 -- **done** Local sign-in only (`src/auth.tsx`, `src/screens/Si
+          -gnIn.tsx`): email and password are prefilled, any input signs 
+          -in.                                                           
+       14 -- **done** The current user is always `ME` (`Dylan Houle`, `dy
+          -lan@return.world`, `src/data/store.ts`).                      
+       15 -                                                              
+       16 -## 3. Dashboard                                               
+       17 -- **done** Four seeded rooms, one per card state (`seed()` in 
+          -`store.ts`):                                                  
+       18 -  - `The lake house`: ready (3 people, Lake Norman, July 14, 2
+          -019)                                                          
+       19 -  - `Grandma's porch`: collecting, you're done, waiting on Sam
+       20 -  - `Last day of summer`: building at 35%                     
+       21 -  - `Ava's graduation`: invite from Ava Lin, you haven't joine
+          -d                                                             
+       22 -- **done** Rooms live in `localStorage` (`return-demo-v1`), no
+          - backend.                                                     
+       23 -- **done** Rename, leave, remove, manage people are local-only
+          -.                                                             
+       24 -- **done** `/?reset` restores the seeded rooms and signs out. 
+       25 -                                                              
+       26 -## 4. Create room + invite                                    
+       27 -- **done** Invite search runs over a fixed people list (`KNOWN
+          -_PEOPLE`: Mom, Sam Park, Samira Ali, Ava Lin, Jordan Reyes). N
+          -o real user lookup.                                           
+       28 -- **done** Invites are never emailed. "Sent 2 minutes ago" and
+          - Resend only update a timestamp.                              
+       29 -- **done** Room backdrop scene is picked round-robin, not from
+          - the photos.                                                  
+       30 -- **done** Field lives on the Add photos screen once at least 
+          -one photo is in, owner only, parsed locally, stored, not sent 
+          -anywhere.                                                     
+       31 -                                                              
+       32 -## 5. Upload photos + note                                    
+       33 -- **real** File picking, preview, remove, the note field and v
+          -alidation. Judges will click these.                           
+       34 -- **done** Photos are downscaled to data URLs and kept in the 
+          -browser. No upload to S3 or the API.                          
+       35 -- **done** Fake 900 ms "Adding" beat before moving on, so it f
+          -eels like an upload.                                          
+       36 -- **done** Max 12 photos, note max 1000 chars.                
+       37 -                                                              
+       38 -## 6. Waiting for others                                      
+       39 -- **done** Nobody arrives on a timer; `.` brings the next pers
+          -on in and animates their row; "Start without X" (owner only) j
+          -umps to building.                                             
+       40 -- **done** Their photo counts (3 to 7) and notes are canned (`
+          -NOTES` in `store.ts`: the dock, the screen door, the fireflies
+          -).                                                            
+     … 134 more lines (ctrl+o to expand)
+  ⎿  Updated web-app\src\App.tsx (+84 -64)
+       1 -import { lazy, Suspense, useEffect } from 'react';             
+       2 -import { Navigate, Route, Routes, useLocation } from 'react-rou
+         -ter-dom';                                                      
+       3 -import { AnimatePresence, motion, MotionConfig } from 'motion/r
+         -eact';                                                         
+       4 -import type * as React from 'react';                           
+       5 -import { useSession } from './auth';                           
+       6 -import { useRooms } from './data/store';                       
+       7 -import { immersive } from './world/state';                     
+       8 -import { Bloom } from './screens/shared';                      
+       9 -import Landing from './screens/Landing';                       
+      10 -import SignInPage from './screens/SignIn';                     
+      11 -import Dashboard from './screens/Dashboard';                   
+      12 -import CreateRoom from './screens/CreateRoom';                 
+      13 -import RoomUpload from './screens/RoomUpload';                 
+      14 -import RoomPage from './screens/RoomPage';                     
+      15 -                                                               
+      16 -const SkyWorld = lazy(() => import('./world/SkyWorld'));       
+      17 -                                                               
+      18 -function Private({ children }: { children: React.ReactNode }) {
+      19 -  const { loaded, signedIn } = useSession();                   
+      20 -  const loc = useLocation();                                   
+      21 -  if (!loaded) return null;                                    
+      22 -  return signedIn ? <>{children}</> : <Navigate to={`/sign-in?n
+         -ext=${encodeURIComponent(loc.pathname)}`} replace />;          
+      23 -}                                                              
+      24 -                                                               
+      25 -/** Plays the other people in each room, and '.' fast-forwards 
+         -the room you're looking at. */                                 
+      26 -function useSimulator() {                                      
+      27 -  const loc = useLocation();                                   
+      28 -  // Rooms only advance on '.', no background timer, so the pre
+         -senter controls every beat.                                    
+      29 -  useEffect(() => {                                            
+      30 -    const key = (e: KeyboardEvent) => {                        
+      31 -      const room = loc.pathname.match(/^\/rooms\/([^/]+)/)?.[1]
+         -;                                                              
+      32 -      if (e.key !== '.' || !room || room === 'new' || (e.target
+         - as HTMLElement).closest('input, textarea')) return;           
+      33 -      useRooms.getState().fastForward(room);                   
+      34 -    };                                                         
+      35 -    addEventListener('keydown', key);                          
+      36 -    return () => removeEventListener('keydown', key);          
+      37 -  }, [loc.pathname]);                                          
+      38 -}                                                              
+      39 -                                                               
+      40 -export default function App() {                                
+     … 108 more lines (ctrl+o to expand)
+  ⎿  … 15 more files changed
+
+● Agent "Wire web-app to backend API" finished · 40m 37s
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Straightforward conflict. I'll keep the web-app branch's rows 19–20 and main's
+  row 21 (Done).
+
+● Bash(cd "c:/Users/shaop/Documents/GitHub/Return-HackGT"; python - <<'EOF'
+      p='docs/BUILD_PLAN.md'…)
+  ⎿  1 file changed (binary, mode only or too large to show)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I also found that demo mode disallows the If-None-Match request header and
+  doesn't expose ETag/Retry-After, breaking cross-origin polling. I'll fix all
+  three issues together.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Bash(cd "c:/Users/shaop/Documents/GitHub/Return-HackGT"; python - <<'EOF'
+      p='backend/main.py'…)
+  ⎿  Updated docs\KNOWN_ISSUES.md (+150 -150)
+        1 -# Known issues and their fixes                                
+        2 -                                                              
+        3 -Every issue found while planning the Collaborative VR + web ac
+          -counts track                                                  
+        4 -(research and code review, 2026-09-25), with the **current** f
+          -ix and where                                                  
+        5 -it lives. Fixes are gated Build Plan steps (`docs/BUILD_PLAN.m
+          -d`, steps                                                     
+        6 -13–29). Run `python3 scripts/check_collab_gates.py <step>` bef
+          -ore starting                                                  
+        7 -one (AGENT.md Hard Rule 9).                                   
+        8 -                                                              
+        9 -Status meanings:                                              
+       10 -- **Done (docs):** the fix is already made in the docs/rules. 
+       11 -- **Planned:** the fix is designed in the named step and skill
+          - but not                                                      
+       12 -  coded yet.                                                  
+       13 -- **Verify:** only a real device or GPU run can answer it.    
+       14 -- **Accepted:** a known risk the user chose to keep.          
+       15 -- **Superseded:** the issue no longer applies after a later de
+          -cision.                                                       
+       16 -                                                              
+       17 -## Scope and project                                          
+       18 -                                                              
+       19 -| # | Issue | Fix | Where | Status |                          
+       20 -| --- | --- | --- | --- | --- |                               
+       21 -| 1.1 | AGENT.md forbade accounts and real-time multiplayer | 
+          -Approved as a separate, gated post-MVP track that never delays
+          - steps 1–12 | AGENT.md, ARCHITECTURE.md, PROJECT_STATUS.md, TE
+          -AM_TASK_SPLIT.md, `meta-track-alignment` | Done (docs) |      
+       22 -| 1.2 | HackGTUnity (6000.2.10f1, XRI 3.0.11, OpenXR 1.15.1) h
+          -as no Netcode or Multiplayer Services | Port from VR Multiplay
+          -er Template 2.1 using its exact package versions | Step 22, `u
+          -nity-cloud-collaborative-vr` | Planned |                      
+       23 -| N26 | AGENT.md said `place_objects_in_scene` "publishes imme
+          -diately via Unity MCP", contradicting the approval rule | Tool
+          - returns a draft proposal; `blueprint.publish` needs a person'
+          -s approval; `trigger_unity_scene_update` only applies already-
+          -published scenes to the Editor | AGENT.md NemoClaw section | D
+          -one (docs) |                                                  
+       24 -                                                              
+       25 -## Backend and data                                           
+       26 -                                                              
+       27 -| # | Issue | Fix | Where | Status |                          
+       28 -| --- | --- | --- | --- | --- |                               
+       29 -| 2.1 | No authentication on any route | The `X-SketchScape-De
+          -v-User` account header, restricted to the two hardcoded accoun
+          -ts in `demo` mode, verified server-side with real membership/o
+          -wnership enforcement; used by the web app and headsets alike (
+          -R13 — no Clerk, no Meta room tokens); fail-fast config | Step 
+          -16; `backend-auth-clerk` | Done |                             
+       30 -| 2.2 | No base-revision check: stale saves silently erase new
+          -er edits | `based_on_revision` = live revision; 409 when stale
+          -; clients rebase their own objects | Step 15, `backend-revisio
+          -n-concurrency` | Done |                                       
+       31 -| 2.3 | DynamoDB `put_item` without condition and a per-proces
+          -s lock: revisions overwrite each other | `attribute_not_exists
+          -(sk)` on blueprint and publication appends, with retry | Step 
+          -15 | Done |                                                   
+       32 -| N2 | Whole-blob `ProjectRecord` saves let the live room go b
+          -ackwards | Compare-and-set `LIVE` pointer item | Step 15 | Don
+          -e |                                                           
+       33 -| N3 | An unapproved NemoClaw draft could get published by a r
+          -oom edit | Edits copy the live revision; publish is compare-an
+          -d-set on `based_on_revision` | Steps 15, 21 | Done (compare-an
+          -d-set publish, step 15) / Planned (room edits copy live, step 
+          -21) |                                                         
+       34 -| 2.4 | One process-wide `current_scene` for all projects | Ro
+          -oms read per-project live state only; room routes never touch 
+          -`current_scene` | Steps 15, 21 | Done (per-project LIVE pointe
+          -r, step 15) / Planned (room routes, step 21) |                
+       35 -| 2.5 | No ownership: "edit only your own object" is unenforce
+          -d (Netcode check is client-side) | Contributors bound to one o
+          -f the two hardcoded accounts; ownership derived from contribut
+          -ions; server returns 403 | Steps 17, 21; `room-api-and-ownersh
+          -ip` | Done (ownership helper + membership, step 17) / Planned 
+          -(room `/edits`, step 21) |                                    
+       36 -| 2.6 | No partial updates; every save is a full blueprint | D
+          -ebounced save on release; bounded, idempotent `/v1/rooms/*/edi
+          -ts` builds the revision server-side | Steps 21, 23 | Planned |
+       37 -| 2.7 | No push channel to live rooms | Session owner polls `/
+          -v1/rooms/{id}/state?since_revision=` with ETag/304 | Step 23, 
+          -DATA_ARCHITECTURE polling contract | Planned |                
+       38 -| 2.8 | No author on revisions | `author` on revisions and pub
+          -lications (the hardcoded account id, `nemoclaw:<id>` for servi
+          -ces) | Steps 15, 16 | Done |                                  
+       39 -| N1 | Headsets calling authoring routes breaks Hard Rule 4 | 
+          -Public room API `/v1/rooms/*`; Hard Rule 4 updated | Step 21, 
+          -AGENT.md | Done (docs) / Planned (code) |                     
+       40 -| N4 | Mock auth could reach the cloud | Backend refuses to st
+          -art: mock + DynamoDB or non-mock pipeline; clerk without secre
+          -t or with `*` origins | Step 16 | Done |                      
+     … 260 more lines (ctrl+o to expand)
+  ⎿  Updated unity\Assets\Editor\ReturnHubSetup.cs (+3 -2)
+       8  
+       9  // Wires the Return UI package (Export/com.return.ui-0.2.0.tgz)
+           into this project:
+      10  // a Quest-tuned URP asset (the package's shaders are URP-only)
+          , the XRI Hands Interaction Demo
+      11 -// rig, and the ReturnHub scene. Each step is idempotent and ca
+         -n also run in batch mode:                                      
+      11 +// rig, and the ReturnHub scene. Each step is idempotent and ca
+         +n also run in batch mode                                       
+      12 +// (TMP Essentials import on their own in the editor; headless,
+         + run                                                           
+      13 +// -executeMethod Return.UI.Editor.FontAssetBuilder.ImportEssen
+         +tialsAndExit without -quit):                                   
+      14  //   Unity -batchmode -projectPath unity -executeMethod ReturnH
+          ubSetup.SetupProject -quit
+      15  //   Unity -batchmode -projectPath unity -executeMethod ReturnH
+          ubSetup.BuildHubScene -quit
+      16  public static class ReturnHubSetup
+     ...
+      24      {
+      25          EnsureUrp();
+      26          ImportHandsSample();
+      25 -        if (Application.isBatchMode) Return.UI.Editor.FontAsset
+         -Builder.ImportEssentials();                                    
+      27          AssetDatabase.SaveAssets();
+      28          Debug.Log("ReturnHubSetup: project setup done. Run step
+           2 once scripts recompile.");
+      29      }
+  ⎿  … 2 more files changed
+  ⎿  (timeout 10m)
+
+● All 207 tests pass. Next I'll check the R2 row, update the counts, and commit.
+
+● Bash(cd "c:/Users/shaop/Documents/GitHub/Return-HackGT"; grep -c
+      "CORS_METHODS" docs/KNOWN_ISSUES.md; sed -i -E 's/\b205 tests\b/207
+      tests/g' AGENT.md backend/README…)
+  ⎿  Updated AGENT.md (+3 -3)
+      482     place of failed objects.
+      483  
+      484  8. **Run `bash scripts/verify_local.sh` after every backend ch
+           ange** and
+      485 -   confirm all tests pass before reporting done. Currently 205
+          - tests (2 are                                                 
+      485 +   confirm all tests pass before reporting done. Currently 207
+          + tests (2 are                                                 
+      486     skipped either way, depending on whether `boto3` is install
+           ed).
+      487  
+      488  9. **Collaborative VR + web accounts steps (13–29) are gated.*
+           * Before writing any code or
+     ...
+      561  
+      562  | Area | Status |
+      563  |---|---|
+      564 -| Backend API (upload, poll, mock pipeline, safe edits, room A
+          -PI) | ✅ done, 205 tests passing (2 skipped) |                
+      564 +| Backend API (upload, poll, mock pipeline, safe edits, room A
+          +PI) | ✅ done, 207 tests passing (2 skipped) |                
+      565  | Identity (`SKETCHSCAPE_AUTH_MODE=mock\|demo\|clerk`; `demo` 
+           — two hardcoded accounts — is the real identity model for this
+            track, decision 2026-09-26; authors on revisions) | ✅ done, 
+           including NemoClaw's shared-bearer-token service identity (R14
+           , `SKETCHSCAPE_NEMOCLAW_TOKEN`) |
+      566  | Membership, invites, ownership, `room_prompt` | ✅ done — Bu
+           ild Plan step 17 |
+      567  | `identify_subject` mock labeler (`SKETCHSCAPE_SUBJECT_LABELE
+           R=mock`) | ✅ done — live NemoClaw path waits on Build Plan st
+           ep 3 |
+     ...
+      979  
+      980  ```bash
+      981  # After any backend Python change:
+      982 -bash scripts/verify_local.sh          # must pass, currently 2
+          -05 tests (2 skipped)                                          
+      982 +bash scripts/verify_local.sh          # must pass, currently 2
+          +07 tests (2 skipped)                                          
+      983  
+      984  # After any Terraform change:
+      985  cd infra/aws
+  ⎿  Updated backend\README.md (+1 -1)
+      124  .venv/bin/python -m unittest test_api.py test_storage.py test_
+           subject_labeler.py test_auth.py test_jobs.py
+      125  ```
+      126  
+      127 -205 tests (2 are skipped either way, depending on whether `bot
+          -o3` is                                                        
+      127 +207 tests (2 are skipped either way, depending on whether `bot
+          +o3` is                                                        
+      128  installed). They exercise only `PIPELINE_MODE=mock`; they don'
+           t contact AWS,
+      129  make any network call, or load a model. `test_storage.py`'s
+      130  `DynamoDbStoreContractTests` and `S3ArtifactStoreContractTests
+           ` run the exact
+
+● Merge complete (c466cb9, not yet pushed). I noticed two unrelated files under
+  unity/ that weren't from me or the agents, so I left them untouched — step 19
+  is done, so now I'll check if step 28 (letters) is unblocked.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Step 28 (letters) is unblocked now, so I'll launch a fifth Sonnet agent to
+  handle it — it's the backend piece for showing user 1's letter to user 2.
+
+● Agent(Step 28 letters backend + web) Sonnet 5
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+● The web app is merged into your local main (c466cb9, not pushed), along with a
+  CORS fix of mine. All 207 backend tests pass on the combined code.
+
+  What the web app branch added:
+  - Switch between the fake and the real site: if VITE_SKETCHSCAPE_API_URL is
+    unset, the site behaves exactly as it does now. If it's set, the site talks
+    to the real backend.
+  - Account picker and flow: Account 1 / Account 2, then real photo upload,
+    typed object names, "Make 3D", and job polling in place of the timed
+    animations. Every request carries the chosen account.
+  - Reaching the EC2 backend: web-app/vercel.json forwards /api/* to EC2. You
+    need to replace the placeholder REPLACE_WITH_EC2_BACKEND_HOST with the real
+    host.
+  - Photo size is unconfirmed: Vercel's docs don't state a size limit for
+    forwarded requests, so ~16 MB photos may or may not get through. The lasting
+    fix is HTTPS directly on EC2.
+  - Checks: the web app's build and its 16 unit tests pass. A 22-step script
+    walked both accounts through the flow against a local backend; there was no
+    real browser run.
+
+  CORS fix I made: the agent confirmed that browsers blocked PATCH (saving the
+  room prompt) and DELETE (removing an object), which was R2. I also found two
+  more problems that would have broken polling from a different origin, such as
+  local dev:
+  - If-None-Match wasn't an allowed header.
+  - ETag and Retry-After weren't readable by the page.
+
+  All three are fixed, with preflight tests.
+
+  Still missing in the web app:
+  - Notability sketches only work as flat cards; there's no PDF upload or 3D
+    memory plaque yet.
+  - The project list is saved per browser, because the backend has no "list my
+    projects" route.
+
+  Two files under unity/ also changed in your working tree (manifest.json and a
+  new ReturnHubSetup.cs). They aren't from me or the agents, so I left them out
+  of the commits.
+
+  Letters (step 28) are now unblocked, since the web app step is done. I started
+  a fifth Sonnet agent for them, covering sealed letters only the author and
+  recipient can see, opening, and the web form. The GPU worker agent is still
+  running.
+
+› Message from a9d09bcffabaa3c91
+  Build Plan step 27 (GPU worker: multi-object segmentation + dispatcher) is
+  implemented, unit-tested, and committed on this worktree's branch.
+
+  Branch: worktree-agent-a9d09bcffabaa3c91
+  Commit: ce4f4b7 "Build Plan step 27: GPU worker multi-object segmentation +
+  claim/lease dispatcher" (15 files changed, +2330/-65). Not pushed.
+
+  Gate check confirmed READY before starting (`python
+  scripts/check_collab_gates.py 27`); after implementing, the three automated
+  `--done 27` checks all pass (`def segment_selections`,
+  `worker/gpu_dispatcher.py` exists, `SKETCHSCAPE_GPU_CONCURRENCY` in
+  worker_server.py) — only the manual `gpu_multi_object_verified` gate remains,
+  which requires the user's approved real-GPU run (untouched, per Hard Rule 9).
+
+  What was built
+  - worker/segment_sam31_local.py — torch/ultralytics imports made lazy (only
+  inside GPU-only functions), so the module and its core logic import/run on
+  plain CPU with numpy+Pillow. Added `segment_selections(predictor, image_path,
+  [(selection_id, text), ...])`: one batched SAM 3.1 predictor call over every
+  typed name, area filter (0.5%-90%), cross-selection duplicate-IoU flagging
+  (>0.85, keeps higher score), alternatives per prompt. Added `segment_many`
+  (optional auto-detect helper: threshold, area bounds, IoU dedupe, cap, sort).
+  Added a `/segment_many` HTTP route to the warm SAM 3.1 server. Legacy
+  `choose_one`/`segment` (single-object path) unchanged.
+  - worker/gpu_dispatcher.py (new) — claim → run → renew(60s) → complete loop
+  against the backend's internal jobs API. Claims `segment` jobs first each
+  iteration (they're short); `reconstruct` jobs are hard-handed to the
+  already-warm `worker_server.py` over its existing `/worker/jobs` push contract
+  (unchanged, per skill item 2), gated by a `SKETCHSCAPE_GPU_CONCURRENCY`
+  semaphore (default 1). Idle backoff 1s→10s. Three thin HTTP client classes
+  (ApiClient/Sam31Client/WorkerServerClient) are the only place real sockets
+  open — everything else takes them as parameters so tests inject fakes.
+  - worker/worker_server.py — reads `SKETCHSCAPE_GPU_CONCURRENCY` (sizes the
+  accept queue only — true concurrent Fast-SAM3D execution is explicitly NOT
+  implemented, since `_run_one_job` mutates shared pipeline state with no lock)
+  and `SKETCHSCAPE_WORKER_ID` (now included in its result callback so a
+  dispatcher-claimed job's lease-ownership check on the API passes).
+  - worker/benchmark_concurrency.py (new) — the documented, not-yet-run
+  VRAM/throughput benchmark hook; hard-refuses to run without
+  `SKETCHSCAPE_BENCHMARK_APPROVED=1` and a real CUDA GPU.
+  - backend/main.py — `UploadSelection.error` field; new worker-only routes `GET
+  /v1/internal/reconstructions/{job_id}/selections` (pending selections' typed
+  names) and `POST
+  /v1/internal/reconstructions/{job_id}/selections/{selection_id}/result` (one
+  call per selection; the segment job completes once every selection has a
+  terminal outcome — a failed selection never blocks the others, Hard Rule 7);
+  `dispatch_job`'s aws-local branch now leaves a `segment` job `queued` for the
+  dispatcher instead of auto-failing with the old "needs step 27" message.
+  - backend/worker_contract.json — documents both worker callback shapes
+  (`WorkerResult` for reconstruct, new `SelectionWorkerResult` for segment).
+  - infra/aws/bootstrap_instance.sh —
+  `SKETCHSCAPE_WORKER_ID`/`SKETCHSCAPE_GPU_CONCURRENCY` env vars, new
+  `sketchscape-dispatcher` systemd unit (not applied to any real instance).
+  - docs/BUILD_PLAN.md, AGENT.md — step 27 marked built-and-unit-tested with
+  what's still needed for real-GPU sign-off; `config/collab-vr/gates.json` left
+  untouched (manual gate, user-only).
+
+  Tests: 197 total, all passing, zero GPU/AWS/network calls
+  - backend/test_gpu_worker.py (12 tests): claim/lease HTTP routes incl.
+  worker-token auth, the new per-selection result routes
+  (segmented/failed/lease-rejection/422-without-mask), aws-local leaving segment
+  jobs queued, the
+  one-photo-three-typed-names→three-masks→three-reconstruct-jobs flow, two
+  uploads' segment jobs completing independently.
+  - worker/test_segment_sam31_local.py (19 tests):
+  segment_selections/segment_many against a stub predictor.
+  - worker/test_gpu_dispatcher.py (14 tests): claim→run→renew→complete, lease
+  lost mid-run, idle backoff math, segment-first priority, concurrency-slot
+  gating.
+  - Full existing suites still pass: backend 164/164 (152 pre-existing + 12
+  new), worker 33/33 (all new, no prior worker tests existed). `bash
+  scripts/verify_local.sh` passes its py_compile/JSON/gate-status checks; its
+  own venv-detection line looks for `backend/.venv/bin/python` (POSIX), which
+  doesn't exist on this Windows box's `backend/.venv/Scripts/python.exe` — I ran
+  the actual test suites directly with that interpreter instead (commands
+  above) and updated `verify_local.sh` to also run the new worker tests once a
+  POSIX venv exists. Created `backend/.venv` and added `numpy` to
+  `backend/requirements-dev.txt` (Pillow/fastapi/boto3 were already there)
+  purely as a CPU-only test dependency for the worker's numpy/PIL-based logic.
+
+  Design decisions worth flagging
+  - The claim/lease dispatcher is additive: the previously-verified
+  single-object real-GPU push path (`run_local_gpu_job` → `worker_server.py`
+  loopback, co-located API+GPU host) is untouched. The dispatcher is the
+  mechanism for the new multi-object flow and for any `reconstruct` job that
+  ends up queued.
+  - GPU_CONCURRENCY is wired end-to-end as a config knob but intentionally does
+  NOT enable real parallel Fast-SAM3D execution — that needs pipeline-isolation
+  work plus the benchmark, both explicitly gated and documented (Hard Rule 5,
+  stays at 1).
+
+  Still needed for a real GPU run (all require the user's explicit approval
+  first, per Hard Rule 3)
+  1. Deploy to the GPU EC2 host: apply the `infra/aws/bootstrap_instance.sh`
+  changes (new dispatcher systemd unit + env vars) — needs
+  `terraform`/instance-lifecycle approval if not already running.
+  2. Start `sketchscape-sam31`, `sketchscape-worker`, `sketchscape-dispatcher`,
+  `sketchscape` and verify `curl 127.0.0.1:8002/health` / `8001/worker/health`.
+  3. Run the actual verification scenario from the skill's Definition of Done:
+  one photo, three typed object names → 3 correct masks → 3 PLYs; two uploads
+  submitted together both completing.
+  4. Only then run `worker/benchmark_concurrency.py` (needs
+  `SKETCHSCAPE_BENCHMARK_APPROVED=1`) if there's interest in raising concurrency
+  past 1 — note it will currently report "kept at 1" is the safe default since
+  true concurrent execution isn't implemented yet.
+  5. Once verified, the user (not an agent) sets `gpu_multi_object_verified:
+  true` in `config/collab-vr/gates.json` and fills in the VRAM/timing numbers in
+  `docs/BUILD_PLAN.md` step 27, then `python scripts/check_collab_gates.py
+  --done 27` will pass.
+
+  No GPU, EC2, Terraform apply, or model checkpoint download was touched at any
+  point in this session.
+
+● The GPU worker branch is done. I'll merge it; it overlaps main.py and the
+  docs, so I expect conflicts.
+
+● Bash(cd "c:/Users/shaop/Documents/GitHub/Return-HackGT"; git merge --no-ff
+      worktree-agent-a9d09bcffabaa3c91 -m "Merge step 27: GPU worker
+      multi-object segmentation +…)
+  ⎿  Updated backend\requirements-dev.txt (+8 -0)
+       4  # Optional cloud backend, so the DynamoDB store's CRUD test pat
+          h is exercisable
+       5  # in a dev/CI environment. Runtime keeps boto3 optional (see re
+          quirements-cloud.txt).
+       6  boto3>=1.34,<2.0
+       7 +<<<<<<< HEAD                                                   
+       8  # Mocks DynamoDB and S3 in-memory (moto.mock_aws) so test_stora
+          ge.py's
+       9  # DynamoDbStoreContractTests / S3ArtifactStoreContractTests exe
+          rcise real
+      10  # boto3/botocore behavior -- ConditionExpression evaluation, GS
+          I Query
+      11  # semantics, LastEvaluatedKey pagination -- without any network
+           call or real
+      12  # AWS credentials. Test-only; never imported by application cod
+          e.
+      13  moto[dynamodb,s3]>=5.0,<6.0
+      14 +=======                                                        
+      15 +# worker/test_segment_sam31_local.py (Build Plan step 27) exerc
+         +ises                                                           
+      16 +# segment_sam31_local.py's testable functions on plain numpy ar
+         +rays -- never                                                  
+      17 +# torch/ultralytics, which stay lazily imported and are never i
+         +nstalled                                                       
+      18 +# here. scripts/verify_local.sh runs those worker tests with th
+         +is venv.                                                       
+      19 +numpy>=1.26,<3.0                                               
+      20 +>>>>>>> worktree-agent-a9d09bcffabaa3c91                       
+  ⎿  Created backend\test_gpu_worker.py (+394 -0)
+        1 +"""Build Plan step 27: GPU-worker dispatcher API contract test
+          +s.                                                            
+        2 +                                                              
+        3 +Covers the pieces `worker/gpu_dispatcher.py` depends on that s
+          +tep 26 did not                                                
+        4 +yet exercise over HTTP: the internal claim/lease routes, the n
+          +ew per-segment-                                               
+        5 +job selections task route, and the new per-selection result ca
+          +llback route                                                  
+        6 +that lets one SAM 3.1 pass over several typed names report bac
+          +k one                                                         
+        7 +selection at a time (Hard Rule 7: a failed selection never blo
+          +cks the                                                       
+        8 +others). Also covers `dispatch_job` leaving a `segment` job qu
+          +eued for the                                                  
+        9 +dispatcher under `PIPELINE_MODE=aws-local`, instead of the old
+          + auto-fail.                                                   
+       10 +                                                              
+       11 +Run with `python -m unittest test_gpu_worker.py`. Never touche
+          +s a real GPU,                                                 
+       12 +AWS, or the network -- see worker/test_gpu_dispatcher.py and  
+       13 +worker/test_segment_sam31_local.py for the worker-side unit te
+          +sts.                                                          
+       14 +"""                                                           
+       15 +                                                              
+       16 +import io                                                     
+       17 +import json                                                   
+       18 +import os                                                     
+       19 +import tempfile                                               
+       20 +import unittest                                               
+       21 +                                                              
+       22 +os.environ["PIPELINE_MODE"] = "mock"                          
+       23 +_temp_dir = tempfile.TemporaryDirectory()                     
+       24 +os.environ["SKETCHSCAPE_DATA_DIR"] = _temp_dir.name           
+       25 +                                                              
+       26 +from PIL import Image  # noqa: E402                           
+       27 +from fastapi.testclient import TestClient  # noqa: E402       
+       28 +                                                              
+       29 +import main  # noqa: E402                                     
+       30 +                                                              
+       31 +app = main.app                                                
+       32 +                                                              
+       33 +                                                              
+       34 +def _png_bytes(width: int = 40, height: int = 30) -> bytes:   
+       35 +    buffer = io.BytesIO()                                     
+       36 +    Image.new("RGB", (width, height), color=(10, 20, 30)).save
+          +(buffer, format="PNG")                                        
+       37 +    return buffer.getvalue()                                  
+       38 +                                                              
+       39 +                                                              
+       40 +def _mask_bytes(width: int = 40, height: int = 30) -> bytes:  
+     … 354 more lines (ctrl+o to expand)
+  ⎿  Updated backend\worker_contract.json (+46 -12)
+       1 -{                                                              
+       2 -  "$schema": "https://json-schema.org/draft/2020-12/schema",   
+       3 -  "title": "SketchScape GPU worker result",                    
+       4 -  "description": "The JSON sent in the `result` form field of P
+         -OST /v1/internal/reconstructions/{job_id}/result (backend/main.
+         -py WorkerResult). The request is multipart/form-data: `result` 
+         -(this JSON), `worker_token`, optional `worker_id` (required whe
+         -n the job was claimed through the lease queue), and file parts 
+         -`ply` (Gaussian-splat PLY) and `mask` (aligned binary PNG, whit
+         -e is the object) — both required when status is complete — and 
+         -`preview` (mask-preview PNG). The job id is in the URL path, no
+         -t in this payload.",                                           
+       5 -  "type": "object",                                            
+       6 -  "required": ["status"],                                      
+       7 -  "properties": {                                              
+       8 -    "status": { "enum": ["complete", "mask_review", "failed"] }
+         -,                                                              
+       9 -    "object_label": { "type": "string", "maxLength": 80, "defau
+         -lt": "gaussian_splat" },                                       
+      10 -    "error": { "type": ["string", "null"], "maxLength": 500 }  
+      11 -  }                                                            
+      12 -}                                                              
+       1 +{                                                              
+       2 +  "$schema": "https://json-schema.org/draft/2020-12/schema",   
+       3 +  "title": "SketchScape GPU worker result",                    
+       4 +  "description": "Two worker-token-authenticated callback shape
+         +s, chosen by job kind (backend/main.py ReconstructionJob.kind).
+         + `reconstruct` jobs (one selection's mask -> one PLY, unchanged
+         + since Build Plan step 26) use `WorkerResult` in the `result` f
+         +orm field of POST /v1/internal/reconstructions/{job_id}/result:
+         + multipart/form-data with `result` (this JSON), `worker_token`,
+         + optional `worker_id` (required when the job was claimed throug
+         +h the lease queue, i.e. POST /v1/internal/jobs/claim), and file
+         + parts `ply` (Gaussian-splat PLY) and `mask` (aligned binary PN
+         +G, white is the object) -- both required when status is complet
+         +e -- and `preview` (mask-preview PNG). `segment` jobs (Build Pl
+         +an step 27: one SAM 3.1 pass over every selection's typed name)
+         + use `SelectionWorkerResult` once PER SELECTION in the `result`
+         + form field of POST /v1/internal/reconstructions/{job_id}/selec
+         +tions/{selection_id}/result: multipart/form-data with `result` 
+         +(this JSON), `worker_token`, `worker_id` (required once the job
+         + was claimed -- every segment job goes through the lease queue)
+         +, a `mask` file part (required when status is segmented), and a
+         +n optional `preview` file part. The job completes once every on
+         +e of its selections has reported a terminal (segmented/failed) 
+         +outcome; a failed selection never blocks the others (Hard Rule 
+         +7). The job id and selection id are in the URL path, not in eit
+         +her payload.",                                                 
+       5 +  "oneOf": [                                                   
+       6 +    { "$ref": "#/$defs/WorkerResult" },                        
+       7 +    { "$ref": "#/$defs/SelectionWorkerResult" }                
+       8 +  ],                                                           
+       9 +  "$defs": {                                                   
+      10 +    "WorkerResult": {                                          
+      11 +      "title": "reconstruct job result",                       
+      12 +      "type": "object",                                        
+      13 +      "required": ["status"],                                  
+      14 +      "properties": {                                          
+      15 +        "status": { "enum": ["complete", "mask_review", "failed
+         +"] },                                                          
+      16 +        "object_label": { "type": "string", "maxLength": 80, "d
+         +efault": "gaussian_splat" },                                   
+      17 +        "error": { "type": ["string", "null"], "maxLength": 500
+         + }                                                             
+      18 +      }                                                        
+      19 +    },                                                         
+      20 +    "SelectionWorkerResult": {                                 
+      21 +      "title": "segment job per-selection result",             
+      22 +      "type": "object",                                        
+      23 +      "required": ["status"],                                  
+      24 +      "properties": {                                          
+      25 +        "status": { "enum": ["segmented", "failed"] },         
+      26 +        "score": {                                             
+      27 +          "type": ["number", "null"],                          
+      28 +          "minimum": 0.0,                                      
+     … 18 more lines (ctrl+o to expand)
+  ⎿  Updated scripts\verify_local.sh (+17 -3)
+      15    "$ROOT/backend/test_subject_labeler.py" \
+      16    "$ROOT/backend/test_auth.py" \
+      17    "$ROOT/backend/test_jobs.py" \
+      18 +  "$ROOT/backend/test_gpu_worker.py" \                         
+      19    "$ROOT/scripts/smoke_test_aws_storage.py" \
+      20    "$ROOT/scripts/export_unity_experience.py" \
+      21    "$ROOT/scripts/check_collab_gates.py" \
+      22    "$ROOT/worker/run_job.py" \
+      22 -  "$ROOT/worker/segment_sam31_local.py"                        
+      23 +  "$ROOT/worker/segment_sam31_local.py" \                      
+      24 +  "$ROOT/worker/gpu_dispatcher.py" \                           
+      25 +  "$ROOT/worker/benchmark_concurrency.py" \                    
+      26 +  "$ROOT/worker/test_segment_sam31_local.py" \                 
+      27 +  "$ROOT/worker/test_gpu_dispatcher.py"                        
+      28  bash -n \
+      29    "$ROOT/worker/bootstrap_fastsam3d.sh" \
+      30    "$ROOT/worker/bootstrap_sam31_local.sh" \
+     ...
+      39  python3 -m json.tool "$ROOT/config/unity/sketchscape-scene.prof
+          ile.schema.json" >/dev/null
+      40  python3 -m json.tool "$ROOT/config/collab-vr/gates.json" >/dev/
+          null
+      41  python3 -m json.tool "$ROOT/config/nemoclaw/model-providers.exa
+          mple.json" >/dev/null
+      42 +python3 -m json.tool "$ROOT/backend/worker_contract.json" >/dev
+         +/null                                                          
+      43  # Collaborative VR gate status (read-only, offline). Fails only
+           if a secret
+      44  # (Clerk/Meta/xAI key, secret env assignment, VITE_*SECRET*) le
+          aks into the
+      45  # repo, app/.env*, or the Unity project.
+     ...
+      48  if [[ -x "$ROOT/backend/.venv/bin/python" ]]; then
+      49    (
+      50      cd "$ROOT/backend"
+      45 -    .venv/bin/python -m unittest test_api.py test_storage.py te
+         -st_subject_labeler.py test_auth.py test_jobs.py                
+      51 +    .venv/bin/python -m unittest test_api.py test_storage.py te
+         +st_subject_labeler.py test_auth.py test_jobs.py test_gpu_worker
+         +.py                                                            
+      52 +  )                                                            
+      53 +  # worker/segment_sam31_local.py and gpu_dispatcher.py's testa
+         +ble functions                                                  
+      54 +  # only need numpy/Pillow (already in backend/.venv via requir
+         +ements.txt +                                                   
+      55 +  # a plain `pip install numpy`) -- never torch/ultralytics, wh
+         +ich stay                                                       
+      56 +  # lazily imported so these run on any CPU machine (Build Plan
+         + step 27).                                                     
+      57 +  (                                                            
+      58 +    cd "$ROOT/worker"                                          
+      59 +    "$ROOT/backend/.venv/bin/python" -m unittest test_segment_s
+         +am31_local.py test_gpu_dispatcher.py                           
+      60    )
+      61  else
+      48 -  echo "Python syntax checks passed. Create backend/.venv and i
+         -nstall requirements-dev.txt to run API tests."                 
+     … 2 more lines (ctrl+o to expand)
+  ⎿  Updated worker\README.md (+110 -68)
+        1 -# GPU worker                                                  
+        2 -                                                              
+        3 -Runs SAM 3.1 segmentation and staged Fast-SAM3D reconstruction
+          - on the EC2 GPU                                               
+        4 -host, never in the API process. Verified end-to-end on an NVID
+          -IA L40S                                                       
+        5 -(g6e.xlarge): 70 s per object (42 s SAM 3.1 + 28 s Fast-SAM3D)
+          -, producing a                                                 
+        6 -53 MB PLY. Starting the instance or running any GPU job needs 
+          -explicit                                                      
+        7 -approval (AGENT.md Hard Rule 3).                              
+        8 -                                                              
+        9 -## How it runs on EC2 (`PIPELINE_MODE=aws-local`)             
+       10 -                                                              
+       11 -`infra/aws/bootstrap_instance.sh` installs three systemd servi
+          -ces on the GPU                                                
+       12 -host, all on loopback except the API:                         
+       13 -                                                              
+       14 -| Service | Process | Port |                                  
+       15 -| --- | --- | --- |                                           
+       16 -| `sketchscape-sam31` | `segment_sam31_local.py --serve` (warm
+          - SAM 3.1, its own venv) | 8002 |                              
+       17 -| `sketchscape-worker` | `worker_server.py` (warm Fast-SAM3D, 
+          -its own venv) | 8001 |                                        
+       18 -| `sketchscape` | the FastAPI backend | 8000 |                
+       19 -                                                              
+       20 -For each job the API posts `{job_id, subject_hint}` to        
+       21 -`worker_server.py`, which:                                    
+       22 -                                                              
+       23 -1. Pulls the job's private image (and mask, if one was uploade
+          -d) from the                                                   
+       24 -   API's `/v1/internal/...` routes with the worker token.     
+       25 -2. If there's no mask, asks the warm SAM 3.1 server for one us
+          -ing                                                           
+       26 -   `subject_hint` as a concept prompt (falling back to running
+       27 -   `segment_sam31_local.py` as a subprocess). SAM 3.1 picks on
+          -e centre-most                                                 
+       28 -   instance and returns `mask_review` rather than guess when t
+          -hat's unsafe                                                  
+       29 -   or the hint is empty.                                      
+       30 -3. Runs staged Fast-SAM3D with the models already loaded, so t
+          -here's no                                                     
+       31 -   per-job cold start.                                        
+       32 -4. Streams the PLY, mask, and preview back to                 
+       33 -   `POST /v1/internal/reconstructions/{job_id}/result`.       
+       34 -                                                              
+       35 -Within a job, SAM 3.1 and Fast-SAM3D never hold GPU memory at 
+          -the same time                                                 
+       36 -(Hard Rule 5). `worker_server.py` runs one job at a time and h
+          -olds one                                                      
+       37 -more in its queue; a third concurrent submit gets 429. The dur
+          -able job                                                      
+       38 -queue exists in the backend (Build Plan step 26), but the work
+          -er is still                                                   
+       39 -push-based: it doesn't claim from that queue yet. Several obje
+          -cts per                                                       
+       40 -photo, the GPU-host claim/lease dispatcher, and benchmarked co
+          -ncurrency                                                     
+     … 138 more lines (ctrl+o to expand)
+  ⎿  … 10 more files changed
+
+● Agent "Step 27 GPU multi-object worker" finished · 46m 15s
+
+● Only requirements-dev.txt conflicts. I'll keep both additions (moto and
+  numpy).
+
+● Bash(cd "c:/Users/shaop/Documents/GitHub/Return-HackGT"; sed -i -E
+      '/^(<<<<<<<|=======|>>>>>>>)/d' backend/requirements-dev.txt; cat
+      backend/requirements-dev.txt; gr…)
+  ⎿  Updated backend\requirements-dev.txt (+17 -20)
+       1 --r requirements.txt                                            
+       2 -# Starlette 1.x uses the separately packaged test client depend
+         -ency.                                                          
+       3 -httpx2>=2.0,<3.0                                               
+       4 -# Optional cloud backend, so the DynamoDB store's CRUD test pat
+         -h is exercisable                                               
+       5 -# in a dev/CI environment. Runtime keeps boto3 optional (see re
+         -quirements-cloud.txt).                                         
+       6 -boto3>=1.34,<2.0                                               
+       7 -<<<<<<< HEAD                                                   
+       8 -# Mocks DynamoDB and S3 in-memory (moto.mock_aws) so test_stora
+         -ge.py's                                                        
+       9 -# DynamoDbStoreContractTests / S3ArtifactStoreContractTests exe
+         -rcise real                                                     
+      10 -# boto3/botocore behavior -- ConditionExpression evaluation, GS
+         -I Query                                                        
+      11 -# semantics, LastEvaluatedKey pagination -- without any network
+         - call or real                                                  
+      12 -# AWS credentials. Test-only; never imported by application cod
+         -e.                                                             
+      13 -moto[dynamodb,s3]>=5.0,<6.0                                    
+      14 -=======                                                        
+      15 -# worker/test_segment_sam31_local.py (Build Plan step 27) exerc
+         -ises                                                           
+      16 -# segment_sam31_local.py's testable functions on plain numpy ar
+         -rays -- never                                                  
+      17 -# torch/ultralytics, which stay lazily imported and are never i
+         -nstalled                                                       
+      18 -# here. scripts/verify_local.sh runs those worker tests with th
+         -is venv.                                                       
+      19 -numpy>=1.26,<3.0                                               
+      20 ->>>>>>> worktree-agent-a9d09bcffabaa3c91                       
+       1 +-r requirements.txt                                            
+       2 +# Starlette 1.x uses the separately packaged test client depend
+         +ency.                                                          
+       3 +httpx2>=2.0,<3.0                                               
+       4 +# Optional cloud backend, so the DynamoDB store's CRUD test pat
+         +h is exercisable                                               
+       5 +# in a dev/CI environment. Runtime keeps boto3 optional (see re
+         +quirements-cloud.txt).                                         
+       6 +boto3>=1.34,<2.0                                               
+       7 +# Mocks DynamoDB and S3 in-memory (moto.mock_aws) so test_stora
+         +ge.py's                                                        
+       8 +# DynamoDbStoreContractTests / S3ArtifactStoreContractTests exe
+         +rcise real                                                     
+       9 +# boto3/botocore behavior -- ConditionExpression evaluation, GS
+         +I Query                                                        
+      10 +# semantics, LastEvaluatedKey pagination -- without any network
+         + call or real                                                  
+      11 +# AWS credentials. Test-only; never imported by application cod
+         +e.                                                             
+      12 +moto[dynamodb,s3]>=5.0,<6.0                                    
+      13 +# worker/test_segment_sam31_local.py (Build Plan step 27) exerc
+         +ises                                                           
+      14 +# segment_sam31_local.py's testable functions on plain numpy ar
+         +rays -- never                                                  
+      15 +# torch/ultralytics, which stay lazily imported and are never i
+         +nstalled                                                       
+      16 +# here. scripts/verify_local.sh runs those worker tests with th
+         +is venv.                                                       
+      17 +numpy>=1.26,<3.0                                               
+● Now the full backend and worker suites on the combined code:
+
+● Bash(cd "c:/Users/shaop/Documents/GitHub/Return-HackGT"; PY="$PWD/.claude/work
+      trees/agent-a9d09bcffabaa3c91/backend/.venv/Scripts/python.exe"; $PY -c
+      "import numpy,…)
+  ⎿  Updated unity\ProjectSettings\ProjectAuditorSettings.asset (+36 -36)
+       1 -%YAML 1.1                                                      
+       2 -%TAG !u! tag:unity3d.com,2011:                                 
+       3 ---- !u!114 &1                                                  
+       4 -MonoBehaviour:                                                 
+       5 -  m_ObjectHideFlags: 53                                        
+       6 -  m_CorrespondingSourceObject: {fileID: 0}                     
+       7 -  m_PrefabInstance: {fileID: 0}                                
+       8 -  m_PrefabAsset: {fileID: 0}                                   
+       9 -  m_GameObject: {fileID: 0}                                    
+      10 -  m_Enabled: 1                                                 
+      11 -  m_EditorHideFlags: 0                                         
+      12 -  m_Script: {fileID: 0}                                        
+      13 -  m_Name:                                                      
+      14 -  m_EditorClassIdentifier: UnityEditor.ProjectAuditorModule:Uni
+         -ty.ProjectAuditor.Editor:ProjectAuditorSettings                
+      15 -  Rules:                                                       
+      16 -    rules: []                                                  
+      17 -  DiagnosticParams:                                            
+      18 -    paramsStack:                                               
+      19 -    - PlatformGroup:                                           
+      20 -        m_String: Unknown                                      
+      21 -      m_SerializedParams:                                      
+      22 -      - Key: StreamingClipThresholdBytes                       
+      23 -        Value: 218294                                          
+      24 -      - Key: LongDecompressedClipThresholdBytes                
+      25 -        Value: 204800                                          
+      26 -      - Key: LongCompressedMobileClipThresholdBytes            
+      27 -        Value: 204800                                          
+      28 -      - Key: LoadInBackGroundClipSizeThresholdBytes            
+      29 -        Value: 204800                                          
+      30 -      - Key: TextureStreamingMipmapsSizeLimit                  
+      31 -        Value: 4000                                            
+      32 -      - Key: SpriteAtlasEmptySpaceLimit                        
+      33 -        Value: 50                                              
+      34 -      - Key: StreamingAssetsFolderSizeLimit                    
+      35 -        Value: 50                                              
+      36 -    CurrentParamsIndex: 0                                      
+       1 +%YAML 1.1                                                      
+       2 +%TAG !u! tag:unity3d.com,2011:                                 
+       3 +--- !u!114 &1                                                  
+       4 +MonoBehaviour:                                                 
+     … 32 more lines (ctrl+o to expand)
+  ⎿  … 1 more file changed
+  ⎿  (timeout 10m)
+
+● 219 backend and 33 worker tests all pass. I'll fix the test counts, which now
+  differ between branches, and commit.
+
+● Bash(cd "c:/Users/shaop/Documents/GitHub/Return-HackGT"; grep -rnoE
+      "\b[0-9]{3} tests\b[^|]{0,40}" AGENT.md backend/README.md
+      docs/BUILD_PLAN.md | head -20)
+  ⎿  Created unity\Assets\Settings.meta (+8 -0)
+      1 +fileFormatVersion: 2                                            
+      2 +guid: 1afc49a980737c44bb3b3f248ff4f5b1                          
+      3 +folderAsset: yes                                                
+      4 +DefaultImporter:                                                
+      5 +  externalObjects: {}                                           
+      6 +  userData:                                                     
+      7 +  assetBundleName:                                              
+      8 +  assetBundleVariant:                                           
+  ⎿  Created unity\Assets\Settings\Rendering.meta (+8 -0)
+      1 +fileFormatVersion: 2                                            
+      2 +guid: 1df53917a51db2f4b9fe27782f91913a                          
+      3 +folderAsset: yes                                                
+      4 +DefaultImporter:                                                
+      5 +  externalObjects: {}                                           
+      6 +  userData:                                                     
+      7 +  assetBundleName:                                              
+      8 +  assetBundleVariant:                                           
+  ⎿  Created unity\Assets\Settings\Rendering\Return_Quest_Renderer.asset
+     (+56 -0)
+       1 +%YAML 1.1                                                      
+       2 +%TAG !u! tag:unity3d.com,2011:                                 
+       3 +--- !u!114 &11400000                                           
+       4 +MonoBehaviour:                                                 
+       5 +  m_ObjectHideFlags: 0                                         
+       6 +  m_CorrespondingSourceObject: {fileID: 0}                     
+       7 +  m_PrefabInstance: {fileID: 0}                                
+       8 +  m_PrefabAsset: {fileID: 0}                                   
+       9 +  m_GameObject: {fileID: 0}                                    
+      10 +  m_Enabled: 1                                                 
+      11 +  m_EditorHideFlags: 0                                         
+      12 +  m_Script: {fileID: 11500000, guid: de640fe3d0db1804a85f9fc8f5
+         +cadab6, type: 3}                                               
+      13 +  m_Name: Return_Quest_Renderer                                
+      14 +  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runt
+         +ime::UnityEngine.Rendering.Universal.UniversalRendererData     
+      15 +  debugShaders:                                                
+      16 +    debugReplacementPS: {fileID: 4800000, guid: cf852408f2e1745
+         +38bcd9b7fda1c5ae7, type: 3}                                    
+      17 +    hdrDebugViewPS: {fileID: 4800000, guid: 573620ae32aec764abd
+         +4d728906d2587, type: 3}                                        
+      18 +    probeVolumeSamplingDebugComputeShader: {fileID: 7200000, gu
+         +id: 53626a513ea68ce47b59dc1299fe3959, type: 3}                 
+      19 +  probeVolumeResources:                                        
+      20 +    probeVolumeDebugShader: {fileID: 0}                        
+      21 +    probeVolumeFragmentationDebugShader: {fileID: 0}           
+      22 +    probeVolumeOffsetDebugShader: {fileID: 0}                  
+      23 +    probeVolumeSamplingDebugShader: {fileID: 0}                
+      24 +    probeSamplingDebugMesh: {fileID: 0}                        
+      25 +    probeSamplingDebugTexture: {fileID: 0}                     
+      26 +    probeVolumeBlendStatesCS: {fileID: 0}                      
+      27 +  m_RendererFeatures: []                                       
+      28 +  m_RendererFeatureMap:                                        
+      29 +  xrSystemData: {fileID: 0}                                    
+      30 +  postProcessData: {fileID: 0}                                 
+      31 +  m_AssetVersion: 3                                            
+      32 +  m_PrepassLayerMask:                                          
+      33 +    serializedVersion: 2                                       
+      34 +    m_Bits: 4294967295                                         
+      35 +  m_OpaqueLayerMask:                                           
+      36 +    serializedVersion: 2                                       
+      37 +    m_Bits: 4294967295                                         
+      38 +  m_TransparentLayerMask:                                      
+      39 +    serializedVersion: 2                                       
+      40 +    m_Bits: 4294967295                                         
+     … 16 more lines (ctrl+o to expand)
+  ⎿  Created
+     unity\Assets\Settings\Rendering\Return_Quest_Renderer.asset.meta (+8
+     -0)
+      1 +fileFormatVersion: 2                                            
+      2 +guid: b026e390c09c1174b8b9760d1a7c7fe3                          
+      3 +NativeFormatImporter:                                           
+      4 +  externalObjects: {}                                           
+      5 +  mainObjectFileID: 11400000                                    
+      6 +  userData:                                                     
+      7 +  assetBundleName:                                              
+      8 +  assetBundleVariant:                                           
+  ⎿  Created unity\Assets\Settings\Rendering\Return_Quest_URP.asset (+148
+     -0)
+        1 +%YAML 1.1                                                     
+        2 +%TAG !u! tag:unity3d.com,2011:                                
+        3 +--- !u!114 &11400000                                          
+        4 +MonoBehaviour:                                                
+        5 +  m_ObjectHideFlags: 0                                        
+        6 +  m_CorrespondingSourceObject: {fileID: 0}                    
+        7 +  m_PrefabInstance: {fileID: 0}                               
+        8 +  m_PrefabAsset: {fileID: 0}                                  
+        9 +  m_GameObject: {fileID: 0}                                   
+       10 +  m_Enabled: 1                                                
+       11 +  m_EditorHideFlags: 0                                        
+       12 +  m_Script: {fileID: 11500000, guid: bf2edee5c58d82540a51f03df
+          +9d42094, type: 3}                                             
+       13 +  m_Name: Return_Quest_URP                                    
+       14 +  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Run
+          +time::UnityEngine.Rendering.Universal.UniversalRenderPipelineA
+          +sset                                                          
+       15 +  k_AssetVersion: 13                                          
+       16 +  k_AssetPreviousVersion: 13                                  
+       17 +  m_RendererType: 1                                           
+       18 +  m_RendererData: {fileID: 0}                                 
+       19 +  m_RendererDataList:                                         
+       20 +  - {fileID: 11400000, guid: b026e390c09c1174b8b9760d1a7c7fe3,
+          + type: 2}                                                     
+       21 +  m_DefaultRendererIndex: 0                                   
+       22 +  m_RequireDepthTexture: 0                                    
+       23 +  m_RequireOpaqueTexture: 0                                   
+       24 +  m_OpaqueDownsampling: 1                                     
+       25 +  m_SupportsTerrainHoles: 1                                   
+       26 +  m_SupportsHDR: 0                                            
+       27 +  m_HDRColorBufferPrecision: 0                                
+       28 +  m_MSAA: 4                                                   
+       29 +  m_RenderScale: 1                                            
+       30 +  m_UpscalingFilter: 0                                        
+       31 +  m_FsrOverrideSharpness: 0                                   
+       32 +  m_FsrSharpness: 0.92                                        
+       33 +  m_EnableLODCrossFade: 1                                     
+       34 +  m_LODCrossFadeDitheringType: 1                              
+       35 +  m_ShEvalMode: 0                                             
+       36 +  m_LightProbeSystem: 0                                       
+       37 +  m_ProbeVolumeMemoryBudget: 1024                             
+       38 +  m_ProbeVolumeBlendingMemoryBudget: 256                      
+       39 +  m_SupportProbeVolumeGPUStreaming: 0                         
+       40 +  m_SupportProbeVolumeDiskStreaming: 0                        
+     … 108 more lines (ctrl+o to expand)
+  ⎿  … 1 more file changed
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Step 27 (GPU worker) is merged into your local main (fcae9e3, not pushed). On
+  the combined code, all 219 backend and 33 worker tests pass.
+
+  What it does:
+  - One SAM 3.1 pass per photo: it takes every name the person typed for that
+    photo and returns one mask per object, with alternatives for each name. Tiny
+    or near-duplicate masks are dropped. There's also an optional auto-detect
+    helper.
+  - Separate outcomes per object: each typed name reports its own result. If one
+    object fails, the others still continue to Fast-SAM3D.
+  - A new job dispatcher (worker/gpu_dispatcher.py): it claims jobs with a timed
+    lock that it renews while working. It takes quick segmentation jobs first
+    and backs off when the queue is empty.
+    - It passes each object's 3D reconstruction to the existing, already-proven
+      worker_server.py, which is unchanged.
+    - The single-object path you verified on the L40S is also untouched.
+  - GPU concurrency: SKETCHSCAPE_GPU_CONCURRENCY is a setting, but it stays
+    at 1. The Fast-SAM3D code shares state between jobs without a lock, so it
+    can't run two jobs at once yet. There's a benchmark script, but it refuses
+    to run without explicit approval.
+
+  Merge: the only conflict was requirements-dev.txt, and I kept both new test
+  dependencies (moto and numpy).
+
+  Still needs your approval (real GPU cost):
+  1. Deploying the dispatcher service to the GPU EC2 instance.
+  2. Running the real test: one photo with three typed names should give three
+     masks and three PLY files.
+  3. Then you set gpu_multi_object_verified in config/collab-vr/gates.json.
+
+  Where things stand: four agents' work is merged locally: DynamoDB/S3, room API
+  with NemoClaw access, the web app, and the GPU worker. The letters agent
+  (step 28) is still running. Nothing has been pushed.
+
+  Your working tree also has many uncommitted unity/ changes (packages, render
+  settings, XR samples), which look like a live Unity Editor session. I haven't
+  touched them.
+
+● Agent "Step 28 letters backend + web" failed: Agent terminated early due to an
+API error: You've hit your session limit · resets 1:30pm (America/New_York)
+(error type rate_limit, HTTP 429, request id req_011CfSHMTTN111eEBGhG7Mnn, model
+sent to the API: claude-sonnet-5)
+  ⎿  You've hit your session limit · resets 1:30pm (America/New_York)
+     /upgrade to increase your usage limit.

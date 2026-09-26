@@ -70,11 +70,17 @@ documented.** Get current transforms from `/v1/rooms/{id}/state` or
 
 ## Service identity
 
-NemoClaw calls the backend with a **Clerk M2M token**
-(`accepts_token` includes `m2m_token`, step 16), giving
-`Identity(kind="service")` and `author = nemoclaw:<id>` on revisions. It
-never uses a person's Clerk token. The M2M credential lives in NemoClaw's
-runtime credential provider, never in this repo.
+**Changed 2026-09-26 (see `collab-vr-accounts-and-gates` R13/R14):** the
+project dropped Clerk, so NemoClaw no longer authenticates with a Clerk
+M2M token. The plan is a **shared bearer token**
+(`SKETCHSCAPE_NEMOCLAW_TOKEN`), matching the existing
+`SKETCHSCAPE_WORKER_TOKEN` pattern already in `backend/auth.py` — giving
+`Identity(kind="service")` and `author = nemoclaw:<id>` on revisions, the
+same as before. **Not built yet** (`docs/KNOWN_ISSUES.md` R14): this is a
+small `auth.py` follow-up needed before step 24 starts, and NemoClaw
+itself (step 3) hasn't started either. It never uses a person's account
+header. The credential lives in NemoClaw's runtime credential provider,
+never in this repo.
 
 ## Step 24 tools
 
