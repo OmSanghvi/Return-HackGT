@@ -45,5 +45,39 @@ class SanitizeOpacityArrayTests(unittest.TestCase):
         self.assertEqual(fixed.dtype, np.float32)
 
 
+try:
+    import plyfile
+except ImportError:  # only installed in the Fast-SAM3D GPU env
+    plyfile = None
+
+
+@unittest.skipIf(plyfile is None, "plyfile not installed")
+class SanitizePlyOpacityFileTests(unittest.TestCase):
+    def _write_ply(self, path, opacities) -> np.ndarray:
+        data = np.zeros(len(opacities), dtype=[("x", "f4"), ("opacity", "f4"), ("scale_0", "f4")])
+        data["x"] = np.arange(len(opacities))
+        data["opacity"] = opacities
+        data["scale_0"] = -1.5
+        plyfile.PlyData([plyfile.PlyElement.describe(data, "vertex")]).write(str(path))
+        return data
+
+    def test_repairs_file_in_place_and_keeps_other_columns(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from gaussian_ply_safety import sanitize_ply_opacity_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "reconstruction.ply"
+            original = self._write_ply(path, [1.0, np.inf, np.nan, -2.0])
+            self.assertEqual(sanitize_ply_opacity_file(path), 2)
+            out = plyfile.PlyData.read(str(path), mmap=False)["vertex"].data
+            np.testing.assert_array_equal(out["opacity"], [1.0, SAFE_LOGIT, -SAFE_LOGIT, -2.0])
+            np.testing.assert_array_equal(out["x"], original["x"])
+            np.testing.assert_array_equal(out["scale_0"], original["scale_0"])
+            self.assertEqual(sorted(p.name for p in Path(tmp).iterdir()), ["reconstruction.ply"])
+            self.assertEqual(sanitize_ply_opacity_file(path), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
