@@ -175,6 +175,14 @@
       "approval_required": false,
       "approval_reason": "User decision 2026-09-26: NemoClaw's Unity Editor write tools run ungated (no approval path) -- the Editor scene is authoring scratch space and rooms are built in their own scene files under Assets/SketchScape/AgentRooms/.",
       "implementation_status": "implemented; live Muse Spark runs 2026-09-26: room-e2e-3 (placeholder cubes) and room-real-1 (4 real splat scans: cat, remote control, pink blanket, tomato)"
+    },
+    {
+      "id": "vision.identify_subject",
+      "method": "LOCAL_SCRIPT",
+      "path": "backend/nemoclaw_vision.py (installed in the NemoClaw sandbox as the sketchscape-subject-labeler OpenClaw skill); called by the backend through subject_labeler.NemoClawSubjectLabeler when SKETCHSCAPE_SUBJECT_LABELER=nemoclaw",
+      "purpose": "Build Plan step 4a live path: callable name identify_subject(photo, mask?). Asks NemoClaw's configured model (Muse Spark) through the sandbox's managed inference.local route for SAM 3.1 noun-phrase labels, most prominent first; with a mask, names only the masked object. Labels uploads without a typed name and fills the 'Suggest objects' helper with every object found.",
+      "approval_required": false,
+      "implementation_status": "implemented; verified live 2026-09-26 (cats photo -> brown tabby cat, gray striped cat, gray/white remotes; tomato photo -> red round tomato; masked scans -> pink blanket, gray striped cat, white tv remote)"
     }
   ],
   "unity_mcp_connection": {

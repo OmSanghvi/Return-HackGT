@@ -171,6 +171,13 @@ spends Unity AI credits.
 - `AssetDatabase.DeleteAsset` through `Unity_RunCommand` is refused ("User
   interactions are not supported for MCP tool calls"). Delete assets by hand
   in the Editor.
+- `nemoclaw <sb> status` shows `Inference: unhealthy … invalid response
+  body` with Muse Spark even when the route works, because its probe
+  misreads Meta's reply. `scripts/Start-SketchScape.ps1` checks the route
+  adapter instead.
+- Muse Spark reasons before answering (about 1.6k tokens for a busy photo).
+  A small `max_tokens` returns `content: null` with `finish_reason: stop`,
+  so give it several thousand.
 - **Real splat scans are Z-up.** Fast-SAM3D PLYs synced by
   `scripts/sync_s3_assets_to_unity.py` import with Gsplat's default (RUB)
   frame. Rotate the splat +90° about X to stand them up without mirroring;

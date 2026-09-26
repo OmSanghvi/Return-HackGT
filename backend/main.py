@@ -2643,16 +2643,28 @@ async def detect_upload_objects(
     if label is None:
         return JobIdResponse(job_id=None)
 
-    selection = UploadSelection(
-        selection_id=uuid.uuid4().hex,
-        prompt=SelectionPrompt(text=label.label),
-        label=label.label,
-        origin="suggested",
-    )
-    max_objects = upload_pipeline.max_objects_per_upload()
-    if len(upload.selections) >= max_objects:
+    # Every object NemoClaw saw becomes a suggestion (most prominent first),
+    # skipping names the person already has, up to the per-upload cap.
+    existing = {item.label.strip().lower() for item in upload.selections if item.label}
+    room = upload_pipeline.max_objects_per_upload() - len(upload.selections)
+    suggestions = []
+    for text in [label.label, *label.alternatives]:
+        if len(suggestions) >= room:
+            break
+        if text.strip().lower() in existing:
+            continue
+        existing.add(text.strip().lower())
+        suggestions.append(
+            UploadSelection(
+                selection_id=uuid.uuid4().hex,
+                prompt=SelectionPrompt(text=text),
+                label=text,
+                origin="suggested",
+            )
+        )
+    if not suggestions:
         return JobIdResponse(job_id=None)
-    upload.selections.append(selection)
+    upload.selections.extend(suggestions)
     store.save_upload_record(upload)
 
     job_id = uuid.uuid4().hex
@@ -2666,7 +2678,7 @@ async def detect_upload_objects(
         project_id=project_id,
         kind="segment",
         upload_id=upload_id,
-        selection_ids=[selection.selection_id],
+        selection_ids=[item.selection_id for item in suggestions],
         image_key=upload.image_key,
         subject_label_backend=label.backend,
     )

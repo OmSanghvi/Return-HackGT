@@ -8,6 +8,41 @@ The last session (`65c057b2-388a-42b5-a56f-ed1265d08877`) ran on a different
 Claude account, so it can't be resumed from the next one. This file is the
 handoff.
 
+## LATEST+2 (2026-09-26, night) — one-command startup, and live auto-labeling
+
+- **`scripts/Start-SketchScape.ps1`** brings the whole stack up after a
+  reboot, skipping any step that's already fine:
+  1. Docker.
+  2. Unity on HackGTUnity; it waits for the MCP relay.
+  3. The bridge setup.
+  4. A check for the NemoClaw IPv4 patch. It reports a missing patch and
+     never applies it.
+  5. The Muse Spark route, judged by the adapter being alive *and* having
+     registered a route. If that fails, it prompts for the key in the
+     console, then restarts the gateway.
+  6. The skills.
+
+  `-ForceKey` re-enters the key. It was verified end to end on the running
+  stack, where every step correctly skipped. The recovery path after an
+  actual reboot hasn't run yet.
+- **NemoClaw's `Inference: unhealthy` status line is a false alarm with
+  Muse Spark.** Its probe misreads Meta's response. Don't use it as a health
+  check.
+- **`identify_subject` live path (step 4a)**, turned on with
+  `SKETCHSCAPE_SUBJECT_LABELER=nemoclaw`:
+  - The backend (`subject_labeler.NemoClawSubjectLabeler`) stages the photo
+    in WSL, runs `nemoclaw <sb> upload`, then
+    `nemoclaw <sb> exec -- python3 …/sketchscape-subject-labeler/backend/nemoclaw_vision.py`.
+  - That script calls `https://inference.local/v1/chat/completions` with the
+    image, so NemoClaw injects the key and the backend never holds it.
+  - `--mask` names a single masked object, which is how the 11 "object"
+    scans can be relabeled. Spot checks were correct: the blanket mask gave
+    "pink blanket", and the remote mask gave "white tv remote".
+  - "Suggest objects" now adds every object found, deduplicated and capped.
+  - Muse Spark reasons for about 1.6k tokens before answering, so
+    `max_tokens` is 6000. Each call takes 11–25 s.
+  - Tests: `test_nemoclaw_vision.py` (7) and `test_subject_labeler.py` (17).
+
 ## LATEST+1 (2026-09-26, night) — rooms now use the real 3D scans from AWS
 
 - **What happened:** the Muse Spark agent built
