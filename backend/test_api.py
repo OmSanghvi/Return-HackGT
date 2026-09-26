@@ -122,8 +122,11 @@ class ReconstructionApiTests(unittest.TestCase):
         project = reloaded.get_project(project_id)
         self.assertIsNotNone(project)
         self.assertEqual(project.published_revision, 1)
-        self.assertEqual(len(project.asset_ids), 1)
-        restored_asset = reloaded.get_asset(project.asset_ids[0])
+        # New assets are linked via child items (Build Plan step 26), not
+        # appended to `project.asset_ids` -- see project_asset_ids's docstring.
+        linked_asset_ids = reloaded.list_linked_asset_ids(project_id)
+        self.assertEqual(len(linked_asset_ids), 1)
+        restored_asset = reloaded.get_asset(linked_asset_ids[0])
         self.assertIsNotNone(restored_asset)
         self.assertEqual(restored_asset.status, main.AssetStatus.READY)
         self.assertEqual(len(reloaded.list_blueprints(project_id)), 1)

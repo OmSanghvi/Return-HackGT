@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import json
 import math
+import mimetypes
 import os
 import re
 import secrets
 import sys
+import tempfile
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -22,11 +25,23 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
+import upload_pipeline
 from auth import (
     Identity,
     author_from_identity,
@@ -41,12 +56,14 @@ from subject_labeler import SubjectLabelError, create_subject_labeler
 
 
 DATA_ROOT = Path(os.environ.get("SKETCHSCAPE_DATA_DIR", "./data")).resolve()
-UPLOAD_ROOT = DATA_ROOT / "uploads"
 ARTIFACT_ROOT = DATA_ROOT / "artifacts"
 MAX_UPLOAD_BYTES = 16 * 1024 * 1024
 MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
-for directory in (UPLOAD_ROOT, ARTIFACT_ROOT):
-    directory.mkdir(parents=True, exist_ok=True)
+# Scope used for standalone (no-project) `/v1/reconstructions` uploads, so
+# their input bytes still land under ArtifactStore's uploads/<scope>/<job_id>/
+# shared-storage layout instead of a host-local path (Build Plan step 26).
+STANDALONE_UPLOAD_SCOPE = "_standalone_"
+ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 class JobStatus(StrEnum):
@@ -140,7 +157,7 @@ class AssetView(BaseModel):
     """
 
     view_index: int = Field(ge=0, description="0-based insertion order within the asset.")
-    image_key: str = Field(description="Storage key of the uploaded source image (relative to UPLOAD_ROOT).")
+    image_key: str = Field(description="ArtifactStore uploads/ key of the uploaded source image.")
     subject_hint: str | None = Field(default=None, max_length=100)
     subject_hint_source: SubjectHintSource | None = None
     reconstruction_job_id: str
@@ -167,6 +184,8 @@ class ProjectAsset(BaseModel):
     bounds: list[float] = Field(default_factory=lambda: [1.0, 1.0, 1.0], min_length=3, max_length=3)
     suggested_scale: list[float] = Field(default_factory=lambda: [1.0, 1.0, 1.0], min_length=3, max_length=3)
     error: str | None = None
+    # Step 26: reconstruction | sketch_card | letter (letter arrives in step 28).
+    kind: Literal["reconstruction", "sketch_card", "letter"] = "reconstruction"
     views: list[AssetView] = Field(
         default_factory=list,
         description="Per-view reconstruction provenance. Empty for pre-provenance assets.",
@@ -345,10 +364,20 @@ class ReconstructionResponse(BaseModel):
     scene_url: str = "/v1/scene"
 
 
+JobKind = Literal["segment", "reconstruct"]
+
+
 class ReconstructionJob(ReconstructionResponse):
+    """Durable reconstruction / segmentation job (Build Plan step 26).
+
+    Persisted in the AuthoringStore so any API instance can answer a poll.
+    ``kind=segment`` runs SAM 3.1 over person-chosen selections; ``kind=
+    reconstruct`` runs Fast-SAM3D for one selection's mask.
+    """
+
     created_at: datetime
     updated_at: datetime
-    original_filename: str
+    original_filename: str = ""
     subject_hint: str | None = None
     # "nemoclaw" when identify_subject supplied the SAM 3.1 prompt.
     subject_hint_source: SubjectHintSource | None = None
@@ -359,6 +388,69 @@ class ReconstructionJob(ReconstructionResponse):
     artifact_url: str | None = None
     error: str | None = None
     scene: SceneDocument | None = None
+    # Step 26 durable-job fields.
+    kind: JobKind = "reconstruct"
+    lease_owner: str | None = None
+    lease_expires_at: datetime | None = None
+    attempts: int = 0
+    upload_id: str | None = None
+    selection_ids: list[str] = Field(default_factory=list)
+    # Shared-storage keys (ArtifactStore uploads/ prefix), not host-local paths.
+    image_key: str | None = None
+    mask_key: str | None = None
+
+
+SelectionStatus = Literal["pending", "segmented", "failed", "generated"]
+SelectionOrigin = Literal["person", "suggested"]
+
+
+class SelectionPrompt(BaseModel):
+    """Exactly one of points / box / text (validated in the route)."""
+
+    type: Literal["points", "box", "text"]
+    # Normalized 0–1 coords: points are [x, y, 1|0] (1=include, 0=exclude).
+    points: list[list[float]] | None = None
+    box: list[float] | None = None  # [x0, y0, x1, y1] normalized
+    text: str | None = Field(default=None, max_length=100)
+
+
+class UploadSelection(BaseModel):
+    selection_id: str = Field(min_length=1, max_length=80)
+    prompt: SelectionPrompt
+    label: str | None = Field(default=None, max_length=100)
+    memory_text: str = Field(default="", max_length=1000)
+    status: SelectionStatus = "pending"
+    mask_key: str | None = None
+    preview_key: str | None = None
+    score: float | None = None
+    alternatives: list[dict[str, Any]] = Field(default_factory=list)
+    origin: SelectionOrigin = "person"
+    mask_preview_url: str | None = None
+
+
+class UploadRecord(BaseModel):
+    upload_id: str
+    project_id: str
+    uploader_user_id: str
+    image_key: str
+    width: int = Field(ge=1)
+    height: int = Field(ge=1)
+    created_at: datetime
+    original_filename: str = ""
+    selections: list[UploadSelection] = Field(default_factory=list)
+
+
+class SelectionsRequest(BaseModel):
+    selections: list[UploadSelection] = Field(min_length=1)
+
+
+class RefineSelectionRequest(BaseModel):
+    points: list[list[float]] | None = None
+    box: list[float] | None = None
+
+
+class GenerateRequest(BaseModel):
+    selection_ids: list[str] = Field(min_length=1)
 
 
 class SceneModificationRequest(BaseModel):
@@ -403,11 +495,6 @@ def placeholder_scene(uploaded_filename: str = "sketch.png") -> SceneDocument:
 
 
 current_scene = placeholder_scene()
-# Reconstruction jobs remain process-local by design: a live inference cannot
-# survive an API restart, so persisting job state would be misleading. See
-# docs/INFRASTRUCTURE_ROADMAP.md for the S3/SQS durability slice.
-jobs: dict[str, ReconstructionJob] = {}
-job_inputs: dict[str, tuple[Path, Path | None]] = {}
 # Projects, catalog assets, blueprint revisions, and publication records are
 # durably persisted so authoring state survives an API restart. The backend is
 # selected by SKETCHSCAPE_STORAGE_BACKEND: the default single-process JSON store
@@ -463,20 +550,67 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-async def save_upload(upload: UploadFile, destination: Path, *, limit: int = MAX_UPLOAD_BYTES) -> None:
-    """Store a bounded upload without trusting the client filename."""
-    size = 0
-    with destination.open("wb") as output:
-        while chunk := await upload.read(1024 * 1024):
-            size += len(chunk)
-            if size > limit:
-                output.close()
-                destination.unlink(missing_ok=True)
-                raise HTTPException(413, f"File is larger than the {limit // 1024 // 1024} MB limit.")
-            output.write(chunk)
-    if not size:
-        destination.unlink(missing_ok=True)
+async def read_upload_bytes(upload: UploadFile, limit: int = MAX_UPLOAD_BYTES) -> bytes:
+    """Read a bounded upload fully into memory (needed for EXIF/PIL handling)."""
+    data = bytearray()
+    while chunk := await upload.read(1024 * 1024):
+        data.extend(chunk)
+        if len(data) > limit:
+            raise HTTPException(413, f"File is larger than the {limit // 1024 // 1024} MB limit.")
+    if not data:
         raise HTTPException(400, "The uploaded image is empty.")
+    return bytes(data)
+
+
+def safe_exif_transpose(raw: bytes) -> tuple[bytes, int, int, str]:
+    """Apply EXIF orientation for a real photo; pass non-image bytes through.
+
+    Mock-mode/tests routinely post placeholder bytes that aren't a decodable
+    image (Hard Rule 2: mock stays fully offline and doesn't need real
+    images). A real upload from the web app's selection canvas is always a
+    genuine JPEG/PNG/WebP, so only that path exercises the actual transpose.
+    """
+    try:
+        return upload_pipeline.apply_exif_transpose(raw)
+    except Exception:
+        return raw, 1, 1, ".png"
+
+
+def _bytes_upload_file(data: bytes, filename: str) -> UploadFile:
+    return UploadFile(filename=filename, file=io.BytesIO(data))
+
+
+def get_job_or_404(job_id: str) -> ReconstructionJob:
+    job = store.get_job(job_id)
+    if job is None:
+        raise HTTPException(404, "Unknown reconstruction job.")
+    return job
+
+
+def get_upload_or_404(project_id: str, upload_id: str) -> UploadRecord:
+    upload = store.get_upload_record(project_id, upload_id)
+    if upload is None:
+        raise HTTPException(404, "Unknown upload.")
+    return upload
+
+
+def project_asset_ids(project: ProjectRecord) -> set[str]:
+    """Every asset attached to a project.
+
+    Union of the legacy list-in-a-blob (`ProjectRecord.asset_ids`, read-only
+    for old snapshots) and the new child-item links written by
+    `store.link_asset` (Build Plan step 26) -- the fix for two concurrent
+    uploads racing on `project.asset_ids.append(...)` and dropping one.
+    """
+    return set(project.asset_ids) | set(store.list_linked_asset_ids(project.project_id))
+
+
+def require_upload_owner(upload: UploadRecord, identity: Identity) -> None:
+    """Only the uploader may edit their upload's selections (mock mode: no-op, Hard Rule 2)."""
+    if _auth_mode() != "clerk" or identity.kind == "service":
+        return
+    if upload.uploader_user_id != identity.user_id:
+        raise HTTPException(403, "Only the uploader can edit this upload's selections.")
 
 
 def image_extension(upload: UploadFile) -> str:
@@ -741,52 +875,135 @@ def worker_is_authorized(worker_token: str | None) -> bool:
 
 
 async def resolve_subject_hint(
-    subject_hint: str | None, image_path: Path, original_filename: str, has_mask: bool
+    subject_hint: str | None, image_bytes: bytes, image_suffix: str, original_filename: str, has_mask: bool
 ) -> tuple[str | None, SubjectHintSource | None, str | None]:
     """Return (hint, source, label backend); a typed hint always wins.
 
     NemoClaw labels only when SAM 3.1 will need a prompt: no typed hint and no
     uploaded mask. No label leaves the worker's mask_review path unchanged.
+    `identify_subject` takes a path, so the (already shared-storage-durable)
+    image bytes are spilled to a throwaway temp file just for this call.
     """
     if subject_hint and subject_hint.strip():
         return subject_hint.strip(), "user", None
     if has_mask:
         return None, None, None
-    try:
-        label = await asyncio.to_thread(
-            subject_labeler.identify_subject, image_path, original_filename
-        )
-    except SubjectLabelError as exc:
-        print(f"identify_subject unavailable: {exc}", file=sys.stderr)
-        return None, None, None
+    with tempfile.NamedTemporaryFile(suffix=image_suffix) as tmp:
+        tmp.write(image_bytes)
+        tmp.flush()
+        try:
+            label = await asyncio.to_thread(
+                subject_labeler.identify_subject, Path(tmp.name), original_filename
+            )
+        except SubjectLabelError as exc:
+            print(f"identify_subject unavailable: {exc}", file=sys.stderr)
+            return None, None, None
     if label is None:
         return None, None, None
     return label.label, "nemoclaw", label.backend
 
 
-async def run_mock_job(job_id: str) -> None:
+def dispatch_job(job: ReconstructionJob, background_tasks: BackgroundTasks) -> None:
+    """Route a freshly queued job to the configured pipeline backend."""
+    pipeline_mode = os.environ.get("PIPELINE_MODE", "mock")
+    if pipeline_mode == "mock":
+        if job.kind == "segment":
+            background_tasks.add_task(run_mock_segment_job, job.job_id)
+        else:
+            background_tasks.add_task(run_mock_reconstruct_job, job.job_id)
+        return
+    if pipeline_mode == "aws-local":
+        if job.kind == "segment":
+            # The live multi-selection SAM 3.1 worker path is Build Plan step
+            # 27; aws-local mode only drives the legacy single-object
+            # `reconstruct` push path today.
+            job.status = JobStatus.FAILED
+            job.error = "Live segmentation needs the step 27 GPU worker; use PIPELINE_MODE=mock."
+            job.updated_at = utc_now()
+            store.save_job(job)
+            return
+        background_tasks.add_task(run_local_gpu_job, job.job_id)
+        return
+    job.status = JobStatus.FAILED
+    job.error = "No GPU-worker adapter is configured. Use PIPELINE_MODE=mock or aws-local."
+    job.updated_at = utc_now()
+    store.save_job(job)
+
+
+async def run_mock_reconstruct_job(job_id: str) -> None:
     """Demo-safe fallback; it never pretends to have run SAM 3D."""
     global current_scene
-    job = jobs[job_id]
+    job = store.get_job(job_id)
+    if job is None:
+        return
     job.status = JobStatus.RUNNING
     job.updated_at = utc_now()
+    store.save_job(job)
     await asyncio.sleep(0.15)
-    image_path, mask_path = job_inputs[job_id]
-    job.scene = placeholder_scene(job.original_filename)
+    job.scene = placeholder_scene(job.original_filename or "sketch.png")
     job.scene.meta.update(
         {
             "pipeline": "mock",
-            "mask_provided": mask_path is not None,
+            "mask_provided": job.mask_key is not None,
             "next_real_worker": "automatic mask -> SAM 3D Objects -> Gaussian-splat PLY",
         }
     )
     current_scene = job.scene
     job.status = JobStatus.COMPLETE
     job.updated_at = utc_now()
+    store.save_job(job)
     sync_project_asset(job)
-    await artifact_store.copy_local(
-        job_id, f"input{image_path.suffix}", image_path
-    )
+
+
+async def run_mock_segment_job(job_id: str) -> None:
+    """Mock SAM 3.1: deterministic masks per person-chosen selection.
+
+    A box becomes a filled rectangle, points become discs of fixed radius,
+    and text becomes a fixed centered ellipse (upload_pipeline.render_mock_mask)
+    -- no GPU, no network (Build Plan step 26/27's mock-mode contract).
+    """
+    job = store.get_job(job_id)
+    if job is None:
+        return
+    job.status = JobStatus.RUNNING
+    job.updated_at = utc_now()
+    store.save_job(job)
+    await asyncio.sleep(0.05)
+
+    upload = store.get_upload_record(job.project_id, job.upload_id) if job.project_id and job.upload_id else None
+    if upload is None:
+        job.status = JobStatus.FAILED
+        job.error = "Upload record not found for this segmentation job."
+        job.updated_at = utc_now()
+        store.save_job(job)
+        return
+
+    for selection in upload.selections:
+        if selection.selection_id not in job.selection_ids:
+            continue
+        mask_image = upload_pipeline.render_mock_mask(upload.width, upload.height, selection.prompt)
+        buffer = io.BytesIO()
+        mask_image.save(buffer, format="PNG")
+        mask_key = await artifact_store.put_upload(
+            upload.project_id,
+            upload.upload_id,
+            f"selections/{selection.selection_id}-mask.png",
+            _bytes_upload_file(buffer.getvalue(), "mask.png"),
+            size_limit=MAX_UPLOAD_BYTES,
+        )
+        selection.mask_key = mask_key
+        selection.preview_key = mask_key
+        selection.mask_preview_url = (
+            f"/v1/projects/{upload.project_id}/uploads/{upload.upload_id}"
+            f"/selections/{selection.selection_id}/mask"
+        )
+        selection.score = 0.92
+        selection.status = "segmented"
+    store.save_upload_record(upload)
+
+    job.status = JobStatus.COMPLETE
+    job.updated_at = utc_now()
+    store.save_job(job)
 
 
 async def run_local_gpu_job(job_id: str) -> None:
@@ -799,10 +1016,11 @@ async def run_local_gpu_job(job_id: str) -> None:
     sketchscape-worker systemd service.
     """
     async with local_worker_lock:
-        job = jobs.get(job_id)
+        job = store.get_job(job_id)
         if job is None or job.status != JobStatus.QUEUED:
             return
         job.updated_at = utc_now()
+        store.save_job(job)
 
         worker_port = int(os.environ.get("SKETCHSCAPE_WORKER_SERVER_PORT", "8001"))
         worker_url = f"http://127.0.0.1:{worker_port}/worker/jobs"
@@ -831,6 +1049,7 @@ async def run_local_gpu_job(job_id: str) -> None:
                 # The worker callback becomes authoritative from this point.
                 job.status = JobStatus.RUNNING
                 job.updated_at = utc_now()
+                store.save_job(job)
                 return
             except Exception as error:
                 from urllib.error import HTTPError
@@ -838,6 +1057,7 @@ async def run_local_gpu_job(job_id: str) -> None:
                 if isinstance(error, HTTPError) and error.code == 503:
                     if asyncio.get_running_loop().time() < deadline:
                         job.updated_at = utc_now()
+                        store.save_job(job)
                         await asyncio.sleep(5)
                         continue
                     detail = "Persistent GPU worker did not finish loading before the startup timeout."
@@ -848,6 +1068,7 @@ async def run_local_gpu_job(job_id: str) -> None:
                 job.status = JobStatus.FAILED
                 job.error = detail[:500]
                 job.updated_at = utc_now()
+                store.save_job(job)
                 sync_project_asset(job)
                 return
 
@@ -920,7 +1141,7 @@ async def rotate_project_invite(
 )
 async def list_project_assets(project_id: str) -> list[ProjectAsset]:
     project = get_project(project_id)
-    return [store.get_asset(asset_id) for asset_id in project.asset_ids if store.get_asset(asset_id)]
+    return [store.get_asset(asset_id) for asset_id in project_asset_ids(project) if store.get_asset(asset_id)]
 
 
 @app.post(
@@ -984,7 +1205,7 @@ async def list_contributors(project_id: str) -> list[Contributor]:
 def validate_contribution_request(project: ProjectRecord, request: ContributionCreateRequest) -> None:
     if request.contributor_id not in project.contributor_ids:
         raise HTTPException(422, f"Unknown contributor for this project: {request.contributor_id}")
-    if request.asset_id not in project.asset_ids:
+    if request.asset_id not in project_asset_ids(project):
         raise HTTPException(422, f"Blueprint references unknown project assets: {request.asset_id}")
     asset = store.get_asset(request.asset_id)
     if asset is None or asset.status != AssetStatus.READY:
@@ -1039,19 +1260,39 @@ async def create_reconstruction(
     project_id: Annotated[str | None, Form(max_length=80)] = None,
     identity: Identity = Depends(require_identity),
 ) -> ReconstructionResponse:
-    """Queue a reconstruction and optionally register it in a project catalog."""
+    """Queue a reconstruction and optionally register it in a project catalog.
+
+    A thin wrapper around the shared-storage job pipeline (Build Plan step
+    26): the upload plus one automatic selection covering the whole image,
+    with no UploadRecord/selection-canvas step, so the Unity desktop panel and
+    existing single-object tests keep working unchanged.
+    """
     if project_id:
         enforce_project_access(project_id, identity, capability="write")
     project = get_project(project_id) if project_id else None
+
+    image_extension(image)  # 415 on an unsupported content type
+    raw_image = await read_upload_bytes(image)
+    oriented_image, _, _, image_suffix = safe_exif_transpose(raw_image)
+
     job_id = uuid.uuid4().hex
-    image_path = UPLOAD_ROOT / f"{job_id}-image{image_extension(image)}"
-    await save_upload(image, image_path)
-    mask_path: Path | None = None
+    upload_scope = project_id or STANDALONE_UPLOAD_SCOPE
+    image_key = await artifact_store.put_upload(
+        upload_scope, job_id, f"image{image_suffix}",
+        _bytes_upload_file(oriented_image, f"image{image_suffix}"),
+        size_limit=MAX_UPLOAD_BYTES,
+    )
+    mask_key: str | None = None
     if mask is not None:
-        mask_path = UPLOAD_ROOT / f"{job_id}-mask{image_extension(mask)}"
-        await save_upload(mask, mask_path)
+        mask_suffix = image_extension(mask)
+        raw_mask = await read_upload_bytes(mask)
+        mask_key = await artifact_store.put_upload(
+            upload_scope, job_id, f"mask{mask_suffix}",
+            _bytes_upload_file(raw_mask, f"mask{mask_suffix}"),
+            size_limit=MAX_UPLOAD_BYTES,
+        )
     subject_hint, hint_source, label_backend = await resolve_subject_hint(
-        subject_hint, image_path, image.filename or "", mask_path is not None
+        subject_hint, oriented_image, image_suffix, image.filename or "", mask_key is not None
     )
     now = utc_now()
     job = ReconstructionJob(
@@ -1065,6 +1306,9 @@ async def create_reconstruction(
         subject_hint_source=hint_source,
         subject_label_backend=label_backend,
         project_id=project_id,
+        kind="reconstruct",
+        image_key=image_key,
+        mask_key=mask_key,
     )
     if project is not None:
         asset_id = uuid.uuid4().hex
@@ -1072,7 +1316,7 @@ async def create_reconstruction(
         label = (subject_hint or Path(image.filename or "object").stem or "object")[:80]
         first_view = AssetView(
             view_index=0,
-            image_key=image_path.name,
+            image_key=image_key,
             subject_hint=subject_hint,
             subject_hint_source=hint_source,
             reconstruction_job_id=job_id,
@@ -1088,22 +1332,14 @@ async def create_reconstruction(
                 views=[first_view],
             )
         )
-        project.asset_ids.append(asset_id)
+        # Child link item, not a `project.asset_ids.append` -- see
+        # `project_asset_ids`'s docstring for the concurrent-write bug this
+        # replaces.
+        store.link_asset(project.project_id, asset_id)
         project.updated_at = now
         store.save_project(project)
-    jobs[job_id] = job
-    job_inputs[job_id] = (image_path, mask_path)
-    pipeline_mode = os.environ.get("PIPELINE_MODE", "mock")
-    if pipeline_mode == "aws-local":
-        # A text prompt is needed only when no mask was uploaded. The local
-        # SAM 3.1 worker rejects an empty prompt as mask_review, never guesses.
-        background_tasks.add_task(run_local_gpu_job, job_id)
-    elif pipeline_mode != "mock":
-        job.status = JobStatus.FAILED
-        job.error = "No GPU-worker adapter is configured. Use PIPELINE_MODE=mock or aws-local."
-        job.updated_at = utc_now()
-    else:
-        background_tasks.add_task(run_mock_job, job_id)
+    store.save_job(job)
+    dispatch_job(job, background_tasks)
     return ReconstructionResponse(
         job_id=job.job_id, status=job.status, poll_url=job.poll_url, scene_url=job.scene_url
     )
@@ -1130,7 +1366,7 @@ async def create_project_asset(
         project_id=project_id,
         identity=identity,
     )
-    job = jobs[response.job_id]
+    job = get_job_or_404(response.job_id)
     asset = store.get_asset(job.asset_id or "")
     if asset is None:
         raise HTTPException(500, "Asset was not registered for this reconstruction.")
@@ -1143,10 +1379,7 @@ async def create_project_asset(
     dependencies=[Depends(require_identity)],
 )
 async def get_reconstruction(job_id: str) -> ReconstructionJob:
-    try:
-        return jobs[job_id]
-    except KeyError as error:
-        raise HTTPException(404, "Unknown reconstruction job.") from error
+    return get_job_or_404(job_id)
 
 
 @app.get("/v1/internal/reconstructions/{job_id}/input/{kind}")
@@ -1154,18 +1387,22 @@ async def get_worker_input(
     job_id: str,
     kind: Literal["image", "mask"],
     worker_token: Annotated[str | None, Header(alias="X-SketchScape-Worker-Token")] = None,
-) -> FileResponse:
-    """Private pull endpoint used by a Camber job; never call this from Unity."""
+) -> Response:
+    """Private pull endpoint used by a Camber job; never call this from Unity.
+
+    Reads from ArtifactStore's uploads/ prefix (Build Plan step 26) rather
+    than a host-local path, so any API instance's upload is fetchable by the
+    worker regardless of which instance originally wrote it.
+    """
     if not worker_is_authorized(worker_token):
         raise HTTPException(401, "Invalid GPU worker token.")
-    try:
-        image_path, mask_path = job_inputs[job_id]
-    except KeyError as error:
-        raise HTTPException(404, "Unknown reconstruction job.") from error
-    file_path = image_path if kind == "image" else mask_path
-    if file_path is None or not file_path.is_file():
+    job = get_job_or_404(job_id)
+    key = job.image_key if kind == "image" else job.mask_key
+    if key is None:
         raise HTTPException(404, f"This job has no {kind} input.")
-    return FileResponse(file_path, filename=file_path.name)
+    data = artifact_store.open_upload(key)
+    media_type = mimetypes.guess_type(key)[0] or "application/octet-stream"
+    return Response(content=data, media_type=media_type)
 
 
 @app.get("/v1/internal/reconstructions/{job_id}/task")
@@ -1176,9 +1413,7 @@ async def get_worker_task(
     """Return the worker-only text concept for local SAM 3.1 segmentation."""
     if not worker_is_authorized(worker_token):
         raise HTTPException(401, "Invalid GPU worker token.")
-    job = jobs.get(job_id)
-    if job is None:
-        raise HTTPException(404, "Unknown reconstruction job.")
+    job = get_job_or_404(job_id)
     return {"job_id": job_id, "subject_hint": job.subject_hint}
 
 
@@ -1187,6 +1422,7 @@ async def receive_worker_result(
     job_id: str,
     result: Annotated[str, Form(description="JSON WorkerResult payload")],
     worker_token: Annotated[str | None, Form()] = None,
+    worker_id: Annotated[str | None, Form(description="Lease owner from /v1/internal/jobs/claim")] = None,
     ply: UploadFile | None = File(default=None, description="SAM 3D Gaussian-splat PLY"),
     mask: UploadFile | None = File(default=None, description="Aligned binary object mask"),
     preview: UploadFile | None = File(default=None, description="Mask-preview PNG"),
@@ -1194,16 +1430,17 @@ async def receive_worker_result(
     """Private callback for the GPU worker; it is not a Unity endpoint."""
     if not worker_is_authorized(worker_token):
         raise HTTPException(401, "Invalid GPU worker token.")
-    job = jobs.get(job_id)
-    if job is None:
-        raise HTTPException(404, "Unknown reconstruction job.")
+    job = get_job_or_404(job_id)
+    # Jobs claimed through the durable lease queue (step 26/27) are only
+    # completable by their current lease owner; a legacy push-submitted job
+    # (aws-local's direct-submit path) never has a lease, so it's unaffected.
+    if job.lease_owner is not None and job.lease_owner != worker_id:
+        raise HTTPException(401, "This job's lease is held by a different worker.")
     try:
         payload = WorkerResult.model_validate_json(result)
     except ValueError as error:
         raise HTTPException(422, "`result` must be valid WorkerResult JSON.") from error
 
-    artifact_dir = ARTIFACT_ROOT / job_id
-    artifact_dir.mkdir(exist_ok=True)
     if payload.status == "complete":
         if ply is None or mask is None:
             raise HTTPException(422, "A completed SAM 3D job must include both `ply` and `mask`.")
@@ -1242,6 +1479,9 @@ async def receive_worker_result(
         job.status = JobStatus.FAILED
         job.error = payload.error or "GPU worker reported a failure."
     job.updated_at = utc_now()
+    job.lease_owner = None
+    job.lease_expires_at = None
+    store.save_job(job)
     sync_project_asset(job)
     return job
 
@@ -1267,7 +1507,7 @@ async def get_scene() -> SceneResponse:
     dependencies=[Depends(require_identity)],
 )
 async def get_artifact(job_id: str, filename: str) -> Response:
-    if not jobs.get(job_id) or Path(filename).name != filename:
+    if not store.get_job(job_id) or Path(filename).name != filename:
         raise HTTPException(404, "Unknown artifact.")
     return await artifact_store.serve(job_id, filename)
 
@@ -1276,7 +1516,7 @@ def validate_blueprint_assets(project: ProjectRecord, request: ExperienceBluepri
     object_ids = [item.id for item in request.objects]
     if len(object_ids) != len(set(object_ids)):
         raise HTTPException(422, "Blueprint object IDs must be unique.")
-    known_assets = set(project.asset_ids)
+    known_assets = project_asset_ids(project)
     missing = sorted({item.asset_id for item in request.objects} - known_assets)
     if missing:
         raise HTTPException(422, f"Blueprint references unknown project assets: {', '.join(missing)}")
@@ -1503,7 +1743,7 @@ async def list_project_publications(project_id: str) -> list[PublicationRecord]:
 async def get_project_asset(project_id: str, asset_id: str) -> ProjectAsset:
     """Return a single catalog asset with its full view provenance."""
     project = get_project(project_id)
-    if asset_id not in project.asset_ids:
+    if asset_id not in project_asset_ids(project):
         raise HTTPException(404, "Unknown asset for this project.")
     asset = store.get_asset(asset_id)
     if asset is None:
@@ -1543,7 +1783,7 @@ async def add_asset_view(
     (or fusion of views) to use as the final PLY.
     """
     project = get_project(project_id)
-    if asset_id not in project.asset_ids:
+    if asset_id not in project_asset_ids(project):
         raise HTTPException(404, "Unknown asset for this project.")
     asset = store.get_asset(asset_id)
     if asset is None:
@@ -1554,22 +1794,33 @@ async def add_asset_view(
         # READY from its first successful view.
         pass
 
+    image_extension(image)
+    raw_image = await read_upload_bytes(image)
+    oriented_image, _, _, image_suffix = safe_exif_transpose(raw_image)
     job_id = uuid.uuid4().hex
-    image_path = UPLOAD_ROOT / f"{job_id}-image{image_extension(image)}"
-    await save_upload(image, image_path)
-    mask_path: Path | None = None
+    image_key = await artifact_store.put_upload(
+        project_id, job_id, f"image{image_suffix}",
+        _bytes_upload_file(oriented_image, f"image{image_suffix}"),
+        size_limit=MAX_UPLOAD_BYTES,
+    )
+    mask_key: str | None = None
     if mask is not None:
-        mask_path = UPLOAD_ROOT / f"{job_id}-mask{image_extension(mask)}"
-        await save_upload(mask, mask_path)
+        mask_suffix = image_extension(mask)
+        raw_mask = await read_upload_bytes(mask)
+        mask_key = await artifact_store.put_upload(
+            project_id, job_id, f"mask{mask_suffix}",
+            _bytes_upload_file(raw_mask, f"mask{mask_suffix}"),
+            size_limit=MAX_UPLOAD_BYTES,
+        )
     subject_hint, hint_source, label_backend = await resolve_subject_hint(
-        subject_hint, image_path, image.filename or "", mask_path is not None
+        subject_hint, oriented_image, image_suffix, image.filename or "", mask_key is not None
     )
 
     now = utc_now()
     view_index = len(asset.views)
     new_view = AssetView(
         view_index=view_index,
-        image_key=image_path.name,
+        image_key=image_key,
         subject_hint=subject_hint,
         subject_hint_source=hint_source,
         reconstruction_job_id=job_id,
@@ -1590,21 +1841,471 @@ async def add_asset_view(
         subject_label_backend=label_backend,
         project_id=project_id,
         asset_id=asset_id,
+        kind="reconstruct",
+        image_key=image_key,
+        mask_key=mask_key,
     )
-    jobs[job_id] = job
-    job_inputs[job_id] = (image_path, mask_path)
-
-    pipeline_mode = os.environ.get("PIPELINE_MODE", "mock")
-    if pipeline_mode == "aws-local":
-        background_tasks.add_task(run_local_gpu_job, job_id)
-    elif pipeline_mode != "mock":
-        job.status = JobStatus.FAILED
-        job.error = "No GPU-worker adapter is configured. Use PIPELINE_MODE=mock or aws-local."
-        job.updated_at = utc_now()
-    else:
-        background_tasks.add_task(run_mock_job, job_id)
+    store.save_job(job)
+    dispatch_job(job, background_tasks)
 
     return new_view
+
+
+# -- multi-object upload: person-chosen selections -> SAM 3.1 -> generate -----
+#
+# Build Plan step 26. The person picks which objects in a photo become 3D on
+# the website; those choices are the SAM 3.1 prompts. Auto-detect only ever
+# creates *suggested* selections -- nothing is generated without the person
+# choosing. See docs/DATA_ARCHITECTURE.md's "Object selection flow".
+
+
+class UploadCreateResponse(BaseModel):
+    upload_id: str
+    image_url: str
+    width: int
+    height: int
+
+
+class JobIdResponse(BaseModel):
+    job_id: str | None = None
+
+
+class GenerateResponse(BaseModel):
+    assets: list[ProjectAsset]
+    jobs: list[ReconstructionJob]
+
+
+def upload_image_url(project_id: str, upload_id: str) -> str:
+    return f"/v1/projects/{project_id}/uploads/{upload_id}/image"
+
+
+@app.post(
+    "/v1/projects/{project_id}/uploads",
+    response_model=UploadCreateResponse,
+    status_code=201,
+)
+async def create_upload(
+    project_id: str,
+    image: Annotated[UploadFile, File(description="Photo or Notability sketch page")],
+    identity: Identity = Depends(require_project_write),
+) -> UploadCreateResponse:
+    get_project(project_id)
+    image_extension(image)  # 415 on an unsupported content type
+    raw = await read_upload_bytes(image)
+    oriented, width, height, suffix = safe_exif_transpose(raw)
+
+    upload_id = uuid.uuid4().hex
+    image_key = await artifact_store.put_upload(
+        project_id, upload_id, f"source{suffix}",
+        _bytes_upload_file(oriented, f"source{suffix}"),
+        size_limit=MAX_UPLOAD_BYTES,
+    )
+    upload = UploadRecord(
+        upload_id=upload_id,
+        project_id=project_id,
+        uploader_user_id=identity.user_id,
+        image_key=image_key,
+        width=width,
+        height=height,
+        created_at=utc_now(),
+        original_filename=image.filename or "image",
+    )
+    store.save_upload_record(upload)
+    return UploadCreateResponse(
+        upload_id=upload_id,
+        image_url=upload_image_url(project_id, upload_id),
+        width=width,
+        height=height,
+    )
+
+
+@app.get(
+    "/v1/projects/{project_id}/uploads/{upload_id}",
+    response_model=UploadRecord,
+    dependencies=[Depends(require_project_read)],
+)
+async def get_upload(project_id: str, upload_id: str) -> UploadRecord:
+    return get_upload_or_404(project_id, upload_id)
+
+
+@app.get(
+    "/v1/projects/{project_id}/uploads/{upload_id}/image",
+    dependencies=[Depends(require_project_read)],
+)
+async def get_upload_image(project_id: str, upload_id: str) -> Response:
+    upload = get_upload_or_404(project_id, upload_id)
+    data = artifact_store.open_upload(upload.image_key)
+    media_type = mimetypes.guess_type(upload.image_key)[0] or "application/octet-stream"
+    return Response(content=data, media_type=media_type)
+
+
+@app.get(
+    "/v1/projects/{project_id}/uploads/{upload_id}/selections/{selection_id}/mask",
+    dependencies=[Depends(require_project_read)],
+)
+async def get_selection_mask(project_id: str, upload_id: str, selection_id: str) -> Response:
+    upload = get_upload_or_404(project_id, upload_id)
+    selection = next((item for item in upload.selections if item.selection_id == selection_id), None)
+    if selection is None or selection.mask_key is None:
+        raise HTTPException(404, "No mask for this selection.")
+    return Response(content=artifact_store.open_upload(selection.mask_key), media_type="image/png")
+
+
+@app.post(
+    "/v1/projects/{project_id}/uploads/{upload_id}/selections",
+    response_model=JobIdResponse,
+    status_code=202,
+)
+async def create_selections(
+    project_id: str,
+    upload_id: str,
+    request: SelectionsRequest,
+    background_tasks: BackgroundTasks,
+    identity: Identity = Depends(require_project_write),
+) -> JobIdResponse:
+    upload = get_upload_or_404(project_id, upload_id)
+    require_upload_owner(upload, identity)
+    for selection in request.selections:
+        upload_pipeline.validate_selection_prompt(selection.prompt)
+
+    existing_ids = {item.selection_id for item in upload.selections}
+    # Idempotent resend: a selection_id we've already seen creates nothing new.
+    new_selections = [item for item in request.selections if item.selection_id not in existing_ids]
+
+    max_objects = upload_pipeline.max_objects_per_upload()
+    if len(upload.selections) + len(new_selections) > max_objects:
+        raise HTTPException(422, f"A photo may have at most {max_objects} selected objects.")
+
+    if not new_selections:
+        return JobIdResponse(job_id=None)
+
+    upload.selections.extend(new_selections)
+    store.save_upload_record(upload)
+
+    job_id = uuid.uuid4().hex
+    now = utc_now()
+    job = ReconstructionJob(
+        job_id=job_id,
+        status=JobStatus.QUEUED,
+        poll_url=job_url(job_id),
+        created_at=now,
+        updated_at=now,
+        project_id=project_id,
+        kind="segment",
+        upload_id=upload_id,
+        selection_ids=[item.selection_id for item in new_selections],
+        image_key=upload.image_key,
+    )
+    store.save_job(job)
+    dispatch_job(job, background_tasks)
+    return JobIdResponse(job_id=job_id)
+
+
+@app.post(
+    "/v1/projects/{project_id}/uploads/{upload_id}/selections/{selection_id}/refine",
+    response_model=JobIdResponse,
+    status_code=202,
+)
+async def refine_selection(
+    project_id: str,
+    upload_id: str,
+    selection_id: str,
+    request: RefineSelectionRequest,
+    background_tasks: BackgroundTasks,
+    identity: Identity = Depends(require_project_write),
+) -> JobIdResponse:
+    upload = get_upload_or_404(project_id, upload_id)
+    require_upload_owner(upload, identity)
+    selection = next((item for item in upload.selections if item.selection_id == selection_id), None)
+    if selection is None:
+        raise HTTPException(404, "Unknown selection.")
+    if request.box:
+        selection.prompt = SelectionPrompt(type="box", box=request.box)
+    elif request.points:
+        selection.prompt = SelectionPrompt(type="points", points=request.points)
+    else:
+        raise HTTPException(422, "Provide points or a box to refine with.")
+    upload_pipeline.validate_selection_prompt(selection.prompt)
+    selection.status = "pending"
+    selection.mask_key = None
+    selection.preview_key = None
+    selection.mask_preview_url = None
+    store.save_upload_record(upload)
+
+    job_id = uuid.uuid4().hex
+    now = utc_now()
+    job = ReconstructionJob(
+        job_id=job_id,
+        status=JobStatus.QUEUED,
+        poll_url=job_url(job_id),
+        created_at=now,
+        updated_at=now,
+        project_id=project_id,
+        kind="segment",
+        upload_id=upload_id,
+        selection_ids=[selection_id],
+        image_key=upload.image_key,
+    )
+    store.save_job(job)
+    dispatch_job(job, background_tasks)
+    return JobIdResponse(job_id=job_id)
+
+
+@app.delete(
+    "/v1/projects/{project_id}/uploads/{upload_id}/selections/{selection_id}",
+    status_code=204,
+)
+async def delete_selection(
+    project_id: str,
+    upload_id: str,
+    selection_id: str,
+    identity: Identity = Depends(require_project_write),
+) -> Response:
+    upload = get_upload_or_404(project_id, upload_id)
+    require_upload_owner(upload, identity)
+    remaining = [item for item in upload.selections if item.selection_id != selection_id]
+    if len(remaining) == len(upload.selections):
+        raise HTTPException(404, "Unknown selection.")
+    upload.selections = remaining
+    store.save_upload_record(upload)
+    return Response(status_code=204)
+
+
+@app.post(
+    "/v1/projects/{project_id}/uploads/{upload_id}/detect",
+    response_model=JobIdResponse,
+    status_code=202,
+)
+async def detect_upload_objects(
+    project_id: str,
+    upload_id: str,
+    background_tasks: BackgroundTasks,
+    identity: Identity = Depends(require_project_write),
+) -> JobIdResponse:
+    """Optional auto-detect helper (skill item 6): NemoClaw's identify_subject
+    as a text prompt, added as a *suggested* selection the person can keep or
+    delete. Nothing generates without the person choosing."""
+    upload = get_upload_or_404(project_id, upload_id)
+    image_bytes = artifact_store.open_upload(upload.image_key)
+    suffix = Path(upload.image_key).suffix or ".png"
+    label = None
+    with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
+        tmp.write(image_bytes)
+        tmp.flush()
+        try:
+            label = await asyncio.to_thread(
+                subject_labeler.identify_subject, Path(tmp.name), upload.original_filename
+            )
+        except SubjectLabelError:
+            label = None
+    if label is None:
+        return JobIdResponse(job_id=None)
+
+    selection = UploadSelection(
+        selection_id=uuid.uuid4().hex,
+        prompt=SelectionPrompt(type="text", text=label.label),
+        label=label.label,
+        origin="suggested",
+    )
+    max_objects = upload_pipeline.max_objects_per_upload()
+    if len(upload.selections) >= max_objects:
+        return JobIdResponse(job_id=None)
+    upload.selections.append(selection)
+    store.save_upload_record(upload)
+
+    job_id = uuid.uuid4().hex
+    now = utc_now()
+    job = ReconstructionJob(
+        job_id=job_id,
+        status=JobStatus.QUEUED,
+        poll_url=job_url(job_id),
+        created_at=now,
+        updated_at=now,
+        project_id=project_id,
+        kind="segment",
+        upload_id=upload_id,
+        selection_ids=[selection.selection_id],
+        image_key=upload.image_key,
+        subject_label_backend=label.backend,
+    )
+    store.save_job(job)
+    dispatch_job(job, background_tasks)
+    return JobIdResponse(job_id=job_id)
+
+
+async def do_generate(
+    project_id: str,
+    upload_id: str,
+    selection_ids: list[str],
+    background_tasks: BackgroundTasks,
+    identity: Identity,
+    *,
+    create_contribution: bool,
+) -> tuple[list[ProjectAsset], list[ReconstructionJob]]:
+    project = get_project(project_id)
+    upload = get_upload_or_404(project_id, upload_id)
+    by_id = {item.selection_id: item for item in upload.selections}
+    missing = [sid for sid in selection_ids if sid not in by_id]
+    if missing:
+        raise HTTPException(422, f"Unknown selection id(s): {', '.join(sorted(missing))}")
+    not_segmented = [sid for sid in selection_ids if by_id[sid].status != "segmented"]
+    if not_segmented:
+        raise HTTPException(409, f"Selections are not segmented yet: {', '.join(sorted(not_segmented))}")
+
+    contributor = (
+        find_contributor_by_clerk_user(project_id, identity.user_id)
+        if identity.kind != "service"
+        else None
+    )
+
+    now = utc_now()
+    assets: list[ProjectAsset] = []
+    jobs: list[ReconstructionJob] = []
+    for selection_id in selection_ids:
+        selection = by_id[selection_id]
+        asset_id = uuid.uuid4().hex
+        job_id = uuid.uuid4().hex
+        label = (selection.label or "object")[:80]
+        first_view = AssetView(
+            view_index=0,
+            image_key=upload.image_key,
+            subject_hint=selection.label,
+            subject_hint_source="user" if selection.label else None,
+            reconstruction_job_id=job_id,
+            recorded_at=now,
+        )
+        asset = ProjectAsset(
+            asset_id=asset_id,
+            project_id=project_id,
+            label=label,
+            status=AssetStatus.PROCESSING,
+            reconstruction_job_id=job_id,
+            views=[first_view],
+        )
+        store.save_asset(asset)
+        store.link_asset(project_id, asset_id)
+        assets.append(asset)
+
+        job = ReconstructionJob(
+            job_id=job_id,
+            status=JobStatus.QUEUED,
+            poll_url=job_url(job_id),
+            created_at=now,
+            updated_at=now,
+            project_id=project_id,
+            asset_id=asset_id,
+            kind="reconstruct",
+            upload_id=upload_id,
+            selection_ids=[selection_id],
+            image_key=upload.image_key,
+            mask_key=selection.mask_key,
+            subject_hint=selection.label,
+        )
+        store.save_job(job)
+        dispatch_job(job, background_tasks)
+        jobs.append(job)
+
+        selection.status = "generated"
+
+        if create_contribution and contributor is not None:
+            contribution = Contribution(
+                contribution_id=uuid.uuid4().hex,
+                project_id=project_id,
+                contributor_id=contributor.contributor_id,
+                asset_id=asset_id,
+                source_type="photo",
+                memory_text=selection.memory_text.strip(),
+                created_at=now,
+            )
+            store.append_contribution(contribution)
+            project.contribution_ids.append(contribution.contribution_id)
+
+    project.updated_at = now
+    store.save_project(project)
+    store.save_upload_record(upload)
+    return assets, jobs
+
+
+@app.post(
+    "/v1/projects/{project_id}/uploads/{upload_id}/generate",
+    response_model=GenerateResponse,
+    status_code=202,
+)
+async def generate_selected_objects(
+    project_id: str,
+    upload_id: str,
+    request: GenerateRequest,
+    background_tasks: BackgroundTasks,
+    identity: Identity = Depends(require_project_write),
+) -> GenerateResponse:
+    upload = get_upload_or_404(project_id, upload_id)
+    require_upload_owner(upload, identity)
+    assets, reconstruct_jobs = await do_generate(
+        project_id, upload_id, request.selection_ids, background_tasks, identity,
+        create_contribution=True,
+    )
+    return GenerateResponse(assets=assets, jobs=reconstruct_jobs)
+
+
+@app.get("/v1/projects/{project_id}/jobs")
+async def list_project_jobs_route(
+    project_id: str,
+    request: Request,
+    active: Annotated[int, Query()] = 0,
+    since: Annotated[str | None, Query()] = None,
+    identity: Identity = Depends(require_project_read),
+) -> Response:
+    """Batch job polling (skill item 7): one call covers every job in flight
+    for a project. Read-only, store-only, cheap; supports If-None-Match."""
+    get_project(project_id)
+    matched = store.list_project_jobs(project_id, active_only=bool(active))
+    if since:
+        try:
+            since_at = datetime.fromisoformat(since)
+        except ValueError as error:
+            raise HTTPException(422, "`since` must be an ISO 8601 timestamp.") from error
+        matched = [job for job in matched if job.updated_at > since_at]
+    matched.sort(key=lambda job: job.created_at, reverse=True)
+    payload = [json.loads(job.model_dump_json()) for job in matched]
+    body = json.dumps(payload, sort_keys=True, default=str).encode()
+    etag = hashlib.sha256(body).hexdigest()
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    return JSONResponse(content=payload, headers={"ETag": etag})
+
+
+class ClaimJobRequest(BaseModel):
+    worker_id: str = Field(min_length=1, max_length=120)
+    kinds: list[JobKind] = Field(default_factory=lambda: ["segment", "reconstruct"])
+
+
+@app.post("/v1/internal/jobs/claim")
+async def claim_internal_job(
+    request: ClaimJobRequest,
+    worker_token: Annotated[str | None, Header(alias="X-SketchScape-Worker-Token")] = None,
+) -> Response:
+    """Worker-only (skill item 9): claim the oldest queued job of a given kind."""
+    if not worker_is_authorized(worker_token):
+        raise HTTPException(401, "Invalid GPU worker token.")
+    lease_seconds = int(os.environ.get("SKETCHSCAPE_JOB_LEASE_SECONDS", "900"))
+    job = store.claim_next_job(request.worker_id, list(request.kinds), lease_seconds)
+    if job is None:
+        return Response(status_code=204)
+    return JSONResponse(content=json.loads(job.model_dump_json()))
+
+
+@app.post("/v1/internal/jobs/{job_id}/lease")
+async def renew_internal_job_lease(
+    job_id: str,
+    worker_id: Annotated[str, Form()],
+    worker_token: Annotated[str | None, Form()] = None,
+) -> dict[str, bool]:
+    """Worker-only (skill item 9): renew a claimed job's lease."""
+    if not worker_is_authorized(worker_token):
+        raise HTTPException(401, "Invalid GPU worker token.")
+    lease_seconds = int(os.environ.get("SKETCHSCAPE_JOB_LEASE_SECONDS", "900"))
+    renewed = store.renew_lease(job_id, worker_id, lease_seconds)
+    return {"renewed": renewed}
 
 
 # -- connection/compose (Build Plan step 5) ------------------------------------

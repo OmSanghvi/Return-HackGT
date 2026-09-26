@@ -204,6 +204,52 @@ resource "aws_dynamodb_table" "authoring" {
     type = "S"
   }
 
+  # GSI1/GSI2 back Build Plan step 26's durable jobs and batch polling
+  # (docs/DATA_ARCHITECTURE.md's "Indexes and table settings"). DynamoDbStore
+  # refuses to start against a table missing either one -- see
+  # storage.DynamoDbStore._check_required_indexes. NEEDS EXPLICIT APPROVAL
+  # before `terraform apply` (Hard Rule 3): this diff is written, not applied.
+  attribute {
+    name = "gsi1pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "gsi1sk"
+    type = "S"
+  }
+
+  attribute {
+    name = "gsi2pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "gsi2sk"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "gsi1"
+    hash_key        = "gsi1pk"
+    range_key       = "gsi1sk"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "gsi2"
+    hash_key        = "gsi2pk"
+    range_key       = "gsi2sk"
+    projection_type = "ALL"
+  }
+
+  # Link codes (step 18) and room-edit idempotency records (step 21) expire
+  # via this attribute.
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
+
   server_side_encryption {
     enabled = true
   }

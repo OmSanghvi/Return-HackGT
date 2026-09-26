@@ -34,7 +34,7 @@ import os
 import tempfile
 import threading
 from abc import ABC, abstractmethod
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -47,10 +47,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a circular import.
         ProjectAsset,
         ProjectRecord,
         PublicationRecord,
+        ReconstructionJob,
+        UploadRecord,
     )
 
 
-STATE_VERSION = 2
+STATE_VERSION = 3
 
 
 class RevisionConflict(Exception):
@@ -91,6 +93,25 @@ def _social_model_types() -> tuple[type, type, type]:
     from main import ConnectionInsight, Contribution, Contributor
 
     return Contributor, Contribution, ConnectionInsight
+
+
+def _job_upload_types() -> tuple[type, type]:
+    from main import ReconstructionJob, UploadRecord
+
+    return ReconstructionJob, UploadRecord
+
+
+def _job_status_type():
+    from main import JobStatus
+
+    return JobStatus
+
+
+def _job_max_attempts() -> int:
+    return max(1, int(os.environ.get("SKETCHSCAPE_JOB_MAX_ATTEMPTS", "2")))
+
+
+_ACTIVE_JOB_STATUSES = ("queued", "running", "mask_review")
 
 
 class AuthoringStore(ABC):
@@ -165,6 +186,46 @@ class AuthoringStore(ABC):
     @abstractmethod
     def append_connection_insight(self, insight: ConnectionInsight) -> None: ...
 
+    # -- durable jobs + uploads (Build Plan step 26) ------------------------
+
+    @abstractmethod
+    def save_job(self, job: ReconstructionJob) -> None: ...
+
+    @abstractmethod
+    def get_job(self, job_id: str) -> ReconstructionJob | None: ...
+
+    @abstractmethod
+    def list_project_jobs(self, project_id: str, active_only: bool = False) -> list[ReconstructionJob]: ...
+
+    @abstractmethod
+    def claim_next_job(
+        self, worker_id: str, kinds: list[str], lease_seconds: int
+    ) -> ReconstructionJob | None: ...
+
+    @abstractmethod
+    def renew_lease(self, job_id: str, lease_owner: str, lease_seconds: int) -> bool: ...
+
+    @abstractmethod
+    def complete_job(self, job_id: str, lease_owner: str, updates: dict) -> bool: ...
+
+    @abstractmethod
+    def release_expired_leases(self) -> int: ...
+
+    @abstractmethod
+    def link_asset(self, project_id: str, asset_id: str) -> None: ...
+
+    @abstractmethod
+    def list_linked_asset_ids(self, project_id: str) -> list[str]: ...
+
+    @abstractmethod
+    def save_upload_record(self, upload: UploadRecord) -> None: ...
+
+    @abstractmethod
+    def get_upload_record(self, project_id: str, upload_id: str) -> UploadRecord | None: ...
+
+    @abstractmethod
+    def list_upload_records(self, project_id: str) -> list[UploadRecord]: ...
+
     def persist_all(self) -> None:  # pragma: no cover - default no-op
         """Force a full flush. Backends that write eagerly need not override."""
 
@@ -188,6 +249,9 @@ class LocalJsonStore(AuthoringStore):
         self.contributions: dict[str, list[Contribution]] = {}
         self.connection_insights: dict[str, list[ConnectionInsight]] = {}
         self.live_revisions: dict[str, int] = {}
+        self.jobs: dict[str, ReconstructionJob] = {}
+        self.uploads: dict[str, dict[str, UploadRecord]] = {}
+        self.asset_links: dict[str, list[str]] = {}
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -205,6 +269,9 @@ class LocalJsonStore(AuthoringStore):
             self.contributions = {}
             self.connection_insights = {}
             self.live_revisions = {}
+            self.jobs = {}
+            self.uploads = {}
+            self.asset_links = {}
             if not self._state_path.is_file():
                 return
             try:
@@ -214,6 +281,7 @@ class LocalJsonStore(AuthoringStore):
                 # file for inspection and begin from an empty, valid state.
                 self._quarantine_corrupt_state()
                 return
+            ReconstructionJob, UploadRecord = _job_upload_types()
             for record in raw.get("projects", []):
                 project = ProjectRecord.model_validate(record)
                 self.projects[project.project_id] = project
@@ -244,6 +312,15 @@ class LocalJsonStore(AuthoringStore):
             # unset per project rather than failing to load an older snapshot.
             for project_id, revision in raw.get("live_revisions", {}).items():
                 self.live_revisions[project_id] = int(revision)
+            for record in raw.get("jobs", []):
+                job = ReconstructionJob.model_validate(record)
+                self.jobs[job.job_id] = job
+            for project_id, records in raw.get("uploads", {}).items():
+                self.uploads[project_id] = {
+                    item["upload_id"]: UploadRecord.model_validate(item) for item in records
+                }
+            for project_id, asset_ids in raw.get("asset_links", {}).items():
+                self.asset_links[project_id] = list(asset_ids)
 
     def _quarantine_corrupt_state(self) -> None:
         backup = self._state_path.with_suffix(
@@ -283,6 +360,12 @@ class LocalJsonStore(AuthoringStore):
                 for project_id, records in self.connection_insights.items()
             },
             "live_revisions": dict(self.live_revisions),
+            "jobs": [job.model_dump(mode="json") for job in self.jobs.values()],
+            "uploads": {
+                project_id: [item.model_dump(mode="json") for item in records.values()]
+                for project_id, records in self.uploads.items()
+            },
+            "asset_links": {project_id: list(ids) for project_id, ids in self.asset_links.items()},
         }
 
     def _flush(self) -> None:
@@ -411,6 +494,113 @@ class LocalJsonStore(AuthoringStore):
         with self._lock:
             self._flush()
 
+    # -- durable jobs (Build Plan step 26) ----------------------------------
+
+    def save_job(self, job: ReconstructionJob) -> None:
+        with self._lock:
+            self.jobs[job.job_id] = job
+            self._flush()
+
+    def get_job(self, job_id: str) -> ReconstructionJob | None:
+        return self.jobs.get(job_id)
+
+    def list_project_jobs(self, project_id: str, active_only: bool = False) -> list[ReconstructionJob]:
+        jobs = [job for job in self.jobs.values() if job.project_id == project_id]
+        if active_only:
+            jobs = [job for job in jobs if job.status in _ACTIVE_JOB_STATUSES]
+        jobs.sort(key=lambda job: job.created_at, reverse=True)
+        return jobs
+
+    def claim_next_job(
+        self, worker_id: str, kinds: list[str], lease_seconds: int
+    ) -> ReconstructionJob | None:
+        JobStatus = _job_status_type()
+        with self._lock:
+            candidates = sorted(
+                (job for job in self.jobs.values() if job.status == "queued" and job.kind in kinds),
+                key=lambda job: job.created_at,
+            )
+            if not candidates:
+                return None
+            job = candidates[0]
+            now = datetime.now(UTC)
+            job.status = JobStatus.RUNNING
+            job.lease_owner = worker_id
+            job.lease_expires_at = now + timedelta(seconds=lease_seconds)
+            job.updated_at = now
+            self._flush()
+            return job
+
+    def renew_lease(self, job_id: str, lease_owner: str, lease_seconds: int) -> bool:
+        with self._lock:
+            job = self.jobs.get(job_id)
+            if job is None or job.lease_owner != lease_owner:
+                return False
+            job.lease_expires_at = datetime.now(UTC) + timedelta(seconds=lease_seconds)
+            self._flush()
+            return True
+
+    def complete_job(self, job_id: str, lease_owner: str, updates: dict) -> bool:
+        with self._lock:
+            job = self.jobs.get(job_id)
+            if job is None or job.lease_owner != lease_owner:
+                return False
+            for key, value in updates.items():
+                setattr(job, key, value)
+            job.lease_owner = None
+            job.lease_expires_at = None
+            job.updated_at = datetime.now(UTC)
+            self._flush()
+            return True
+
+    def release_expired_leases(self) -> int:
+        JobStatus = _job_status_type()
+        max_attempts = _job_max_attempts()
+        now = datetime.now(UTC)
+        released = 0
+        with self._lock:
+            for job in self.jobs.values():
+                if job.status != "running" or job.lease_expires_at is None or job.lease_expires_at > now:
+                    continue
+                job.attempts += 1
+                job.lease_owner = None
+                job.lease_expires_at = None
+                job.updated_at = now
+                if job.attempts >= max_attempts:
+                    job.status = JobStatus.FAILED
+                    job.error = job.error or "Exceeded maximum retry attempts after lease expiry."
+                else:
+                    job.status = JobStatus.QUEUED
+                released += 1
+            if released:
+                self._flush()
+        return released
+
+    # -- project -> asset links (Build Plan step 26) ------------------------
+
+    def link_asset(self, project_id: str, asset_id: str) -> None:
+        with self._lock:
+            links = self.asset_links.setdefault(project_id, [])
+            if asset_id not in links:
+                links.append(asset_id)
+                self._flush()
+
+    def list_linked_asset_ids(self, project_id: str) -> list[str]:
+        return list(self.asset_links.get(project_id, []))
+
+    # -- uploads (Build Plan step 26) ---------------------------------------
+
+    def save_upload_record(self, upload: UploadRecord) -> None:
+        with self._lock:
+            self.uploads.setdefault(upload.project_id, {})[upload.upload_id] = upload
+            self._flush()
+
+    def get_upload_record(self, project_id: str, upload_id: str) -> UploadRecord | None:
+        return self.uploads.get(project_id, {}).get(upload_id)
+
+    def list_upload_records(self, project_id: str) -> list[UploadRecord]:
+        return list(self.uploads.get(project_id, {}).values())
+
 
 class DynamoDbStore(AuthoringStore):
     """A DynamoDB-backed authoring store for concurrency-safe cloud durability.
@@ -457,10 +647,40 @@ class DynamoDbStore(AuthoringStore):
         return boto3.resource("dynamodb", region_name=self._region_name)
 
     def load(self) -> None:
-        """Bind the table handle. Reads happen per request, not cached here."""
+        """Bind the table handle and verify the step-26 GSIs are provisioned.
+
+        Reads (beyond this check) happen per request, not cached here.
+        """
         with self._lock:
             if self._table is None:
                 self._table = self._resource().Table(self._table_name)
+                self._check_required_indexes()
+
+    def _check_required_indexes(self) -> None:
+        """Fail fast if GSI1/GSI2 (step 26 jobs + membership queries) are missing.
+
+        The table starts with no GSIs (docs/DATA_ARCHITECTURE.md). Adding them
+        is a Terraform change (infra/aws/main.tf) that needs explicit approval
+        before ``terraform apply`` -- this only checks whether it has already
+        been applied, it never applies it itself.
+        """
+        try:
+            description = self._table.meta.client.describe_table(TableName=self._table_name)
+        except Exception as error:  # noqa: BLE001 - surfaced as a clear RuntimeError below
+            raise RuntimeError(
+                f"Could not describe DynamoDB table {self._table_name!r}: {error}"
+            ) from error
+        present = {
+            gsi["IndexName"] for gsi in description["Table"].get("GlobalSecondaryIndexes", [])
+        }
+        missing = {"gsi1", "gsi2"} - present
+        if missing:
+            raise RuntimeError(
+                f"DynamoDB table {self._table_name!r} is missing required index(es) "
+                f"{sorted(missing)}. Apply the GSI1 (gsi1pk/gsi1sk)/GSI2 (gsi2pk/gsi2sk) "
+                "Terraform change in infra/aws/main.tf (see docs/DATA_ARCHITECTURE.md) "
+                "before selecting SKETCHSCAPE_STORAGE_BACKEND=dynamodb."
+            )
 
     def _require_table(self):
         if self._table is None:
@@ -726,6 +946,245 @@ class DynamoDbStore(AuthoringStore):
                     "document": insight.model_dump_json(),
                 }
             )
+
+    # -- durable jobs (Build Plan step 26) -----------------------------------
+    #
+    # Job = PK "JOB#<job_id>" / SK "META", with gsi1pk="PROJECTJOBS#<project_id>"
+    # (batch polling for one project) and gsi2pk="JOBQ#<status>" (the GPU
+    # dispatcher's claim query), both ordered by gsi*sk="<created_at>#<job_id>".
+    # A job's whole document is rewritten on every save/claim/complete, exactly
+    # like `save_asset` above; the conditional writes below guard against two
+    # writers claiming or completing the same job at once.
+
+    def _job_item(self, job: ReconstructionJob) -> dict:
+        order_key = f"{job.created_at.isoformat()}#{job.job_id}"
+        return {
+            "pk": f"JOB#{job.job_id}",
+            "sk": "META",
+            "document": job.model_dump_json(),
+            "status": str(job.status),
+            "lease_owner": job.lease_owner or "",
+            "gsi1pk": f"PROJECTJOBS#{job.project_id or '_none_'}",
+            "gsi1sk": order_key,
+            "gsi2pk": f"JOBQ#{job.status}",
+            "gsi2sk": order_key,
+        }
+
+    def save_job(self, job: ReconstructionJob) -> None:
+        with self._lock:
+            self._require_table().put_item(Item=self._job_item(job))
+
+    def get_job(self, job_id: str) -> ReconstructionJob | None:
+        ReconstructionJob, _ = _job_upload_types()
+        response = self._require_table().get_item(Key={"pk": f"JOB#{job_id}", "sk": "META"})
+        item = response.get("Item")
+        if item is None:
+            return None
+        return ReconstructionJob.model_validate_json(item["document"])
+
+    def list_project_jobs(self, project_id: str, active_only: bool = False) -> list[ReconstructionJob]:
+        from boto3.dynamodb.conditions import Key  # noqa: PLC0415
+
+        ReconstructionJob, _ = _job_upload_types()
+        response = self._require_table().query(
+            IndexName="gsi1",
+            KeyConditionExpression=Key("gsi1pk").eq(f"PROJECTJOBS#{project_id}"),
+            ScanIndexForward=False,
+        )
+        jobs = [ReconstructionJob.model_validate_json(item["document"]) for item in response.get("Items", [])]
+        if active_only:
+            jobs = [job for job in jobs if job.status in _ACTIVE_JOB_STATUSES]
+        return jobs
+
+    def claim_next_job(
+        self, worker_id: str, kinds: list[str], lease_seconds: int
+    ) -> ReconstructionJob | None:
+        from boto3.dynamodb.conditions import Key  # noqa: PLC0415
+
+        JobStatus = _job_status_type()
+        ReconstructionJob, _ = _job_upload_types()
+        table = self._require_table()
+        with self._lock:
+            response = table.query(
+                IndexName="gsi2",
+                KeyConditionExpression=Key("gsi2pk").eq("JOBQ#queued"),
+                ScanIndexForward=True,
+            )
+            for item in response.get("Items", []):
+                job = ReconstructionJob.model_validate_json(item["document"])
+                if job.kind not in kinds:
+                    continue
+                job.status = JobStatus.RUNNING
+                job.lease_owner = worker_id
+                job.lease_expires_at = datetime.now(UTC) + timedelta(seconds=lease_seconds)
+                job.updated_at = datetime.now(UTC)
+                try:
+                    table.put_item(
+                        Item=self._job_item(job),
+                        ConditionExpression="#s = :expected",
+                        ExpressionAttributeNames={"#s": "status"},
+                        ExpressionAttributeValues={":expected": "queued"},
+                    )
+                except Exception as error:  # noqa: BLE001 - narrowed below
+                    if self._is_conditional_check_failure(error):
+                        continue
+                    raise
+                return job
+        return None
+
+    def renew_lease(self, job_id: str, lease_owner: str, lease_seconds: int) -> bool:
+        ReconstructionJob, _ = _job_upload_types()
+        table = self._require_table()
+        with self._lock:
+            response = table.get_item(Key={"pk": f"JOB#{job_id}", "sk": "META"})
+            item = response.get("Item")
+            if item is None:
+                return False
+            job = ReconstructionJob.model_validate_json(item["document"])
+            if job.lease_owner != lease_owner:
+                return False
+            job.lease_expires_at = datetime.now(UTC) + timedelta(seconds=lease_seconds)
+            job.updated_at = datetime.now(UTC)
+            try:
+                table.put_item(
+                    Item=self._job_item(job),
+                    ConditionExpression="#lo = :owner",
+                    ExpressionAttributeNames={"#lo": "lease_owner"},
+                    ExpressionAttributeValues={":owner": lease_owner},
+                )
+            except Exception as error:  # noqa: BLE001 - narrowed below
+                if self._is_conditional_check_failure(error):
+                    return False
+                raise
+            return True
+
+    def complete_job(self, job_id: str, lease_owner: str, updates: dict) -> bool:
+        ReconstructionJob, _ = _job_upload_types()
+        table = self._require_table()
+        with self._lock:
+            response = table.get_item(Key={"pk": f"JOB#{job_id}", "sk": "META"})
+            item = response.get("Item")
+            if item is None:
+                return False
+            job = ReconstructionJob.model_validate_json(item["document"])
+            if job.lease_owner != lease_owner:
+                return False
+            for key, value in updates.items():
+                setattr(job, key, value)
+            job.lease_owner = None
+            job.lease_expires_at = None
+            job.updated_at = datetime.now(UTC)
+            try:
+                table.put_item(
+                    Item=self._job_item(job),
+                    ConditionExpression="#lo = :owner",
+                    ExpressionAttributeNames={"#lo": "lease_owner"},
+                    ExpressionAttributeValues={":owner": lease_owner},
+                )
+            except Exception as error:  # noqa: BLE001 - narrowed below
+                if self._is_conditional_check_failure(error):
+                    return False
+                raise
+            return True
+
+    def release_expired_leases(self) -> int:
+        from boto3.dynamodb.conditions import Key  # noqa: PLC0415
+
+        JobStatus = _job_status_type()
+        ReconstructionJob, _ = _job_upload_types()
+        max_attempts = _job_max_attempts()
+        now = datetime.now(UTC)
+        released = 0
+        table = self._require_table()
+        with self._lock:
+            response = table.query(
+                IndexName="gsi2",
+                KeyConditionExpression=Key("gsi2pk").eq("JOBQ#running"),
+            )
+            for item in response.get("Items", []):
+                job = ReconstructionJob.model_validate_json(item["document"])
+                if job.lease_expires_at is None or job.lease_expires_at > now:
+                    continue
+                previous_owner = job.lease_owner or ""
+                job.attempts += 1
+                job.lease_owner = None
+                job.lease_expires_at = None
+                job.updated_at = now
+                if job.attempts >= max_attempts:
+                    job.status = JobStatus.FAILED
+                    job.error = job.error or "Exceeded maximum retry attempts after lease expiry."
+                else:
+                    job.status = JobStatus.QUEUED
+                try:
+                    table.put_item(
+                        Item=self._job_item(job),
+                        ConditionExpression="#lo = :owner",
+                        ExpressionAttributeNames={"#lo": "lease_owner"},
+                        ExpressionAttributeValues={":owner": previous_owner},
+                    )
+                    released += 1
+                except Exception as error:  # noqa: BLE001 - narrowed below
+                    if self._is_conditional_check_failure(error):
+                        continue
+                    raise
+        return released
+
+    # -- project -> asset links (Build Plan step 26) -------------------------
+    #
+    # Replaces `ProjectRecord.asset_ids` (a list-in-a-blob) as the write path
+    # for new assets: each link is its own child item, so two uploads racing
+    # never lose one to a last-write-wins project save. Old snapshots'
+    # `asset_ids` lists are still read for backward compatibility.
+
+    def link_asset(self, project_id: str, asset_id: str) -> None:
+        with self._lock:
+            try:
+                self._require_table().put_item(
+                    Item={
+                        "pk": f"PROJECT#{project_id}",
+                        "sk": f"ASSET#{asset_id}",
+                        "created_at": _utc_now_iso(),
+                    },
+                    ConditionExpression="attribute_not_exists(sk)",
+                )
+            except Exception as error:  # noqa: BLE001 - narrowed below
+                if self._is_conditional_check_failure(error):
+                    return
+                raise
+
+    def list_linked_asset_ids(self, project_id: str) -> list[str]:
+        return [
+            item["sk"].removeprefix("ASSET#") for item in self._query_children(project_id, "ASSET")
+        ]
+
+    # -- uploads (Build Plan step 26) ----------------------------------------
+
+    def save_upload_record(self, upload: UploadRecord) -> None:
+        with self._lock:
+            self._require_table().put_item(
+                Item={
+                    "pk": f"PROJECT#{upload.project_id}",
+                    "sk": f"UPLOAD#{upload.upload_id}",
+                    "document": upload.model_dump_json(),
+                }
+            )
+
+    def get_upload_record(self, project_id: str, upload_id: str) -> UploadRecord | None:
+        _, UploadRecord = _job_upload_types()
+        response = self._require_table().get_item(
+            Key={"pk": f"PROJECT#{project_id}", "sk": f"UPLOAD#{upload_id}"}
+        )
+        item = response.get("Item")
+        if item is None:
+            return None
+        return UploadRecord.model_validate_json(item["document"])
+
+    def list_upload_records(self, project_id: str) -> list[UploadRecord]:
+        _, UploadRecord = _job_upload_types()
+        return [
+            UploadRecord.model_validate_json(item["document"])
+            for item in self._query_children(project_id, "UPLOAD")
+        ]
 
 
 def create_store(

@@ -12,6 +12,7 @@ import os
 import re
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 
 os.environ["PIPELINE_MODE"] = "mock"
@@ -248,6 +249,89 @@ class LocalJsonStoreContractTests(unittest.TestCase):
         self.assertIsNotNone(reloaded.get_project("p1"))
         self.assertIsNone(reloaded.get_live_revision("p1"))
 
+    def test_job_and_upload_records_survive_reload(self) -> None:
+        self.store.save_project(make_project())
+        job = main.ReconstructionJob(
+            job_id="j1",
+            status=main.JobStatus.QUEUED,
+            poll_url="/v1/reconstructions/j1",
+            created_at=main.utc_now(),
+            updated_at=main.utc_now(),
+            project_id="p1",
+            kind="segment",
+        )
+        self.store.save_job(job)
+        self.store.link_asset("p1", "a1")
+        upload = main.UploadRecord(
+            upload_id="u1",
+            project_id="p1",
+            uploader_user_id="dev-user",
+            image_key="uploads/p1/u1/source.png",
+            width=10,
+            height=10,
+            created_at=main.utc_now(),
+        )
+        self.store.save_upload_record(upload)
+
+        reloaded = storage.LocalJsonStore(self._state)
+        reloaded.load()
+        self.assertEqual(reloaded.get_job("j1").job_id, "j1")
+        self.assertEqual(reloaded.list_linked_asset_ids("p1"), ["a1"])
+        self.assertEqual(reloaded.get_upload_record("p1", "u1").upload_id, "u1")
+
+    def test_claim_next_job_is_oldest_queued_first_and_filters_kind(self) -> None:
+        now = main.utc_now()
+        older = main.ReconstructionJob(
+            job_id="older", status=main.JobStatus.QUEUED, poll_url="/x",
+            created_at=now, updated_at=now, project_id="p1", kind="segment",
+        )
+        newer = main.ReconstructionJob(
+            job_id="newer", status=main.JobStatus.QUEUED, poll_url="/x",
+            created_at=now + timedelta(seconds=1),
+            updated_at=now, project_id="p1", kind="segment",
+        )
+        wrong_kind = main.ReconstructionJob(
+            job_id="wrong", status=main.JobStatus.QUEUED, poll_url="/x",
+            created_at=now, updated_at=now, project_id="p1", kind="reconstruct",
+        )
+        for job in (newer, older, wrong_kind):
+            self.store.save_job(job)
+
+        claimed = self.store.claim_next_job("worker-1", ["segment"], lease_seconds=60)
+        self.assertEqual(claimed.job_id, "older")
+        self.assertEqual(claimed.status, "running")
+        self.assertEqual(claimed.lease_owner, "worker-1")
+
+    def test_release_expired_leases_requeues_then_fails_after_max_attempts(self) -> None:
+        os.environ["SKETCHSCAPE_JOB_MAX_ATTEMPTS"] = "2"
+        try:
+            now = main.utc_now()
+            job = main.ReconstructionJob(
+                job_id="lease-test", status=main.JobStatus.RUNNING, poll_url="/x",
+                created_at=now, updated_at=now, project_id="p1", kind="segment",
+                lease_owner="worker-1",
+                lease_expires_at=now - timedelta(seconds=1),
+                attempts=0,
+            )
+            self.store.save_job(job)
+            released = self.store.release_expired_leases()
+            self.assertEqual(released, 1)
+            requeued = self.store.get_job("lease-test")
+            self.assertEqual(requeued.status, "queued")
+            self.assertIsNone(requeued.lease_owner)
+            self.assertEqual(requeued.attempts, 1)
+
+            requeued.status = main.JobStatus.RUNNING
+            requeued.lease_owner = "worker-2"
+            requeued.lease_expires_at = now - timedelta(seconds=1)
+            self.store.save_job(requeued)
+            released_again = self.store.release_expired_leases()
+            self.assertEqual(released_again, 1)
+            failed = self.store.get_job("lease-test")
+            self.assertEqual(failed.status, "failed")
+        finally:
+            del os.environ["SKETCHSCAPE_JOB_MAX_ATTEMPTS"]
+
 
 class DynamoDbStoreTests(unittest.TestCase):
     def test_missing_table_name_raises(self) -> None:
@@ -395,6 +479,96 @@ class DynamoDbStoreTests(unittest.TestCase):
         self.assertTrue(store.set_live_revision("p1", 1, 2))
         self.assertEqual(store.get_live_revision("p1"), 2)
 
+    @unittest.skipUnless(_HAS_BOTO3, "DynamoDB CRUD test needs boto3 conditions helpers.")
+    def test_missing_gsi_refuses_to_start(self) -> None:
+        store = storage.DynamoDbStore("fake")
+
+        class _Client:
+            def describe_table(self, TableName: str) -> dict:  # noqa: N803
+                return {"Table": {"GlobalSecondaryIndexes": []}}
+
+        class _Table:
+            class meta:  # noqa: N801 - mirrors boto3's Table.meta.client shape
+                client = _Client()
+
+        store._table = _Table()
+        with self.assertRaises(RuntimeError) as ctx:
+            store._check_required_indexes()
+        self.assertIn("gsi1", str(ctx.exception))
+        self.assertIn("gsi2", str(ctx.exception))
+
+    @unittest.skipUnless(_HAS_BOTO3, "DynamoDB CRUD test needs boto3 conditions helpers.")
+    def test_job_lifecycle_against_fake_table(self) -> None:
+        store = storage.DynamoDbStore("fake")
+        store._table = _FakeTable()
+        store.save_project(make_project())
+
+        job = make_job(job_id="j1", project_id="p1", kind="segment")
+        store.save_job(job)
+        self.assertEqual(store.get_job("j1").job_id, "j1")
+
+        other = make_job(job_id="j2", project_id="p1", kind="reconstruct")
+        store.save_job(other)
+        project_jobs = [j.job_id for j in store.list_project_jobs("p1")]
+        self.assertEqual(set(project_jobs), {"j1", "j2"})
+
+        claimed = store.claim_next_job("worker-1", ["segment"], lease_seconds=60)
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.job_id, "j1")
+        self.assertEqual(claimed.status, "running")
+
+        # A second worker asking for the same kind finds nothing left queued.
+        self.assertIsNone(store.claim_next_job("worker-2", ["segment"], lease_seconds=60))
+
+        self.assertTrue(store.renew_lease("j1", "worker-1", lease_seconds=120))
+        self.assertFalse(store.renew_lease("j1", "worker-2", lease_seconds=120))
+
+        self.assertFalse(store.complete_job("j1", "worker-2", {"status": main.JobStatus.COMPLETE}))
+        self.assertTrue(store.complete_job("j1", "worker-1", {"status": main.JobStatus.COMPLETE}))
+        self.assertEqual(store.get_job("j1").status, "complete")
+
+        store.link_asset("p1", "asset-a")
+        store.link_asset("p1", "asset-a")  # idempotent
+        store.link_asset("p1", "asset-b")
+        self.assertEqual(set(store.list_linked_asset_ids("p1")), {"asset-a", "asset-b"})
+
+        upload = make_upload_record(upload_id="u1", project_id="p1")
+        store.save_upload_record(upload)
+        self.assertEqual(store.get_upload_record("p1", "u1").upload_id, "u1")
+        self.assertEqual(len(store.list_upload_records("p1")), 1)
+
+
+def make_job(
+    job_id: str = "job1",
+    project_id: str | None = "p1",
+    kind: "main.JobKind" = "reconstruct",
+    status: "main.JobStatus" = None,
+) -> "main.ReconstructionJob":
+    now = main.utc_now()
+    return main.ReconstructionJob(
+        job_id=job_id,
+        status=status if status is not None else main.JobStatus.QUEUED,
+        poll_url=f"/v1/reconstructions/{job_id}",
+        created_at=now,
+        updated_at=now,
+        project_id=project_id,
+        kind=kind,
+    )
+
+
+def make_upload_record(
+    upload_id: str = "u1", project_id: str = "p1", uploader_user_id: str = "dev-user"
+) -> "main.UploadRecord":
+    return main.UploadRecord(
+        upload_id=upload_id,
+        project_id=project_id,
+        uploader_user_id=uploader_user_id,
+        image_key=f"uploads/{project_id}/{upload_id}/source.png",
+        width=100,
+        height=100,
+        created_at=main.utc_now(),
+    )
+
 
 def _make_blueprint(project_id: str, revision: int) -> "main.ExperienceBlueprint":
     return main.ExperienceBlueprint(
@@ -473,37 +647,54 @@ class _FakeTable:
                     return True
         return False
 
-    def query(self, **kwargs) -> dict:
+    def query(self, IndexName: str | None = None, **kwargs) -> dict:  # noqa: N803 - boto3 API name
         # DynamoDbStore builds the condition with boto3's Key helper; rather
-        # than parse it, re-derive the pk/sk-prefix filter it always uses.
+        # than parse it, re-derive the attribute-name-aware pk/sk-prefix filter
+        # it always uses. Attribute names come straight from the condition
+        # (Key("gsi1pk") etc.), so this works the same for the table's own
+        # pk/sk and for a GSI's gsi1pk/gsi1sk or gsi2pk/gsi2sk. `IndexName` is
+        # accepted (matching the real boto3 signature) but unused: this fake
+        # table has no separate index storage, so attribute-based filtering
+        # alone is enough to emulate one.
         condition = kwargs["KeyConditionExpression"]
-        pk_value, sk_prefix = _extract_pk_and_prefix(condition)
+        pk_attr, pk_value, sk_attr, sk_prefix = _extract_pk_and_prefix(condition)
         matches = [
             item
-            for (pk, sk), item in self._items.items()
-            if pk == pk_value and sk.startswith(sk_prefix)
+            for item in self._items.values()
+            if item.get(pk_attr) == pk_value
+            and (sk_attr is None or str(item.get(sk_attr, "")).startswith(sk_prefix))
         ]
-        matches.sort(key=lambda item: item["sk"])
+        # Ordering follows the queried index's own sort key (gsi1sk/gsi2sk),
+        # not necessarily the attribute named in the KeyConditionExpression --
+        # a GSI2 claim query has no sort-key condition at all but must still
+        # come back oldest-first.
+        sort_attr = f"{IndexName}sk" if IndexName else (sk_attr or "sk")
+        matches.sort(key=lambda item: item.get(sort_attr, ""))
         if not kwargs.get("ScanIndexForward", True):
             matches.reverse()
         return {"Items": matches}
 
 
-def _extract_pk_and_prefix(condition) -> tuple[str, str]:
-    """Pull the pk value and sk prefix out of a boto3 And(condition) tree."""
+def _extract_pk_and_prefix(condition) -> tuple[str, str, str | None, str]:
+    """Pull the (pk attr, pk value, sk attr, sk prefix) out of a boto3 condition.
+
+    Handles a lone ``Key(x).eq(v)`` (e.g. a GSI2 claim query with no sort-key
+    condition) as well as an ``And`` of an equality and a ``begins_with``.
+    """
     from boto3.dynamodb.conditions import And, BeginsWith, Equals  # noqa: PLC0415
 
-    pk_value = ""
+    pk_attr, pk_value = "pk", ""
+    sk_attr: str | None = None
     sk_prefix = ""
     parts = condition._values if isinstance(condition, And) else [condition]
     for part in parts:
         values = part._values
         attr, operand = values[0], values[1]
         if isinstance(part, Equals):
-            pk_value = operand
+            pk_attr, pk_value = attr.name, operand
         elif isinstance(part, BeginsWith):
-            sk_prefix = operand
-    return pk_value, sk_prefix
+            sk_attr, sk_prefix = attr.name, operand
+    return pk_attr, pk_value, sk_attr, sk_prefix
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +814,22 @@ class LocalArtifactStoreTests(unittest.TestCase):
             _run(self.store.put("j7", "empty.ply", _upload_file(b""), size_limit=1024))
         self.assertEqual(ctx.exception.status_code, 400)
 
+    def test_put_upload_roundtrips_by_key(self) -> None:
+        key = _run(
+            self.store.put_upload(
+                "proj1", "up1", "source.png", _upload_file(b"PNGDATA", "source.png"), size_limit=1024
+            )
+        )
+        self.assertEqual(key, "uploads/proj1/up1/source.png")
+        self.assertEqual(self.store.open_upload(key), b"PNGDATA")
+
+    def test_open_upload_missing_raises_404(self) -> None:
+        from fastapi import HTTPException  # noqa: PLC0415
+
+        with self.assertRaises(HTTPException) as ctx:
+            self.store.open_upload("uploads/proj1/nope/source.png")
+        self.assertEqual(ctx.exception.status_code, 404)
+
 
 class S3ArtifactStoreTests(unittest.TestCase):
     def test_missing_bucket_raises_at_construction(self) -> None:
@@ -654,24 +861,44 @@ class S3ArtifactStoreTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("presigned", response.headers["location"])
 
+    @unittest.skipUnless(_HAS_BOTO3, "S3 CRUD test needs boto3.")
+    def test_put_upload_and_open_upload_against_fake_s3(self) -> None:
+        store = S3ArtifactStore("fake-bucket")
+        store._client = _FakeS3Client()
+
+        key = _run(
+            store.put_upload(
+                "proj1", "up1", "source.png", _upload_file(b"PNGDATA", "source.png"), size_limit=1024
+            )
+        )
+        self.assertEqual(key, "uploads/proj1/up1/source.png")
+        self.assertEqual(store.open_upload(key), b"PNGDATA")
+
 
 class _FakeS3Client:
     """Minimal in-memory stand-in for a boto3 S3 client.
 
     Supports only the operations S3ArtifactStore uses: upload_file,
-    head_object, and generate_presigned_url.
+    head_object, get_object, and generate_presigned_url.
     """
 
     def __init__(self) -> None:
-        self._objects: set[tuple[str, str]] = set()
+        self._objects: dict[tuple[str, str], bytes] = {}
 
     def upload_file(self, filename: str, bucket: str, key: str, **kwargs) -> None:
-        self._objects.add((bucket, key))
+        self._objects[(bucket, key)] = Path(filename).read_bytes()
 
     def head_object(self, Bucket: str, Key: str) -> dict:  # noqa: N803
         if (Bucket, Key) not in self._objects:
             raise Exception("NoSuchKey")
         return {}
+
+    def get_object(self, Bucket: str, Key: str) -> dict:  # noqa: N803
+        try:
+            data = self._objects[(Bucket, Key)]
+        except KeyError as error:
+            raise Exception("NoSuchKey") from error
+        return {"Body": io.BytesIO(data)}
 
     def generate_presigned_url(
         self, operation: str, Params: dict, ExpiresIn: int = 300

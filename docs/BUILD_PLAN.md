@@ -68,7 +68,7 @@ blocked until its prerequisites are verifiably done. See "Collaborative VR
 | 23 | Unity backprop client: room token, save on settle, session-owner polling | 21, 22 | Not started | `vr-edit-cloud-backprop-sync` |
 | 24 | NemoClaw room tools (`get_room_state`, `propose_room_edit`; publish approved on the web) | 3, 15, 16, 21 | Not started | `top-tier-nemoclaw-tool-design` |
 | 25 | End-to-end verification: web + two or more headsets | 20, 23, 29 | Not started | `collab-vr-device-verification` |
-| 26 | Durable jobs (no in-memory dict), uploads in shared storage, upload → selections → refine → generate API, batch job polling | 15 | Not started | `durable-jobs-and-multi-object-upload` |
+| 26 | Durable jobs (no in-memory dict), uploads in shared storage, upload → selections → refine → generate API, batch job polling | 15 | Done | `durable-jobs-and-multi-object-upload` |
 | 27 | GPU worker: SAM 3.1 masks from the person's selections (interactive points/box, semantic text), per-object Fast-SAM3D, dispatcher with leases, benchmarked concurrency | 26 | Not started | `gpu-multi-object-worker` |
 | 28 | Letters: upload + recipients, sealed access, recipient-only open, scene schema, web form | 17, 19, 21, 26 | Not started | `letters-backend-and-web` |
 | 29 | Letters in VR: envelope, networked open animation, textured 3D paper page | 22, 28 | Not started | `letters-vr-envelope` |

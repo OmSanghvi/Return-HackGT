@@ -89,10 +89,39 @@ class ArtifactStore(ABC):
     def exists(self, job_id: str, filename: str) -> bool:
         """Return True if the artifact is present in the store."""
 
+    @abstractmethod
+    async def put_upload(
+        self,
+        project_id: str,
+        upload_id: str,
+        name: str,
+        source: UploadFile,
+        *,
+        size_limit: int,
+    ) -> str:
+        """Write an uploads/ file (source photo, mask, preview) under ``uploads/<project_id>/<upload_id>/``.
+
+        Unlike ``put()``/``copy_local()`` (the artifacts/<job_id>/ PLY output
+        path), this is shared upload input storage (Build Plan step 26): with
+        more than one API instance, the worker must be able to fetch an
+        upload written by a different instance. Returns the storage key
+        (``uploads/<project_id>/<upload_id>/<name>``), not a URL -- callers
+        resolve it back to bytes with ``open_upload``.
+        """
+
+    @abstractmethod
+    def open_upload(self, key: str) -> bytes:
+        """Read back the bytes at an ``uploads/...`` key written by ``put_upload``."""
+
     @staticmethod
     def artifact_url(job_id: str, filename: str) -> str:
         """Canonical relative URL for any artifact, regardless of backend."""
         return f"/v1/artifacts/{job_id}/{filename}"
+
+    @staticmethod
+    def upload_key(project_id: str, upload_id: str, name: str) -> str:
+        """Canonical storage key for an upload file, regardless of backend."""
+        return f"uploads/{project_id}/{upload_id}/{name}"
 
 
 class LocalArtifactStore(ArtifactStore):
@@ -161,6 +190,46 @@ class LocalArtifactStore(ArtifactStore):
 
     def exists(self, job_id: str, filename: str) -> bool:
         return self._path(job_id, filename).is_file()
+
+    async def put_upload(
+        self,
+        project_id: str,
+        upload_id: str,
+        name: str,
+        source: UploadFile,
+        *,
+        size_limit: int,
+    ) -> str:
+        # Shares UPLOAD_ROOT's on-disk layout (main.py's DATA_ROOT/uploads),
+        # since self._root is DATA_ROOT/artifacts -- local mode keeps today's
+        # disk layout (DATA_ARCHITECTURE.md).
+        key = self.upload_key(project_id, upload_id, name)
+        destination = self._root.parent / key
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        size = 0
+        with destination.open("wb") as output:
+            while chunk := await source.read(1024 * 1024):
+                size += len(chunk)
+                if size > size_limit:
+                    output.close()
+                    destination.unlink(missing_ok=True)
+                    from fastapi import HTTPException  # noqa: PLC0415
+                    raise HTTPException(
+                        413, f"Upload exceeds the {size_limit // 1024 // 1024} MB limit."
+                    )
+                output.write(chunk)
+        if not size:
+            destination.unlink(missing_ok=True)
+            from fastapi import HTTPException  # noqa: PLC0415
+            raise HTTPException(400, "The uploaded file is empty.")
+        return key
+
+    def open_upload(self, key: str) -> bytes:
+        path = self._root.parent / key
+        if not path.is_file():
+            from fastapi import HTTPException  # noqa: PLC0415
+            raise HTTPException(404, "Unknown upload.")
+        return path.read_bytes()
 
 
 class S3ArtifactStore(ArtifactStore):
@@ -283,6 +352,45 @@ class S3ArtifactStore(ArtifactStore):
             return True
         except Exception:
             return False
+
+    async def put_upload(
+        self,
+        project_id: str,
+        upload_id: str,
+        name: str,
+        source: UploadFile,
+        *,
+        size_limit: int,
+    ) -> str:
+        """Stream to a temp file then multipart-upload under the uploads/ prefix."""
+        from boto3.s3.transfer import TransferConfig  # noqa: PLC0415
+
+        key = self.upload_key(project_id, upload_id, name)
+        fd, tmp_path_str = tempfile.mkstemp(suffix=Path(name).suffix)
+        tmp_path = Path(tmp_path_str)
+        try:
+            size = 0
+            with os.fdopen(fd, "wb") as tmp:
+                while chunk := await source.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > size_limit:
+                        from fastapi import HTTPException  # noqa: PLC0415
+                        raise HTTPException(
+                            413, f"Upload exceeds the {size_limit // 1024 // 1024} MB limit."
+                        )
+                    tmp.write(chunk)
+            if not size:
+                from fastapi import HTTPException  # noqa: PLC0415
+                raise HTTPException(400, "The uploaded file is empty.")
+            config = TransferConfig(multipart_threshold=8 * 1024 * 1024)
+            self._boto_client().upload_file(str(tmp_path), self._bucket, key, Config=config)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+        return key
+
+    def open_upload(self, key: str) -> bytes:
+        response = self._boto_client().get_object(Bucket=self._bucket, Key=key)
+        return response["Body"].read()
 
 
 def create_artifact_store(
