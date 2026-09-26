@@ -45,13 +45,14 @@ export const fragment = /* glsl */ `
     uv += vec2(sin(ang), cos(ang * 0.7)) * 0.006;
     uv.y = 1.0 - uv.y;
     vec2 focus = vec2(0.5, 0.55);
+    float par = 1.0 - smoothstep(1.0, 3.5, blur);   // a blurred painting drops depth parallax: sharp depth edges would cut seams into it
     vec2 p = uv;
     float d = 0.0;
     for (int i = 0; i < 2; i++) {                           // refine: offset by the depth at the displaced point
       d = texture2D(dep, p).r;
       vec2 q = focus + (uv - focus) / (1.0 + zoom * (0.12 + 0.9 * d));
-      q -= uPointer * vec2(1.0, -1.0) * (d - 0.25) * 0.065;
-      q.x += (1.0 - smoothstep(0.0, 0.12, d)) * 0.012 * sin(uTime * 0.05);   // the sky slides a little on its own
+      q -= uPointer * vec2(1.0, -1.0) * (d - 0.25) * 0.065 * par;
+      q.x += (1.0 - smoothstep(0.0, 0.12, d)) * 0.012 * sin(uTime * 0.05) * par;   // the sky slides a little on its own
       p = q;
     }
     return vec4(texture2D(tex, clamp(p, 0.001, 0.999), blur).rgb, d);
@@ -81,30 +82,28 @@ export const fragment = /* glsl */ `
     return glow * twinkle;
   }
 
-  // Two hash-grid petal layers (near: bigger/faster, far: smaller/slower), one hash() each. Falling
-  // diagonally, per-cell jitter/sway/spin, drawn as a soft rotated ellipse, nudged off the pointer.
-  vec4 petalLayer(vec2 p, float speedY, float speedX, float thresh, float scale) {
+  // Two hash-grid petal layers (near: bigger/faster, far: smaller/slower), one hash() each. The cells scroll so
+  // petals fall and drift right; each lit cell holds one small petal with jitter, sway, spin and a flutter.
+  vec4 petalLayer(vec2 p, float thresh, float radius) {
     vec2 id = floor(p);
     float h = hash(id);
     if (h < thresh) return vec4(0.0);
     vec2 f = fract(p) - 0.5;
-    f += (vec2(fract(h * 13.0), fract(h * 29.0)) - 0.5) * 0.5;            // jitter
-    f.x += sin(uTime * 1.1 + h * 6.2831) * 0.1;                            // sway
-    float ang = h * 6.2831 + uTime * (0.3 + 0.4 * h);                      // slow spin
-    float ca = cos(ang), sa = sin(ang);
-    vec2 r = mat2(ca, -sa, sa, ca) * f;
-    float d = length(r * vec2(1.0, 2.2)) / scale;
-    float petal = smoothstep(0.5, 0.15, d);
-    float core = smoothstep(0.22, 0.0, d);
-    vec3 blossom = mix(vec3(0.953, 0.663, 0.788), vec3(1.0), core);
-    return vec4(blossom * petal, petal);
+    f -= (vec2(fract(h * 13.0), fract(h * 29.0)) - 0.5) * 0.5;               // jitter
+    f.x -= sin(uTime * 0.9 + h * 6.2831) * 0.08;                             // sway
+    float ang = h * 6.2831 + uTime * (0.3 + 0.4 * h);                        // slow spin
+    vec2 r = mat2(cos(ang), -sin(ang), sin(ang), cos(ang)) * f;
+    r.x /= max(0.3, abs(cos(uTime * (0.6 + h) + h * 9.0)));                  // flutter: turns edge-on and back
+    float d = length(r * vec2(1.0, 2.1)) / radius;
+    return vec4(mix(vec3(0.92, 0.58, 0.72), vec3(0.97, 0.72, 0.82), smoothstep(1.0, 0.2, d) * 0.6), smoothstep(1.0, 0.55, d));   // solid blossom, faintly lighter heart
   }
   vec4 petalField(vec2 luv, vec2 size) {
     vec2 asp = vec2(size.x / size.y, 1.0);
     vec2 d = luv - (uPointer + 0.5);
-    vec2 luvA = luv * asp + normalize(d + 1e-4) * 0.03 * exp(-dot(d, d) * 18.0) * asp;
-    vec4 near = petalLayer(luvA * vec2(10.0, 6.0) + vec2(uTime * 2.2, uTime * 3.4), 3.4, 2.2, 0.65, 1.0);
-    vec4 far = petalLayer(luvA * vec2(22.0, 13.0) + vec2(uTime * 1.1, uTime * 1.7), 1.7, 1.1, 0.65, 0.6);
+    vec2 luvA = luv * asp - d * 0.35 * exp(-dot(d, d) * 18.0) * asp;   // petals part around the cursor (smooth, no seam at its centre)
+    vec4 near = petalLayer(luvA * 6.0 - vec2(0.22, 0.42) * uTime, 0.86, 0.09);
+    vec4 far = petalLayer(luvA * 13.0 - vec2(0.3, 0.6) * uTime + 7.3, 0.88, 0.1);
+    far.a *= 0.55;
     return near.a > far.a ? near : far;
   }
 
@@ -116,14 +115,18 @@ export const fragment = /* glsl */ `
     float halo = uHalo * exp(-max(sd, 0.0) / 18.0) * step(0.0, sd);
     float inside = 1.0 - smoothstep(-0.75, 0.75, sd);
     float belowBase = c.y - size.y * 0.5;
-    float spill = uArch * step(0.0, sd) * exp(-max(sd, 0.0) / 60.0) * clamp(0.5 + c.y / size.y, 0.0, 1.0);
-    float reflAlpha = uArch * step(0.0, belowBase) * step(abs(c.x), size.x * 0.5) * clamp(1.0 - belowBase / (0.35 * size.y), 0.0, 1.0) * 0.28;
+    // Light spilling out of the doorway's sides, heavier toward its base; zero below the base (the reflection lives there)
+    // and faded out before the quad's 96px margin.
+    float spill = uArch * uAlpha * step(0.0, sd) * exp(-max(sd, 0.0) / 36.0) * (1.0 - smoothstep(60.0, 94.0, sd))
+      * clamp(0.5 + c.y / size.y, 0.0, 1.0) * (1.0 - smoothstep(0.0, 20.0, belowBase)) * 0.35;
+    float reflFade = clamp(1.0 - belowBase / (0.3 * size.y), 0.0, 1.0);
+    float reflAlpha = uArch * uAlpha * step(0.0, belowBase) * (1.0 - smoothstep(size.x * 0.5 - 18.0, size.x * 0.5, abs(c.x))) * reflFade * reflFade * 0.4;
     if (inside <= 0.0 && halo < 0.004 && spill < 0.004 && reflAlpha < 0.004) discard;
 
     vec2 luv = (px - uRect.xy) / size;
     float trans = sin(3.14159 * uMix);
     float mist = clamp(uMist + trans * 0.85, 0.0, 1.0);
-    float blur = mist * 5.0 + uBlur * 4.0;
+    float blur = mist * 5.0 + uBlur * 6.0;
     vec4 pb = paint(uTexB, uDepB, uAspB, luv, size, uZoom + (1.0 - uMix) * 0.4, blur);
     vec3 col; float depth;
     if (uMix < 1.0) {
@@ -164,9 +167,11 @@ export const fragment = /* glsl */ `
       vec2 rluv = luv;
       rluv.y = 2.0 - luv.y;
       rluv.x += sin(uTime * 1.5 + luv.y * 10.0) * 0.01;
-      reflColor = paint(uTexB, uDepB, uAspB, rluv, size, uZoom, 3.0).rgb;
+      reflColor = paint(uTexB, uDepB, uAspB, rluv, size, uZoom, 3.0).rgb * 0.85;   // water darkens it a touch
     }
-    vec3 outCol = col * alpha + haloColor * halo * (1.0 - inside) + spillColor * spill * (1.0 - inside) + reflColor * reflAlpha;
-    gl_FragColor = vec4(outCol, alpha + halo * (1.0 - inside) + spill * (1.0 - inside) + reflAlpha);
+    // Straight (not premultiplied) colour: the material blends SRC_ALPHA, ONE_MINUS_SRC_ALPHA.
+    float a = alpha + (halo + spill) * (1.0 - inside) + reflAlpha;
+    vec3 rgb = col * alpha + haloColor * halo * (1.0 - inside) + spillColor * spill * (1.0 - inside) + reflColor * reflAlpha;
+    gl_FragColor = vec4(rgb / max(a, 1e-4), min(a, 1.0));
   }
 `;
