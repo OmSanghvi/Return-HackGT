@@ -125,7 +125,7 @@ export const fragment = /* glsl */ `
 
     vec2 luv = (px - uRect.xy) / size;
     float trans = sin(3.14159 * uMix);
-    float mist = clamp(uMist + trans * 0.85, 0.0, 1.0);
+    float mist = clamp(uMist + trans * 0.5, 0.0, 1.0);   // a light haze mid-flight, not a white-out
     float blur = mist * 5.0 + uBlur * 6.0;
     vec4 pb = paint(uTexB, uDepB, uAspB, luv, size, uZoom + (1.0 - uMix) * 0.4, blur);
     vec3 col; float depth;
@@ -152,6 +152,7 @@ export const fragment = /* glsl */ `
 
     col = mix(col, uFog, 0.07 * n * (1.0 - mist));           // a breath of haze drifting across
     col = mix(col, uFog, smoothstep(0.0, 1.0, mist * (0.75 + 0.5 * n)));
+    col = mix(vec3(dot(col, vec3(0.299, 0.587, 0.114))), col, mix(1.05, 1.0, uDusk)) * mix(0.92, 1.0, uDusk);   // day exposure: ~8% down, a touch more colour
 
     vec3 graded = (col + 0.03) * vec3(1.05, 1.0, 0.95);
     graded = mix(graded, vec3(dot(graded, vec3(0.299, 0.587, 0.114))), 0.1);

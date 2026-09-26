@@ -8,7 +8,7 @@ import { useWorld } from './state';
 import { vertex, fragment } from './shader';
 
 const KEYS = Object.keys(SCENES) as SceneKey[];
-const FOG = { day: new THREE.Color(1, 0.992, 0.975), dusk: new THREE.Color(0.05, 0.07, 0.15) };
+const FOG = { day: new THREE.Color(0.72, 0.77, 0.84), dusk: new THREE.Color(0.05, 0.07, 0.15) };   // day haze is a muted mid-tone, never white: flights and resolves pass through it
 const flat = (() => { const t = new THREE.DataTexture(new Uint8Array([40, 40, 40, 255]), 1, 1); t.needsUpdate = true; return t; })();
 const ease = (t: number) => 1 - Math.pow(1 - t, 3);
 type Rect = [number, number, number, number];
