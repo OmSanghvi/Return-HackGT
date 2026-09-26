@@ -1,0 +1,3 @@
+/* Dashboard-only styles: RoomCard build progress bar. Positioning/menu chrome lives in app.css. */
+.rt-card-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--glass); z-index: 2; pointer-events: none; }
+.rt-card-progress i { display: block; height: 100%; width: 0; background: var(--sun); transition: width .6s var(--ease-out); }

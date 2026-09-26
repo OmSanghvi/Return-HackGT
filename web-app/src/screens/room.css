@@ -1,0 +1,13 @@
+/* RoomPage: progress bars glide instead of jumping, and the arrival toast sits above the panel. */
+.rt-bar > i { transition: width .6s var(--ease-out); }
+
+.room-toast {
+  position: absolute;
+  top: var(--space-5);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+}
+.room-toast .caption { white-space: nowrap; }

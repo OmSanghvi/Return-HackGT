@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+<head><meta charset="utf-8"><title>RoomPortal</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="../components/bundle.js"></script></head>
+<body>
+<div id="root" style="height:520px"></div>
+<script>
+var R = window.Return, h = React.createElement;
+var IMG = { meadow: '../imagery/web/return-sky-day-meadow-lake.webp', plain: '../imagery/web/return-sky-day-golden-plain.webp', home: '../imagery/web/return-sky-day-hilltop-home.webp', beach: '../imagery/web/return-sky-day-morning-beach.webp', clouds: '../imagery/web/return-sky-day-cloud-field.webp', painted: '../imagery/web/return-sky-golden-painted-clouds.webp', cloudsea: '../imagery/web/return-sky-dusk-cloud-sea.webp', night: '../imagery/web/return-sky-dusk-night-lake.webp' };
+var LOGO = { lockupWhite: '../logos/return-lockup-white.svg', lockupInk: '../logos/return-lockup-ink.svg', markWhite: '../logos/return-mark-white.svg', markInk: '../logos/return-mark-ink.svg' };
+ReactDOM.createRoot(document.getElementById('root')).render(h('div', { 'data-theme': 'dusk', className: 'rt-vr-scene', style: { height: '100%' } }, h('img', { className: 'rt-img', src: IMG.night, alt: '' }), h(React.Fragment, null, h(R.RoomPortal, { src: IMG.beach, title: 'Last day of summer', people: 4 }), h(R.RoomPortal, { src: IMG.meadow, title: 'The lake house', state: 'hover' }), h(R.RoomPortal, { src: IMG.home, title: "Grandma's porch", state: 'entering' }))));
+</script>
+</body>
+</html>

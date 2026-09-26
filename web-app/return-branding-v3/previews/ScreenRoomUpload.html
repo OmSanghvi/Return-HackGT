@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+<head><meta charset="utf-8"><title>ScreenRoomUpload</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="../components/bundle.js"></script></head>
+<body>
+<div id="root" style="min-height:100vh"></div>
+<script>
+var R = window.Return, h = React.createElement;
+var IMG = { meadow: '../imagery/web/return-sky-day-meadow-lake.webp', plain: '../imagery/web/return-sky-day-golden-plain.webp', home: '../imagery/web/return-sky-day-hilltop-home.webp', beach: '../imagery/web/return-sky-day-morning-beach.webp', clouds: '../imagery/web/return-sky-day-cloud-field.webp', painted: '../imagery/web/return-sky-golden-painted-clouds.webp', cloudsea: '../imagery/web/return-sky-dusk-cloud-sea.webp', night: '../imagery/web/return-sky-dusk-night-lake.webp' };
+var LOGO = { lockupWhite: '../logos/return-lockup-white.svg', lockupInk: '../logos/return-lockup-ink.svg', markWhite: '../logos/return-mark-white.svg', markInk: '../logos/return-mark-ink.svg' };
+function Page() {
+  var s = React.useState([{ src: IMG.meadow, name: 'IMG_2231.jpg' }, { src: IMG.beach, name: 'IMG_2232.jpg' }, { src: IMG.home, name: 'IMG_2240.jpg' }, { src: IMG.clouds, name: 'IMG_2244.jpg' }]);
+  return h('div', { style: { minHeight: '100vh', boxSizing: 'border-box', padding: 'var(--space-5) var(--space-7) var(--space-7)', background: 'var(--canvas)' } },
+    h('div', { style: { display: 'flex', justifyContent: 'center', marginBottom: 'var(--space-6)' } }, h(R.GlassNav, { plain: true, brand: h('img', { src: LOGO.lockupInk, alt: 'return' }), items: [{ label: 'Rooms', active: true }, { label: 'Settings' }], cta: [h(R.Button, { key: 1, variant: 'primary', size: 'sm', icon: 'plus' }, 'Create a room'), h('span', { key: 2, className: 'rt-avatar', style: { marginLeft: 4 } }, 'DH')] })),
+    h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 400px', gap: 'var(--space-7)', alignItems: 'start' } },
+      h('div', { style: { display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' } },
+        h('p', { className: 'rt-field-hint', style: { margin: 0 } }, 'Rooms / The lake house, summer 2019'),
+        h(R.Stepper, { steps: ['Name and invite', 'Add your photos', 'Wait for everyone'], current: 1 }),
+        h('h1', { className: 'display-l', style: { margin: 0 } }, 'Add your ', h('em', null, 'view'), ' of it'),
+        h(R.PhotoDrop, { photos: s[0], max: 12, onFiles: function (f) { s[1](s[0].concat(f.map(function (x) { return { src: URL.createObjectURL(x), name: x.name }; }))); }, onRemove: function (i) { s[1](s[0].filter(function (_, j) { return j !== i; })); } }),
+        h(R.Field, { label: 'Leave a note for this room', multiline: true, defaultValue: 'The dock always creaked on the third board. We jumped off it every night until the fireflies came out.', hint: 'Everyone in the room can read it. It shows up next to the dock in VR.' }),
+        h('div', { style: { display: 'flex', gap: 'var(--space-3)' } }, h(R.Button, { variant: 'primary', size: 'lg', arrow: true }, 'Add to the room'), h(R.Button, { variant: 'ghost', size: 'lg' }, 'Save for later'))),
+      h('aside', { className: 'rt-share', style: { width: '100%', gap: 'var(--space-4)' } },
+        h('p', { className: 'title', style: { margin: 0 } }, 'In this ', h('em', null, 'room')),
+        h(R.MemberList, { onResend: function () {}, members: [
+          { name: 'Dylan Houle', isYou: true, isOwner: true, status: 'uploading', progress: '3 of 4' },
+          { name: 'Mom', status: 'done', count: 5, hasNote: true },
+          { name: 'Sam Park', status: 'invited', sentAgo: '2 hours ago' }] }),
+        h(R.Button, { variant: 'secondary', icon: 'plus', size: 'sm' }, 'Invite someone else'))));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h(Page));
+</script>
+</body>
+</html>

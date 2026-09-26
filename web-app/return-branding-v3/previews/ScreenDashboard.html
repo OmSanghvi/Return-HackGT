@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+<head><meta charset="utf-8"><title>ScreenDashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="../components/bundle.js"></script></head>
+<body>
+<div id="root" style="min-height:100vh"></div>
+<script>
+var R = window.Return, h = React.createElement;
+var IMG = { meadow: '../imagery/web/return-sky-day-meadow-lake.webp', plain: '../imagery/web/return-sky-day-golden-plain.webp', home: '../imagery/web/return-sky-day-hilltop-home.webp', beach: '../imagery/web/return-sky-day-morning-beach.webp', clouds: '../imagery/web/return-sky-day-cloud-field.webp', painted: '../imagery/web/return-sky-golden-painted-clouds.webp', cloudsea: '../imagery/web/return-sky-dusk-cloud-sea.webp', night: '../imagery/web/return-sky-dusk-night-lake.webp' };
+var LOGO = { lockupWhite: '../logos/return-lockup-white.svg', lockupInk: '../logos/return-lockup-ink.svg', markWhite: '../logos/return-mark-white.svg', markInk: '../logos/return-mark-ink.svg' };
+ReactDOM.createRoot(document.getElementById('root')).render(h('div', { style: { minHeight: '100vh', boxSizing: 'border-box', padding: 'var(--space-5) var(--space-7) var(--space-7)', background: 'var(--canvas)' } },
+  h('div', { style: { display: 'flex', justifyContent: 'center', marginBottom: 'var(--space-6)' } }, h(R.GlassNav, { plain: true, brand: h('img', { src: LOGO.lockupInk, alt: 'return' }), items: [{ label: 'Rooms', active: true }, { label: 'Settings' }], cta: [h(R.Button, { key: 1, variant: 'primary', size: 'sm', icon: 'plus' }, 'Create a room'), h('span', { key: 2, className: 'rt-avatar', style: { marginLeft: 4 } }, 'DH')] })),
+  h(R.HeroFrame, { image: IMG.painted, align: 'bottom-left', height: 240, drift: true,
+    kicker: 'Welcome back, Dylan', title: h(React.Fragment, null, 'Your ', h('em', null, 'rooms')), subtitle: '4 rooms · Sam still needs to add photos to Grandma\'s porch' }),
+  h('h2', { className: 'title', style: { margin: 'var(--space-6) 0 var(--space-4)' } }, 'Invitations'),
+  h('div', { style: { display: 'flex', gap: 'var(--space-5)' } },
+    h(R.RoomCard, { src: IMG.plain, width: 300, title: "Ava's graduation", meta: 'Ava Lin invited you', status: 'invited', action: [h(R.Button, { key: 1, variant: 'light', size: 'sm' }, 'Join room'), h(R.Button, { key: 2, variant: 'glass', size: 'sm' }, 'Decline')] })),
+  h('h2', { className: 'title', style: { margin: 'var(--space-6) 0 var(--space-4)' } }, 'Your rooms'),
+  h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--space-5)' } },
+    h(R.RoomCard, { src: IMG.meadow, width: '100%', title: 'The lake house', place: 'Lake Norman', date: '2019-07-14', status: 'ready', onManage: function () {}, people: [{ name: 'Dylan Houle' }, { name: 'Mom' }, { name: 'Sam Park', here: true }] }),
+    h(R.RoomCard, { src: IMG.home, width: '100%', title: "Grandma's porch", status: 'waiting', waitingFor: 'Sam', meta: '2 of 3 added photos', onManage: function () {}, people: [{ name: 'Dylan Houle' }, { name: 'Mom' }, { name: 'Sam Park' }] }),
+    h(R.RoomCard, { src: IMG.beach, width: '100%', title: 'Last day of summer', photoCount: 11, status: 'developing', onManage: function () {} }),
+    h('button', { type: 'button', className: 'rt-drop', style: { aspectRatio: '4 / 5', padding: 'var(--space-5)', font: 'inherit' } },
+      h('span', { className: 'rt-drop-icon' }, h(R.Icon, { name: 'plus', size: 24 })), h('span', { className: 'rt-drop-title', style: { fontSize: 32, lineHeight: '36px' } }, 'Create a ', h('em', null, 'room')),
+      h('span', { className: 'rt-drop-hint' }, 'Pick a place, invite the people who were there.')))));
+</script>
+</body>
+</html>

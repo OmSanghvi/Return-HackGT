@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+<head><meta charset="utf-8"><title>PresenceStack</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="../components/bundle.js"></script></head>
+<body>
+<div id="root"></div>
+<script>
+var R = window.Return, h = React.createElement;
+var IMG = { meadow: '../imagery/web/return-sky-day-meadow-lake.webp', plain: '../imagery/web/return-sky-day-golden-plain.webp', home: '../imagery/web/return-sky-day-hilltop-home.webp', beach: '../imagery/web/return-sky-day-morning-beach.webp', clouds: '../imagery/web/return-sky-day-cloud-field.webp', painted: '../imagery/web/return-sky-golden-painted-clouds.webp', cloudsea: '../imagery/web/return-sky-dusk-cloud-sea.webp', night: '../imagery/web/return-sky-dusk-night-lake.webp' };
+var LOGO = { lockupWhite: '../logos/return-lockup-white.svg', lockupInk: '../logos/return-lockup-ink.svg', markWhite: '../logos/return-mark-white.svg', markInk: '../logos/return-mark-ink.svg' };
+ReactDOM.createRoot(document.getElementById('root')).render(h('div', { className: 'rt-stage', style: { alignItems: 'center', gap: 'var(--space-6)' } },
+  h(R.PresenceStack, { people: [{ name: 'Dylan Houle' }, { name: 'Sam Park', here: true }, { name: 'Ava Lin', here: true }, { name: 'Mom' }, { name: 'Jordan' }, { name: 'Priya' }], showLabel: true }),
+  h(R.PresenceStack, { size: 'lg', people: [{ name: 'Dylan Houle', here: true }, { name: 'Mom' }] }),
+  h('div', { 'data-theme': 'dusk', className: 'rt-themed', style: { padding: 'var(--space-3) var(--space-4)', borderRadius: 'var(--radius-pill)' } }, h(R.PresenceStack, { people: [{ name: 'Sam Park', here: true }, { name: 'Mom' }, { name: 'Ava Lin' }], showLabel: true }))));
+</script>
+</body>
+</html>

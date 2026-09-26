@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+<head><meta charset="utf-8"><title>InviteSearch</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="../components/bundle.js"></script></head>
+<body>
+<div id="root"></div>
+<script>
+var R = window.Return, h = React.createElement;
+var IMG = { meadow: '../imagery/web/return-sky-day-meadow-lake.webp', plain: '../imagery/web/return-sky-day-golden-plain.webp', home: '../imagery/web/return-sky-day-hilltop-home.webp', beach: '../imagery/web/return-sky-day-morning-beach.webp', clouds: '../imagery/web/return-sky-day-cloud-field.webp', painted: '../imagery/web/return-sky-golden-painted-clouds.webp', cloudsea: '../imagery/web/return-sky-dusk-cloud-sea.webp', night: '../imagery/web/return-sky-dusk-night-lake.webp' };
+var LOGO = { lockupWhite: '../logos/return-lockup-white.svg', lockupInk: '../logos/return-lockup-ink.svg', markWhite: '../logos/return-mark-white.svg', markInk: '../logos/return-mark-ink.svg' };
+var PEOPLE = [{ name: 'Sam Park', email: 'sam.park@gatech.edu' }, { name: 'Samira Ali', email: 'samira@hey.com' }];
+function Demo() {
+  var q = React.useState('sam'), inv = React.useState([{ name: 'Mom', email: 'maria.houle@gmail.com' }, { name: 'Ava Lin', email: 'ava@lin.dev' }]);
+  var res = PEOPLE.filter(function (p) { return q[0] && (p.name + p.email).toLowerCase().indexOf(q[0].toLowerCase()) >= 0; });
+  return h('div', { style: { padding: 'var(--space-5)', maxWidth: 520 } }, h(R.InviteSearch, { defaultQuery: 'sam', results: res, invited: inv[0], onQuery: q[1],
+    onInvite: function (p) { inv[1](inv[0].concat([p])); }, onRemove: function (p) { inv[1](inv[0].filter(function (x) { return x.email !== p.email; })); } }));
+}
+ReactDOM.createRoot(document.getElementById('root')).render(h(Demo));
+</script>
+</body>
+</html>

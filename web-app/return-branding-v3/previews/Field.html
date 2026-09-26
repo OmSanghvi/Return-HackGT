@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+<head><meta charset="utf-8"><title>Field</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="../components/bundle.js"></script></head>
+<body>
+<div id="root"></div>
+<script>
+var R = window.Return, h = React.createElement;
+var IMG = { meadow: '../imagery/web/return-sky-day-meadow-lake.webp', plain: '../imagery/web/return-sky-day-golden-plain.webp', home: '../imagery/web/return-sky-day-hilltop-home.webp', beach: '../imagery/web/return-sky-day-morning-beach.webp', clouds: '../imagery/web/return-sky-day-cloud-field.webp', painted: '../imagery/web/return-sky-golden-painted-clouds.webp', cloudsea: '../imagery/web/return-sky-dusk-cloud-sea.webp', night: '../imagery/web/return-sky-dusk-night-lake.webp' };
+var LOGO = { lockupWhite: '../logos/return-lockup-white.svg', lockupInk: '../logos/return-lockup-ink.svg', markWhite: '../logos/return-mark-white.svg', markInk: '../logos/return-mark-ink.svg' };
+ReactDOM.createRoot(document.getElementById('root')).render(h('div', null,
+  h('div', { className: 'rt-stage', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-5)', maxWidth: 760 } },
+    h(R.Field, { label: 'Name this room', defaultValue: 'The lake house, summer 2019', hint: "Shown on the room's card." }),
+    h(R.Field, { label: 'Where was this?', placeholder: 'Lake Norman, NC' }),
+    h(R.Field, { label: 'A note for whoever visits', multiline: true, placeholder: 'The screen door always stuck.' }),
+    h(R.Field, { label: 'Invite by email', defaultValue: 'sam@', error: "That email isn't complete." })),
+  h('div', { className: 'rt-hero', style: { minHeight: 150, margin: '0 var(--space-5) var(--space-5)', justifyContent: 'center', alignItems: 'center' } },
+    h('div', { className: 'rt-hero-media' }, h('img', { className: 'rt-img', src: IMG.plain, alt: '' }), h('div', { className: 'rt-scrim-center' })),
+    h('div', { style: { width: 380 } }, h(R.Field, { onImage: true, placeholder: 'Get the invite when we launch', onSubmit: function () {}, submitLabel: 'Join the waitlist' })))));
+</script>
+</body>
+</html>

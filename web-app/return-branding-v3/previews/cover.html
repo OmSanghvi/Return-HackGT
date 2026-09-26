@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+<head>
+<meta charset="utf-8">
+<title>return</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="../components/bundle.js"></script>
+<style>
+  html, body { margin:0; height:100%; }
+  body { background:var(--canvas); color:var(--ink); font-family:var(--font-sans); overflow:hidden; }
+  .cover { position:relative; width:960px; height:288px; overflow:hidden; }
+  .art { position:absolute; top:0; left:480px; width:480px; height:288px; overflow:hidden; }
+  .art svg { display:block; width:480px; height:288px; }
+  .sky { fill:var(--sky-top); }
+  .blossom { fill:var(--blossom-soft); }
+  .night { fill:var(--action); }
+  .sun { fill:var(--sun-soft); }
+  .aurora { fill:var(--aurora); }
+  .cloud { fill:var(--on-image); }
+  .words { position:absolute; left:var(--space-7); bottom:var(--space-6); max-width:440px; }
+  .name { margin:0; font-family:var(--font-display); font-weight:400; font-size:120px; line-height:.95; letter-spacing:-.02em; font-synthesis:none; color:var(--ink); }
+  .tag { margin:var(--space-2) 0 0 4px; font-size:14px; line-height:20px; color:var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      sky-top 208x288 bleeding off the top (the brand's first color: open sky) · blossom-soft 112x160 · action 160x216 bleeding right with a sun-soft half-disc and aurora bands (the mark: a sun on a horizon with its reflection) · about 45% of 960x288
+  arrangement one tall sky slab with two satellites, bottoms on one line space-6 above the edge, space-4 gutters
+  pattern     clouds, from "ethereal, soft, large radii, pills everywhere": 13 on-image (white) discs in three clusters drifting across the sky slab and the blossom block
+  scales      gutters space-4; bottoms space-6 up; block corners radius-frame (32); discs radius-pill; reflection bands space-2 tall at a space-3 pitch
+-->
+<rect class="sky" x="16" y="-32" width="208" height="288" rx="32"/>
+<rect class="blossom" x="240" y="96" width="112" height="160" rx="32"/>
+<rect class="night" x="368" y="40" width="160" height="216" rx="32"/>
+<path class="sun" d="M396 164a52 52 0 0 1 104 0z"/>
+<rect class="aurora" x="400" y="180" width="96" height="8" rx="4"/>
+<rect class="aurora" x="416" y="196" width="64" height="6" rx="3"/>
+<rect class="aurora" x="432" y="210" width="32" height="4" rx="2"/>
+<g class="cloud">
+  <circle cx="60" cy="210" r="26"/><circle cx="96" cy="196" r="34"/><circle cx="138" cy="212" r="24"/><circle cx="116" cy="226" r="22"/><circle cx="78" cy="230" r="18"/>
+  <circle cx="176" cy="72" r="16"/><circle cx="198" cy="62" r="22"/><circle cx="226" cy="72" r="16"/>
+  <circle cx="262" cy="150" r="14"/><circle cx="284" cy="140" r="20"/><circle cx="310" cy="150" r="15"/><circle cx="292" cy="156" r="13"/><circle cx="330" cy="156" r="10"/>
+</g>
+</svg>
+</div>
+<div class="words">
+  <h1 class="name">return</h1>
+  <p class="tag">Walk back into the moments you miss, together.</p>
+</div>
+</div>
+</body>
+</html>

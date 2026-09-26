@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+<head><meta charset="utf-8"><title>ScreenLanding</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="../components/bundle.js"></script></head>
+<body>
+<div id="root" style="min-height:100vh"></div>
+<script>
+var R = window.Return, h = React.createElement;
+var IMG = { meadow: '../imagery/web/return-sky-day-meadow-lake.webp', plain: '../imagery/web/return-sky-day-golden-plain.webp', home: '../imagery/web/return-sky-day-hilltop-home.webp', beach: '../imagery/web/return-sky-day-morning-beach.webp', clouds: '../imagery/web/return-sky-day-cloud-field.webp', painted: '../imagery/web/return-sky-golden-painted-clouds.webp', cloudsea: '../imagery/web/return-sky-dusk-cloud-sea.webp', night: '../imagery/web/return-sky-dusk-night-lake.webp' };
+var LOGO = { lockupWhite: '../logos/return-lockup-white.svg', lockupInk: '../logos/return-lockup-ink.svg', markWhite: '../logos/return-mark-white.svg', markInk: '../logos/return-mark-ink.svg' };
+ReactDOM.createRoot(document.getElementById('root')).render(h('div', { style: { padding: 'var(--space-5)', background: 'var(--canvas)', minHeight: '100vh', boxSizing: 'border-box' } },
+  h(R.HeroFrame, { image: IMG.meadow, height: 852,
+    nav: h(R.GlassNav, { brand: h('img', { src: LOGO.lockupInk, alt: 'return' }), items: [{ label: 'How it works' }, { label: 'Rooms' }, { label: 'For families' }], cta: [h(R.Button, { key: 0, variant: 'ghost', size: 'sm', style: { color: 'var(--on-glass)' } }, 'Sign in'), h(R.Button, { key: 1, variant: 'primary', size: 'sm' }, 'Start a room')] }),
+    eyebrow: h(R.Eyebrow, { badge: 'New' }, 'Shared rooms are live on Quest 3'),
+    title: h(React.Fragment, null, 'Walk back into the ', h('em', null, 'moments'), ' you miss'),
+    subtitle: 'Start a room, invite the people who were there, and everyone adds their photos. return rebuilds the place as a world you can stand inside together.',
+    actions: [h(R.Button, { key: 1, variant: 'light', size: 'lg', arrow: 'arrowUpRight' }, 'Start a room'), h(R.Button, { key: 2, variant: 'text', icon: 'play' }, 'Watch the film')],
+    footer: [h('span', { key: 1 }, 'Photos in. A world out. Together.'), h('span', { key: 2 }, 'return ©2026')] })));
+</script>
+</body>
+</html>

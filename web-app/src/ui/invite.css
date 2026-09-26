@@ -1,0 +1,12 @@
+/* InviteSearch: the searching beat and its shimmering placeholder row. */
+.rt-result-loading { pointer-events: none; }
+.rt-shimmer { position: relative; overflow: hidden; background: var(--surface-300); }
+.rt-shimmer::after {
+  content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--surface-100), transparent);
+  animation: rt-shimmer-sweep 1.1s ease-in-out infinite;
+}
+.rt-result-loading .rt-person-name { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.rt-bar { display: block; height: 10px; border-radius: var(--radius-pill); width: 60%; }
+.rt-bar-sm { height: 8px; width: 38%; }
+@keyframes rt-shimmer-sweep { to { transform: translateX(100%); } }
