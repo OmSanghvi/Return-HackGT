@@ -13,9 +13,11 @@ import CreateRoom from './screens/CreateRoom';
 import RoomUpload from './screens/RoomUpload';
 import RoomPage from './screens/RoomPage';
 import { REAL_MODE } from './config';
+import { useAccount } from './api/account';
+import { syncRooms } from './real/rooms';
 
 const SkyWorld = lazy(() => import('./world/SkyWorld'));
-const RealApp = lazy(() => import('./real/RealApp'));
+const Studio = lazy(() => import('./real/RealProjectPage'));
 
 function Private({ children }: { children: React.ReactNode }) {
   const { loaded, signedIn } = useSession();
@@ -31,7 +33,7 @@ function useSimulator() {
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       const room = loc.pathname.match(/^\/rooms\/([^/]+)/)?.[1];
-      if (e.key !== '.' || !room || room === 'new' || (e.target as HTMLElement).closest('input, textarea')) return;
+      if (REAL_MODE || e.key !== '.' || !room || room === 'new' || (e.target as HTMLElement).closest('input, textarea')) return;
       useRooms.getState().fastForward(room);
     };
     addEventListener('keydown', key);
@@ -39,23 +41,24 @@ function useSimulator() {
   }, [loc.pathname]);
 }
 
-// Real mode (VITE_SKETCHSCAPE_API_URL set): an entirely separate route tree
-// talking to the real backend -- account picker, real uploads, real jobs.
-// See web-app/hardcode.MD and src/config.ts. Mock mode (no env var) below is
-// untouched: same routes, same local store, same timed animations as before.
-function RealModeRoot() {
-  return (
-    <MotionConfig reducedMotion="user">
-      <Suspense fallback={null}>
-        <RealApp />
-      </Suspense>
-    </MotionConfig>
-  );
+/** Real mode: keep the room store in step with the backend while you're on a rooms page. */
+function useBackendSync() {
+  const loc = useLocation();
+  const account = useAccount((s) => s.current);
+  const onRooms = loc.pathname.startsWith('/rooms');
+  useEffect(() => {
+    if (!REAL_MODE || !onRooms) return;
+    void syncRooms();
+    // ponytail: flat 4 s poll so the other account's photos and build progress show up; ETag polling if load matters.
+    const t = setInterval(() => { if (!document.hidden) void syncRooms(); }, 4000);
+    return () => clearInterval(t);
+  }, [account, onRooms, loc.pathname]);
 }
 
-function MockApp() {
+export default function App() {
   const loc = useLocation();
   useSimulator();
+  useBackendSync();
   return (
     <MotionConfig reducedMotion="user">
       {immersive && <Suspense fallback={null}><SkyWorld /></Suspense>}
@@ -69,6 +72,7 @@ function MockApp() {
             <Route path="/rooms" element={<Private><Dashboard /></Private>} />
             <Route path="/rooms/new" element={<Private><CreateRoom /></Private>} />
             <Route path="/rooms/:id/add" element={<Private><RoomUpload /></Private>} />
+            {REAL_MODE && <Route path="/rooms/:id/studio" element={<Private><Suspense fallback={null}><Studio /></Suspense></Private>} />}
             <Route path="/rooms/:id" element={<Private><RoomPage /></Private>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -77,8 +81,4 @@ function MockApp() {
       <Bloom />
     </MotionConfig>
   );
-}
-
-export default function App() {
-  return REAL_MODE ? <RealModeRoot /> : <MockApp />;
 }

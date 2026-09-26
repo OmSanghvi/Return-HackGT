@@ -6,6 +6,8 @@ import { ME, useRooms } from '../data/store';
 import { Stage } from '../world/Stage';
 import { Logo, reveal } from './shared';
 import { useEffect } from 'react';
+import { REAL_MODE, DEMO_ACCOUNTS } from '../config';
+import { accountLabel, useAccount } from '../api/account';
 
 export default function SignInPage() {
   const navigate = useNavigate();
@@ -21,9 +23,14 @@ export default function SignInPage() {
         <p className="rt-kicker app-kicker-ink">Sign in</p>
         <h1 className="display-m" style={{ margin: 0 }}>Welcome <em>back</em></h1>
         <p className="body" style={{ margin: 0, color: 'var(--ink-muted)' }}>Your rooms are waiting where you left them.</p>
-        <Field label="Email" type="email" autoComplete="email" defaultValue={ME.email} required />
-        <Field label="Password" type="password" autoComplete="current-password" defaultValue="returnhome" required />
-        <Button type="submit" variant="primary" size="lg" arrow fullWidth>Continue</Button>
+        {REAL_MODE ? DEMO_ACCOUNTS.map((id, i) => (
+          <Button key={id} variant={i ? 'secondary' : 'primary'} size="lg" arrow fullWidth
+            onClick={() => { useAccount.getState().setAccount(id); useRooms.getState().signIn(); }}>Continue as {accountLabel(id)}</Button>
+        )) : <>
+          <Field label="Email" type="email" autoComplete="email" defaultValue={ME.email} required />
+          <Field label="Password" type="password" autoComplete="current-password" defaultValue="returnhome" required />
+          <Button type="submit" variant="primary" size="lg" arrow fullWidth>Continue</Button>
+        </>}
       </motion.form>
     </Stage>
     </div>

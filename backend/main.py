@@ -452,6 +452,8 @@ class UploadSelection(BaseModel):
     # Set on a `failed` selection (Build Plan step 27): why SAM 3.1 found
     # nothing usable for this typed name, shown so the person can refine it.
     error: str | None = Field(default=None, max_length=200)
+    # Set by /generate: the ProjectAsset this selection became.
+    asset_id: str | None = None
 
 
 class UploadRecord(BaseModel):
@@ -556,10 +558,7 @@ artifact_store = create_artifact_store(local_artifact_root=ARTIFACT_ROOT)
 # contributor typed no subject_hint (Build Plan step 4a).
 # SKETCHSCAPE_SUBJECT_LABELER=mock (default offline) | nemoclaw
 subject_labeler = create_subject_labeler()
-# The first AWS deployment is deliberately one GPU and one reconstruction at a
-# time. A queue/DynamoDB design is appropriate for production, but allowing
-# concurrent 3D reconstructions on a 16 GB GPU would make both jobs fail.
-local_worker_lock = asyncio.Lock()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001 - required by FastAPI's lifespan signature
@@ -1040,16 +1039,14 @@ def dispatch_job(job: ReconstructionJob, background_tasks: BackgroundTasks) -> N
             background_tasks.add_task(run_mock_reconstruct_job, job.job_id)
         return
     if pipeline_mode == "aws-local":
-        if job.kind == "segment":
-            # Build Plan step 27: left `queued`. The GPU-host dispatcher
-            # (worker/gpu_dispatcher.py) claims it via POST
-            # /v1/internal/jobs/claim, batches every pending selection's
-            # typed name into one SAM 3.1 pass, and reports back per
-            # selection through /selections/{selection_id}/result -- unlike
-            # the legacy single-object `reconstruct` push path below, which
-            # is unchanged.
-            return
-        background_tasks.add_task(run_local_gpu_job, job.job_id)
+        # Build Plan step 27: every kind is left `queued` for the GPU-host
+        # dispatcher (worker/gpu_dispatcher.py), which claims it via POST
+        # /v1/internal/jobs/claim. `segment` batches every pending selection's
+        # typed name into one SAM 3.1 pass; `reconstruct` goes to the warm
+        # worker_server.py bounded by SKETCHSCAPE_GPU_CONCURRENCY. The API no
+        # longer pushes `reconstruct` to worker_server.py itself: that raced
+        # the dispatcher and overflowed the worker's queue on multi-object
+        # uploads.
         return
     job.status = JobStatus.FAILED
     job.error = "No GPU-worker adapter is configured. Use PIPELINE_MODE=mock or aws-local."
@@ -1129,73 +1126,6 @@ async def run_mock_segment_job(job_id: str) -> None:
     job.status = JobStatus.COMPLETE
     job.updated_at = utc_now()
     store.save_job(job)
-
-
-async def run_local_gpu_job(job_id: str) -> None:
-    """Submit a job to the persistent worker server on loopback.
-
-    The worker server (worker/worker_server.py) keeps all models loaded in
-    memory between jobs, eliminating the 2–3 minute cold-start penalty from
-    loading large checkpoints on every request.  It must be running before
-    the first job is submitted; it starts automatically via the
-    sketchscape-worker systemd service.
-    """
-    async with local_worker_lock:
-        job = store.get_job(job_id)
-        if job is None or job.status != JobStatus.QUEUED:
-            return
-        job.updated_at = utc_now()
-        store.save_job(job)
-
-        worker_port = int(os.environ.get("SKETCHSCAPE_WORKER_SERVER_PORT", "8001"))
-        worker_url = f"http://127.0.0.1:{worker_port}/worker/jobs"
-        startup_timeout = float(os.environ.get("SKETCHSCAPE_WORKER_STARTUP_TIMEOUT", "600"))
-        deadline = asyncio.get_running_loop().time() + startup_timeout
-        payload = json.dumps({
-            "job_id": job_id,
-            "subject_hint": job.subject_hint or "",
-        }).encode()
-
-        def submit() -> None:
-            import urllib.request
-
-            request = urllib.request.Request(
-                worker_url,
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(request, timeout=10) as response:
-                response.read()
-
-        while True:
-            try:
-                await asyncio.to_thread(submit)
-                # The worker callback becomes authoritative from this point.
-                job.status = JobStatus.RUNNING
-                job.updated_at = utc_now()
-                store.save_job(job)
-                return
-            except Exception as error:
-                from urllib.error import HTTPError
-
-                if isinstance(error, HTTPError) and error.code == 503:
-                    if asyncio.get_running_loop().time() < deadline:
-                        job.updated_at = utc_now()
-                        store.save_job(job)
-                        await asyncio.sleep(5)
-                        continue
-                    detail = "Persistent GPU worker did not finish loading before the startup timeout."
-                elif isinstance(error, HTTPError) and error.code == 429:
-                    detail = "Persistent GPU worker queue is full; retry after the active job completes."
-                else:
-                    detail = f"Could not reach persistent GPU worker: {error}"
-                job.status = JobStatus.FAILED
-                job.error = detail[:500]
-                job.updated_at = utc_now()
-                store.save_job(job)
-                sync_project_asset(job)
-                return
 
 
 @app.get("/health")
@@ -2527,6 +2457,16 @@ async def create_upload(
 
 
 @app.get(
+    "/v1/projects/{project_id}/uploads",
+    response_model=list[UploadRecord],
+    dependencies=[Depends(require_project_read)],
+)
+async def list_uploads(project_id: str) -> list[UploadRecord]:
+    get_project(project_id)
+    return sorted(store.list_upload_records(project_id), key=lambda u: u.created_at)
+
+
+@app.get(
     "/v1/projects/{project_id}/uploads/{upload_id}",
     response_model=UploadRecord,
     dependencies=[Depends(require_project_read)],
@@ -2767,12 +2707,14 @@ async def do_generate(
         selection = by_id[selection_id]
         asset_id = uuid.uuid4().hex
         job_id = uuid.uuid4().hex
-        label = (selection.label or "object")[:80]
+        # The web app sends only the typed name (prompt.text), not a label.
+        name = selection.label or selection.prompt.text
+        label = (name or "object")[:80]
         first_view = AssetView(
             view_index=0,
             image_key=upload.image_key,
-            subject_hint=selection.label,
-            subject_hint_source="user" if selection.label else None,
+            subject_hint=name,
+            subject_hint_source="user" if name else None,
             reconstruction_job_id=job_id,
             recorded_at=now,
         )
@@ -2801,13 +2743,14 @@ async def do_generate(
             selection_ids=[selection_id],
             image_key=upload.image_key,
             mask_key=selection.mask_key,
-            subject_hint=selection.label,
+            subject_hint=name,
         )
         store.save_job(job)
         dispatch_job(job, background_tasks)
         jobs.append(job)
 
         selection.status = "generated"
+        selection.asset_id = asset_id
 
         if create_contribution and contributor is not None:
             contribution = Contribution(

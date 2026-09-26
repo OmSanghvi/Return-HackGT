@@ -56,6 +56,31 @@ class UploadSelectionGenerateFlowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         return response.json()
 
+    def test_project_uploads_are_listed_so_a_reload_can_show_them(self) -> None:
+        with TestClient(app) as client:
+            first = self._create_upload(client)["upload_id"]
+            second = self._create_upload(client)["upload_id"]
+            listed = client.get(f"/v1/projects/{self.project_id}/uploads")
+            self.assertEqual(listed.status_code, 200)
+            ids = [u["upload_id"] for u in listed.json()]
+            self.assertIn(first, ids)
+            self.assertIn(second, ids)
+            self.assertLess(ids.index(first), ids.index(second))
+
+    def test_generated_asset_is_named_after_the_typed_prompt_when_no_label(self) -> None:
+        # The web app sends only prompt.text; the asset used to be "object".
+        with TestClient(app) as client:
+            upload_id = self._create_upload(client)["upload_id"]
+            base = f"/v1/projects/{self.project_id}/uploads/{upload_id}"
+            client.post(f"{base}/selections", json={"selections": [{"selection_id": "s1", "prompt": {"text": "blue vase"}}]})
+            body = client.post(f"{base}/generate", json={"selection_ids": ["s1"]}).json()
+            self.assertEqual(body["assets"][0]["label"], "blue vase")
+            self.assertEqual(body["jobs"][0]["subject_hint"], "blue vase")
+            # The selection links to its asset so the page can show the asset's
+            # real status instead of "Making 3D" forever.
+            selection = client.get(base).json()["selections"][0]
+            self.assertEqual(selection["asset_id"], body["assets"][0]["asset_id"])
+
     def test_three_selections_segment_then_refine_then_generate_two(self) -> None:
         with TestClient(app) as client:
             upload = self._create_upload(client)

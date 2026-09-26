@@ -3,6 +3,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { SceneKey } from '../world/scenes';
+import { REAL_MODE } from '../config';
 
 export type MemberStatus = 'invited' | 'joined' | 'done';
 export interface Member { id: string; name: string; email: string; status: MemberStatus; count?: number; note?: string; isOwner?: boolean; invitedAt: number; etaAt?: number }
@@ -91,6 +92,8 @@ export function advance(r: Room, now: number): Room {
 
 interface State {
   rooms: Room[]; signedIn: boolean;
+  /** False until real mode's first fetch lands; always true in mock mode. */
+  synced: boolean;
   signIn(): void; signOut(): void; reset(): void;
   createRoom(title: string, emails: string[], scene?: SceneKey): string;
   invite(id: string, email: string): void; uninvite(id: string, memberId: string): void; resend(id: string, memberId: string): void;
@@ -104,7 +107,7 @@ export const useRooms = create<State>()(persist((set, get) => {
   const patch = (id: string, fn: (r: Room) => Room) => set({ rooms: get().rooms.map((r) => (r.id === id ? fn(r) : r)) });
   const drop = (id: string) => set({ rooms: get().rooms.filter((r) => r.id !== id) });
   return {
-    rooms: seed(), signedIn: false,
+    rooms: REAL_MODE ? [] : seed(), signedIn: false, synced: !REAL_MODE,
     signIn: () => set({ signedIn: true }), signOut: () => set({ signedIn: false }),
     reset: () => set({ rooms: seed(), signedIn: false }),
     createRoom(title, emails, scene) {
@@ -135,7 +138,10 @@ export const useRooms = create<State>()(persist((set, get) => {
     step: (now, dt) => { const rooms = tick(get().rooms, now, dt); if (rooms !== get().rooms) set({ rooms }); },
     fastForward: (id) => patch(id, (r) => advance(r, Date.now())),
   };
-}, { name: 'return-demo-v1' }));
+}, REAL_MODE
+  // Real mode: rooms come from the backend (src/real/rooms.ts); only the sign-in flag persists.
+  ? { name: 'return-real-session', partialize: (s) => ({ signedIn: s.signedIn }) as State }
+  : { name: 'return-demo-v1', partialize: ({ synced: _, ...s }) => s as State }));
 
 export const agoText = (t: number) => {
   const m = Math.round((Date.now() - t) / MIN);

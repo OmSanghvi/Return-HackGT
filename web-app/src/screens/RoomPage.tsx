@@ -9,11 +9,14 @@ import { AppNav, ConfirmButton, coverOf, reveal } from './shared';
 import { waitingOn } from './Dashboard';
 import { memberRows } from './RoomUpload';
 import './room.css';
+import { REAL_MODE } from '../config';
+import * as backend from '../real/rooms';
 
 export default function RoomPage() {
   const { id } = useParams();
   const room = useRooms((s) => s.rooms.find((r) => r.id === id));
-  if (!room) return <Navigate to="/rooms" replace />;
+  const synced = useRooms((s) => s.synced);
+  if (!room) return synced ? <Navigate to="/rooms" replace /> : null;
   if (room.phase === 'collecting' && mine(room)?.status !== 'done') return <Navigate to={`/rooms/${room.id}/add`} replace />;
   const ready = room.phase === 'ready';
   return (
@@ -36,7 +39,7 @@ function Waiting({ room }: { room: Room }) {
 
   // Once building starts, it runs on its own (no button, no keypress) until it hits ready.
   useEffect(() => {
-    if (!building) return;
+    if (!building || REAL_MODE) return; // real mode: progress comes from the backend sync
     let raf = 0, last = performance.now();
     const loop = (t: number) => {
       const dt = t - last; last = t;
@@ -81,23 +84,24 @@ function Waiting({ room }: { room: Room }) {
             <motion.div key="build" className="rt-glass-strong app-panel app-panel-wide" {...reveal(0)} exit={{ opacity: 0, filter: 'blur(12px)' }}>
               <Stepper current={2} />
               <DevelopProgress src={coverOf(room)} title={room.title} progress={room.progress}
-                actions={<Button variant="ghost" icon="back" onClick={() => navigate('/rooms')}>Back to rooms</Button>} />
+                actions={<><Button variant="ghost" icon="back" onClick={() => navigate('/rooms')}>Back to rooms</Button>
+                  {REAL_MODE && <Button variant="text" onClick={() => navigate(`/rooms/${room.id}/studio`)}>See each object</Button>}</>} />
             </motion.div>
           ) : (
             <motion.div key="wait" className="rt-glass-strong app-panel app-panel-wide" {...reveal(0)} exit={{ opacity: 0, filter: 'blur(12px)' }}>
               <Stepper current={2} />
               <h1 className="display-m" style={{ margin: 0 }}>Waiting for {who}</h1>
               <p className="body" style={{ margin: 0, color: 'var(--ink-muted)' }}>
-                {done} of {room.members.length} have added their photos. We start building the moment everyone is in, and email you when the room is ready.
+                {done} of {room.members.length} have added their photos. We start building the moment everyone is in{REAL_MODE ? '.' : ', and email you when the room is ready.'}
               </p>
               <div className="rt-bar app-sun-bar" role="progressbar" aria-valuemin={0} aria-valuemax={room.members.length} aria-valuenow={done} aria-label="People who have added photos">
                 <i style={{ width: (done / room.members.length) * 100 + '%' }} />
               </div>
-              <MemberList members={memberRows(room)} onResend={(m) => { const x = room.members.find((y) => y.email === m.email); if (x) act.resend(room.id, x.id); }} />
+              <MemberList members={memberRows(room)} onResend={REAL_MODE ? undefined : (m) => { const x = room.members.find((y) => y.email === m.email); if (x) act.resend(room.id, x.id); }} />
               <div className="app-actions">
                 <Button variant="text" icon="back" onClick={() => navigate('/rooms')}>Back to rooms</Button>
                 {mine(room)?.isOwner && others.length > 0 && (
-                  <ConfirmButton arrow confirmText={`Build with ${done} ${done === 1 ? 'person' : 'people'}'s photos?`} onConfirm={() => act.startBuilding(room.id)}>
+                  <ConfirmButton arrow confirmText={`Build with ${done} ${done === 1 ? 'person' : 'people'}'s photos?`} onConfirm={() => (REAL_MODE ? backend.startBuilding : act.startBuilding)(room.id)}>
                     Start without {who}
                   </ConfirmButton>
                 )}
@@ -129,7 +133,8 @@ function Ready({ room }: { room: Room }) {
             <motion.h1 className="rt-hero-title" {...reveal(1)}><span className="fn-name">{room.title}</span> is <em>ready</em></motion.h1>
             <motion.p className="rt-hero-sub" {...reveal(2)}>It's waiting in your headset now. Everyone who added photos can step in, together or on their own.</motion.p>
             <motion.div {...reveal(3)}><PresenceStack people={room.members.map((m) => ({ name: m.name }))} size="lg" onImage /></motion.div>
-            <motion.div className="rt-hero-actions" {...reveal(4)}><Button variant="light" size="lg" icon="back" onClick={() => navigate('/rooms')}>Back to rooms</Button></motion.div>
+            <motion.div className="rt-hero-actions" {...reveal(4)}><Button variant="light" size="lg" icon="back" onClick={() => navigate('/rooms')}>Back to rooms</Button>
+              {REAL_MODE && <Button variant="glass" size="lg" onClick={() => navigate(`/rooms/${room.id}/studio`)}>Objects and letters</Button>}</motion.div>
           </div>
           <div className="app-ready-side">
             <motion.div className="app-portal-wrap" {...reveal(2)}>

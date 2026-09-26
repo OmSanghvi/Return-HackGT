@@ -71,22 +71,50 @@ def _to_numpy(value: Any) -> np.ndarray:
     return np.asarray(value)
 
 
-def candidate_masks(results: object, height: int, width: int) -> list[tuple[float, np.ndarray]]:
-    candidates: list[tuple[float, np.ndarray]] = []
+def _classed_masks(results: object, height: int, width: int) -> list[tuple[float, np.ndarray, int]]:
+    """(score, mask, prompt class) for every usable instance; class 0 if untagged."""
+    candidates: list[tuple[float, np.ndarray, int]] = []
     for result in results:
         masks = getattr(getattr(result, "masks", None), "data", None)
         if masks is None:
             continue
         raw_masks = _to_numpy(masks)
-        confidences = getattr(getattr(result, "boxes", None), "conf", None)
+        boxes = getattr(result, "boxes", None)
+        confidences = getattr(boxes, "conf", None)
         scores = _to_numpy(confidences) if confidences is not None else []
+        classes = getattr(boxes, "cls", None)
+        class_ids = _to_numpy(classes) if classes is not None else []
         for index, raw_mask in enumerate(raw_masks):
             mask = resize_mask(raw_mask > 0.5, height, width)
             if mask is None:
                 continue
             score = float(scores[index]) if index < len(scores) else 0.0
-            candidates.append((score, mask))
+            class_id = int(class_ids[index]) if index < len(class_ids) else 0
+            candidates.append((score, mask, class_id))
     return candidates
+
+
+def candidate_masks(results: object, height: int, width: int) -> list[tuple[float, np.ndarray]]:
+    return [(score, mask) for score, mask, _class_id in _classed_masks(results, height, width)]
+
+
+def candidates_per_prompt(
+    results: list[object], prompt_count: int, height: int, width: int
+) -> list[list[tuple[float, np.ndarray]]]:
+    """Per-prompt candidates for a text batch.
+
+    One Results per prompt (positionally aligned) is used as-is. The real
+    SAM3SemanticPredictor instead returns ONE Results for the whole batch with
+    each instance's prompt index in ``boxes.cls``, so that shape is bucketed
+    by class.
+    """
+    if len(results) == prompt_count:
+        return [candidate_masks([result], height, width) for result in results]
+    buckets: list[list[tuple[float, np.ndarray]]] = [[] for _ in range(prompt_count)]
+    for score, mask, class_id in _classed_masks(results, height, width):
+        if 0 <= class_id < prompt_count:
+            buckets[class_id].append((score, mask))
+    return buckets
 
 
 def choose_one(candidates: list[tuple[float, np.ndarray]], height: int, width: int) -> np.ndarray | None:
@@ -149,10 +177,10 @@ def segment_selections(
     selection for the upload's `segment` job (skill item 1: SAM loads the
     image once, and every selection is a text prompt batched into one
     ``predictor(text=[...])`` call). ``predictor`` is any callable that
-    accepts ``text=`` and returns one results-like object per prompt,
-    positionally aligned with ``selections`` (the documented Ultralytics
-    `SAM3SemanticPredictor` batching contract) -- a real predictor on the
-    GPU, or a stub in tests.
+    accepts ``text=`` and returns either one results-like object per prompt
+    (positionally aligned) or, like the real `SAM3SemanticPredictor`, one
+    combined result with each instance's prompt index in ``boxes.cls`` (see
+    ``candidates_per_prompt``) -- a real predictor on the GPU, or a stub.
 
     Returns ``{selection_id: {"status", "score", "mask", "alternatives",
     "reason"}}``. A selection with no usable mask -- nothing above the area
@@ -167,7 +195,7 @@ def segment_selections(
 
     texts = [text.strip() for _selection_id, text in selections]
     raw_results = predictor(text=texts)
-    per_prompt_results = list(raw_results)
+    per_prompt_candidates = candidates_per_prompt(list(raw_results), len(selections), height, width)
 
     def failed(reason: str) -> dict[str, Any]:
         return {"status": "failed", "score": None, "mask": None, "alternatives": [], "reason": reason}
@@ -175,11 +203,9 @@ def segment_selections(
     outcomes: dict[str, dict[str, Any]] = {}
     chosen_masks: dict[str, np.ndarray] = {}
     for index, (selection_id, _text) in enumerate(selections):
-        result_slice = [per_prompt_results[index]] if index < len(per_prompt_results) else []
-        candidates = candidate_masks(result_slice, height, width)
         candidates = [
             (score, mask)
-            for score, mask in candidates
+            for score, mask in per_prompt_candidates[index]
             if min_area_ratio < float(mask.mean()) < max_area_ratio
         ]
         if not candidates:
