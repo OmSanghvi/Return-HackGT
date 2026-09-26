@@ -71,6 +71,12 @@ public static class SketchScapeOfflineExperienceBuilder
             experienceRoot.AddComponent<ImmersiveStagingDirector>().Configure(stagingBlock, stagedRefs);
         }
 
+        // Build Plan step 33: the guide bot fetches its own tour at runtime
+        // (GET /v1/rooms/{project_id}/guide/tour) and simply doesn't spawn if
+        // the project has none -- nothing else to configure here.
+        var guideBot = SketchScapeGuideBot.Spawn(experienceRoot.transform);
+        experienceRoot.AddComponent<SketchScapeGuideInput>().Configure(guideBot);
+
         EditorSceneManager.SaveScene(scene, OutputScenePath);
         EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(OutputScenePath, true) };
         AssetDatabase.SaveAssets();
