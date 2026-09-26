@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+- **VR hub, worlds-only ring**: the ring now shows only rooms the signed-in account is joined to (or done with) and that are ready to enter. Inviting, accepting, adding photos and building progress moved to the web app; the hub no longer routes to those flat screens.
+- **Account picker**: replaces sign-in in the headset. Two demo accounts (Dylan, Maya) with overlapping ready rooms; picking one calls `RoomStore.SignIn(accountId)`.
+- **Portal labels**: title plus the first names of everyone in the room.
+- **Wrist menu**: just Hub and Recenter now; Theme and Advance (the demo simulator) were flat-app-only concerns and are gone from the hub.
+- **Hook points for later work**: `HubController.SignedIn`, `HubController.PortalsLaidOut`, `HubController.EnteringRoom` events, and a single `EnterRoom(Room, RoomPortal)` entry point for world entry.
+- Removed `PortalKind`/`PortalPresentation` (every ring portal is ready by construction) and the hub's demo simulator (`HubApp.demoSimulator`, the "." fast-forward).
+- Demo seed: 4 ready rooms with distinct skies for Dylan, 3 overlapping ready rooms for Maya; save file bumped to `return-demo-v2.json`.
+
 ## 0.2.0
 - **VR hub** (`HubApp`): dusk painted sky and star dome, your rooms as arched portals on a ring, portal states (ready, building, waiting, add photos, invited), glass panels for sign-in and room screens, wrist menu, fade in and out of worlds.
 - **World loading seam**: `IWorldLoader`, `SceneWorldLoader` (roomId to scene map, additive), `StubWorldLoader`, `WorldSession`, `ScreenFade`.
