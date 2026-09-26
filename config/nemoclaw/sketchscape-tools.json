@@ -218,14 +218,36 @@
       "implementation_status": "denied (registered with --deny-tool)"
     },
     {
-      "id": "unity.meta_horizon_extension_tools",
+      "id": "unity.meta_get_interactors_state",
       "method": "MCP_TOOL",
-      "path": "(not exposed)",
-      "purpose": "Meta Unity MCP Extension for Horizon write tools: create/update/delete GameObjects, relative move/rotate, grabbable, teleport hotspots.",
+      "path": "unity-mcp__meta_get_interactors_state",
+      "purpose": "List the Interaction rig's interactors and whether each is enabled. Read-only. Needs a camera rig in the scene first.",
+      "approval_required": false,
+      "implementation_status": "exposed-verified-via-nemoclaw-2026-09-26 (tools/call reached Unity and returned 'add a camera rig first' on the empty scene; the patched instanceID line only runs once a rig exists, so that path is still unexercised)"
+    },
+    {
+      "id": "unity.meta_scene_authoring",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__meta_add_camerarig, unity-mcp__meta_add_interactionrig, unity-mcp__meta_add_grabbable, unity-mcp__meta_add_distance_grabbable, unity-mcp__meta_add_teleport_hotspot, unity-mcp__meta_add_canvas_interaction_poke, unity-mcp__meta_add_canvas_interaction_ray",
+      "purpose": "Meta Unity MCP Extension for Horizon scene writes: camera rig, interaction rig, grabbable and distance-grabbable objects, teleport hotspots, poke/ray canvas interaction. They target GameObjects by name, path, or instanceID.",
       "approval_required": true,
-      "implementation_status": "target (absent from tools/list on 2026-09-26; likely needs the Meta XR SDK v78+, unverified)"
+      "implementation_status": "exposed-ungated (listed since the Meta XR SDK 207.0.0 install + local compile patch on 2026-09-26; approval gate not built; none called yet)"
+    },
+    {
+      "id": "unity.meta_update_android_manifest",
+      "method": "MCP_TOOL",
+      "path": "unity-mcp__meta_update_android_manifest",
+      "purpose": "Edit the Quest Android manifest (build configuration, not scene).",
+      "approval_required": true,
+      "implementation_status": "exposed-ungated (never called)"
     }
   ],
+  "unity_mcp_requirements": {
+    "unity_project": "../HackGTUnity (Unity 6000.6.3f1). The repo's unity/ project has neither the Meta XR SDK nor the Meta MCP extension.",
+    "packages": "com.meta.xr.sdk.all 207.0.0 (Asset Store), com.unity.ai.assistant 2.20.0-pre.1, com.meta.xr.unity-mcp.extension embedded from upstream ac3dd9cdb2675cb0eee98655acb0731349fc6f9e with scripts/unity-mcp-bridge/patches/meta-mcp-extension-unity65-entityid.patch applied",
+    "why_patched": "Upstream GetInteractorsState.cs calls Object.GetInstanceID(), a hard CS0619 error on Unity 6000.5+. It only compiles once the Meta XR SDK interaction package is present, and it then breaks the whole extension assembly, so no meta_ tools appear. See scripts/unity-mcp-bridge/README.md.",
+    "input_handling": "Player Settings > Active Input Handling = Both (activeInputHandler 2), set via the Meta SDK prompt; needs an Editor restart."
+  },
   "unity_mcp_menu_tasks": [
     {
       "id": "unity.configure-current-scene",

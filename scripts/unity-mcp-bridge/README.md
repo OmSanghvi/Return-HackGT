@@ -51,6 +51,45 @@ Ollama `qwen3.5:9b` if they're unset. Inside the agent, tool ids look like
 - One admin action per machine: an inbound firewall rule for TCP 9443 from
   the WSL subnet. The script prints the exact command if the rule is missing.
 
+## Meta Horizon tools (`meta_*`) in HackGTUnity
+
+Without these steps, Unity MCP exposes only `meta_get_config_information`
+from Meta's extension. With them, it exposes 17 tools, 9 of them `meta_*`.
+
+1. **Install the Meta XR SDK.** Asset Store: "Meta XR All-in-One SDK"
+   (tested with 207.0.0). Click "Open in Unity", then **Install** in
+   Package Manager > My Assets. Opening it alone installs nothing. If Unity
+   asks to enable the new Input System backends, say yes (Active Input
+   Handling = Both) and restart the Editor.
+2. **Patch Meta's MCP extension for Unity 6.5+.** Upstream
+   (`meta-quest/Unity-MCP-Extensions` @ `ac3dd9c`, still HEAD on 2026-09-26)
+   calls `Object.GetInstanceID()` in `Editor/Tools/GetInteractorsState.cs`.
+   That's a hard `CS0619` error on Unity 6000.5+, and it only compiles once
+   the SDK is installed. It then breaks the whole extension assembly, so no
+   `meta_*` tools appear. To fix, embed the package and apply
+   `patches/meta-mcp-extension-unity65-entityid.patch` (from `HackGTUnity/`):
+
+   ```bash
+   cp -r Library/PackageCache/com.meta.xr.unity-mcp.extension@* Packages/com.meta.xr.unity-mcp.extension
+   git apply --ignore-whitespace --directory=Packages/com.meta.xr.unity-mcp.extension \
+     ../Return-HackGT/scripts/unity-mcp-bridge/patches/meta-mcp-extension-unity65-entityid.patch
+   ```
+
+   Unity uses an embedded package in place of the git dependency in
+   `manifest.json`. Delete the folder to revert. The patch uses
+   `(long)EntityId.ToULong(go.GetEntityId())`, the same form Unity AI
+   Assistant's own `ObjectsHelper` uses to look objects up.
+3. Let Unity recompile (focus the Editor), then rerun
+   `Setup-UnityMcpBridge.ps1`.
+
+Expected console noise after every recompile on Unity 6.6: about 60
+`[Tool Permissions] ... Library\ScriptAssemblies\Unity.AI.Assistant.Tools.Editor.dll`
+errors. Unity 6.6 builds scripts under `Library/Bee/artifacts/` instead,
+and AI Assistant's in-Editor permission check still looks in the old
+folder. That check only affects the in-Editor chat; MCP is unaffected.
+Also expected: MRUK shader errors (they want URP; this project uses the
+built-in pipeline) and "Android SDK not found" (needed only for APK builds).
+
 ## What it does, and where state lives
 
 | Thing | Location | Notes |

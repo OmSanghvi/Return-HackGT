@@ -213,11 +213,29 @@ never touched Unity.
     `unity-mcp__<toolName>`), then often fails to write a reply. The first
     try overflowed context. Expect this to improve on `meta`/`xai`/`nebius`.
     Swap with `nemoclaw inference set`; don't rebuild without the CA.
-  - **Tool surface:** Unity exposes only 8 tools (base AI Assistant package):
-    `Unity_RunCommand`, `Unity_GetConsoleLogs`, scene/camera captures, asset
-    generation, `meta_get_config_information`. **None of the Meta Horizon
-    extension's GameObject/grabbable/teleport tools appear.** This is
-    probably because the Meta XR SDK isn't installed yet (unverified).
+  - **Tool surface (updated 2026-09-26, after the Meta XR SDK):** 17 tools.
+    The 8 base ones (`Unity_RunCommand`, console logs, scene/camera captures,
+    asset generation, `meta_get_config_information`), plus 9 Meta ones:
+    `meta_get_interactors_state` (read-only) and the write tools
+    `meta_add_camerarig`/`interactionrig`/`grabbable`/`distance_grabbable`/
+    `teleport_hotspot`/`canvas_interaction_poke`/`canvas_interaction_ray` and
+    `meta_update_android_manifest`. Getting them needed two things:
+    - Install `com.meta.xr.sdk.all` 207.0.0 (Asset Store; "Open in Unity"
+      alone installs nothing).
+    - Patch Meta's extension, embedded in `HackGTUnity/Packages/`: upstream
+      `GetInstanceID()` is a hard error on Unity 6.5+. The patch and steps are
+      in `scripts/unity-mcp-bridge/` (README "Meta Horizon tools" section).
+
+    NemoClaw verified a real `tools/call` to `meta_get_interactors_state`.
+    It answered "add a camera rig first": the scene is empty, so no
+    `meta_add_*` tool has run yet. **The write tools are not approval-gated
+    yet.** Gate them before a capable model is switched in.
+  - Unity 6.6 console noise that's expected: about 60 `[Tool Permissions]`
+    errors after each recompile (AI Assistant looks for the old
+    `Library/ScriptAssemblies` folder; the in-Editor chat only), MRUK URP
+    shader errors, and "Android SDK not found" (APK builds only).
+    Active Input Handling was switched to Both via the SDK prompt; it needs
+    an Editor restart, then a rerun of the setup script.
   - `my-assistant` keeps a stale, non-working `unity-mcp` registration.
     Use `sketchscape` for Unity work.
 - Real per-asset prefabs instead of placeholder cubes in the write bridge
