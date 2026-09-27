@@ -6,11 +6,21 @@
 // Public API (call through reflection from Unity_RunCommand):
 //   string SketchScape.RoomKit.Build(string json)
 //   string SketchScape.RoomKit.Finalize(string slug, float spawnX, float spawnZ, float yaw)
+//   string SketchScape.RoomKit.Status(string slug)      one JSON line, read-only (1.0.16+)
+//   string SketchScape.RoomKit.Version()
 //   type name: "SketchScape.RoomKit, Assembly-CSharp-Editor"
-// Both return a short plain-text report (< 2 KB) and never throw.
+// Build and Finalize return a short plain-text report (< 2 KB); none of them throw.
+//
+// Quest readiness (1.0.16): Build renders the sync's Quest-sized splat copies (<name>_quest.ply) and
+// records the spec's performance block on the room (RoomBuildInfo). Finalize does the Meta XR setup
+// itself by calling the meta_add_* MCP tools' own handlers (camera rig, interaction rig, near + distance
+// grab per object, a teleport hotspot per marker), then SketchScapePickup, QuestPerformance and an
+// MSAA-free Android quality level: one call instead of ~20 agent tool calls.
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -24,8 +34,18 @@ namespace SketchScape
     {
         public const string AgentRoomsFolder = "Assets/SketchScape/AgentRooms";
         /// <summary>Bumped on every RoomKit change; check it to know the installed kit is current.</summary>
-        public static string Version() { return "1.0.15"; }
+        public static string Version() { return "1.0.16"; }
         const int MaxReport = 1900;
+        /// <summary>Splats a Quest 2 keeps up with in one room (a 3.37M-splat room ran at 5 FPS; ~270k is fine).</summary>
+        public const long QuestSplatBudget = 400000;
+
+        /// <summary>Splat renderers made by one Build: Quest copies vs full-resolution, and the splats they draw.</summary>
+        sealed class SplatTally
+        {
+            public int quest, full;
+            public long splats;
+            public readonly List<string> noCopy = new List<string>();
+        }
 
         // ------------------------------------------------------------------
         // Build
@@ -57,10 +77,12 @@ namespace SketchScape
                 return "ERROR: scene_path must be " + AgentRoomsFolder + "/<name>.unity (got '" + spec.scene_path + "').";
             if (string.IsNullOrEmpty(spec.root)) spec.root = "SharedRoom_" + spec.slug;
 
+            // Build replaces every open scene. Unsaved changes anywhere but in the room being rebuilt stop it:
+            // people also edit AgentRooms rooms by hand (1.0.15 skipped those and threw such edits away).
             for (int i = 0; i < SceneManager.sceneCount; i++)
             {
                 var open = SceneManager.GetSceneAt(i);
-                if (open.isDirty && !open.path.StartsWith(AgentRoomsFolder + "/"))
+                if (open.isDirty && open.path != spec.scene_path)
                     return "ERROR: scene '" + (open.path.Length > 0 ? open.path : open.name) + "' has unsaved changes. Save or discard them in the Unity Editor, then rerun. Nothing was changed.";
             }
 
@@ -99,6 +121,8 @@ namespace SketchScape
             var director = root.AddComponent<RoomDirector>();
             var fadeLights = new List<Light>();
             var fadeAudio = new List<AudioSource>();
+            var perf = spec.performance;
+            var tally = new SplatTally();
 
             // 3. Sky, ambient, fog.
             string skyNote = BuildSky(spec, media, genFolder, failures);
@@ -172,7 +196,8 @@ namespace SketchScape
                 go.transform.localRotation = Q(ps.rotation);
                 go.transform.localScale = V3(ps.scale, 1f);
                 string err;
-                var photoAsset = AttachSplat(go, ps.splat_path, out err);
+                Bounds unusedPlacement;
+                var photoAsset = AttachSplat(go, ps.splat_path, perf, tally, "photo scene", false, out unusedPlacement, out err);
                 if (photoAsset == null)
                 {
                     failures.Add("photo scene: " + err);
@@ -209,13 +234,15 @@ namespace SketchScape
             var mapAssets = new List<string>();
             var mapIds = new List<string>();
             var mapObjects = new List<Transform>();
+            var grabIds = new List<string>();
             foreach (var o in spec.objects)
             {
                 string id = string.IsNullOrEmpty(o.id) ? (string.IsNullOrEmpty(o.label) ? "object" : o.label) : o.id;
                 id = UniqueName(id, byId);
                 string kind;
-                var obj = BuildObject(root.transform, o, id, genFolder, failures, out kind);
+                var obj = BuildObject(root.transform, o, id, genFolder, failures, perf, tally, out kind);
                 byId[id] = obj.transform;
+                if (o.grabbable) grabIds.Add(id);
                 if (!string.IsNullOrEmpty(o.asset_id)) { mapAssets.Add(o.asset_id); mapIds.Add(id); mapObjects.Add(obj.transform); }
                 if (o.light.enabled)
                 {
@@ -345,7 +372,7 @@ namespace SketchScape
             director.fadeLights = fadeLights.ToArray();
             director.fadeAudio = fadeAudio.ToArray();
 
-            // 13. Teleport hotspots (markers; the agent also runs meta_add_teleport_hotspot).
+            // 13. Teleport hotspot markers; Finalize puts Meta's teleport hotspot at each one.
             int hotspots = 0;
             var hs = spec.teleport.hotspots;
             if (hs != null && hs.Length >= 3)
@@ -363,6 +390,17 @@ namespace SketchScape
             // 14. Shared layer (account switcher, notes, letters, tags), then credits.
             string sharedNote = RoomKitShared.Build(spec, root, mapAssets, mapIds, mapObjects, genFolder, failures, notes);
             string creditsPath = WriteCredits(spec);
+
+            // 14b. What Finalize (which gets no spec) needs: the performance flags and the grabbable objects.
+            var info = root.AddComponent<RoomBuildInfo>();
+            info.slug = spec.slug;
+            info.builtWith = Version();
+            info.target = perf.target;
+            info.preferQuestLod = perf.prefer_quest_lod;
+            info.pickups = perf.pickups;
+            info.questPerformance = perf.quest_performance;
+            info.metaSetup = perf.meta_setup;
+            info.grabbable = grabIds.ToArray();
 
             // 15. Save, bake environment lighting + reflection probe, save again.
             EditorSceneManager.MarkSceneDirty(scene);
@@ -384,46 +422,112 @@ namespace SketchScape
               .Append(" staging=").Append(spec.staging.enabled ? "on(reveal " + order.Count + ")" : "off")
               .Append(" shared=").Append(sharedNote)
               .Append(" lighting=").Append(bakeNote).Append('\n');
+            sb.Append(SplatLine(tally, perf)).Append('\n');
             if (creditsPath != null) sb.Append("credits: ").Append(creditsPath).Append('\n');
             if (notes.Count > 0) sb.Append("notes: ").Append(string.Join("; ", notes)).Append('\n');
             sb.Append(failures.Count == 0 ? "failures: none" : "failures: " + string.Join("; ", failures));
-            sb.Append("\nnext: meta_add_camerarig, meta_add_interactionrig, meta_add_grabbable per object id, meta_add_teleport_hotspot, then RoomKit.Finalize.");
+            sb.Append("\nnext: finalize_code ").Append(spec.slug)
+              .Append(perf.meta_setup ? " (adds the Quest rig, grab, teleports, pickups and foveation; no meta_add_* calls)"
+                                      : " (meta_setup is off: it saves the room and adds only pickups / foveation)");
             return Clip(sb.ToString());
+        }
+
+        /// <summary>"splats: 1 photo scene + 3 objects, 4 Quest copies + 0 full-res, 190,000 in all (target quest)".</summary>
+        static string SplatLine(SplatTally t, RoomPerformance perf)
+        {
+            var sb = new StringBuilder("splats: ");
+            sb.Append(t.quest).Append(" Quest cop").Append(t.quest == 1 ? "y" : "ies").Append(" + ")
+              .Append(t.full).Append(" full-res, ").Append(t.splats.ToString("N0", CultureInfo.InvariantCulture))
+              .Append(" in all (target ").Append(perf.target).Append(perf.prefer_quest_lod ? "" : ", prefer_quest_lod off").Append(')');
+            if (t.noCopy.Count > 0)
+                sb.Append("; no _quest copy for ").Append(string.Join(", ", t.noCopy))
+                  .Append(" (python scripts/sync_s3_assets_to_unity.py --quest-lod-only makes them)");
+            if (perf.target == "quest" && t.splats > QuestSplatBudget)
+                sb.Append("; OVER the Quest budget (").Append(QuestSplatBudget.ToString("N0", CultureInfo.InvariantCulture)).Append("): expect a low frame rate on a Quest 2");
+            return sb.ToString();
         }
 
         // ------------------------------------------------------------------
         // Finalize
         // ------------------------------------------------------------------
 
+        /// <summary>
+        /// Makes a built room Quest-ready and interactive, then saves it. Safe to run again: every step only adds
+        /// what is missing and reports added / present / skipped. In order (docs/IMMERSIVE_SCENE_PIPELINE.md):
+        ///   meta_setup:        Meta camera rig, interaction rig, near grab + distance grab (PullToHand) on every
+        ///                      grabbable object, a Meta teleport hotspot (SnapPosition) at every RoomKit marker
+        ///                      - the meta_add_* MCP tools' own handlers, called directly (MetaTools);
+        ///   pickups:           SketchScapePickup on every grabbable object (desktop pick-up in the Editor);
+        ///   quest_performance: QuestPerformance (foveation) on the OVRCameraRig, and Android's default quality
+        ///                      level switched to one without MSAA when it has MSAA;
+        /// then the rig moves to the spawn (floor-level tracking), the room is stamped finalized
+        /// (RoomBuildInfo.finalizedWith) and the scene is saved. The flags come from the spec's performance
+        /// block as Build recorded it (RoomBuildInfo); a room built before 1.0.16 gets the defaults.
+        /// When the room's scene isn't the active one, it is opened first, never over unsaved changes.
+        /// </summary>
         public static string Finalize(string slug, float spawnX, float spawnZ, float yaw)
         {
             try
             {
                 string slugError = CheckSlug(slug);
                 if (slugError != null) return "ERROR: " + slugError;
-                var scene = SceneManager.GetActiveScene();
-                if (!scene.path.StartsWith(AgentRoomsFolder + "/"))
-                    return "ERROR: active scene is '" + scene.path + "', not an AgentRooms room. Run RoomKit.Build first.";
+                string opened, openError;
+                var scene = RoomScene(slug, true, out opened, out openError);
+                if (openError != null) return "ERROR: " + openError;
+                var root = FindRoomRoot(scene, slug);
+                if (root == null) return "ERROR: room root SharedRoom_" + slug + " is missing from " + scene.path + ". Rerun RoomKit.Build.";
 
-                string rootName = "SharedRoom_" + slug;
-                GameObject root = null;
-                Component rig = null;
-                int hotspots = 0, markers = 0;
-                foreach (var go in scene.GetRootGameObjects())
+                var info = root.GetComponent<RoomBuildInfo>();
+                if (info == null)
                 {
-                    if (go.name == rootName || (root == null && go.GetComponent<RoomDirector>() != null)) root = go;
-                    foreach (var c in go.GetComponentsInChildren<Component>(true))
-                    {
-                        if (c == null) continue;
-                        var tn = c.GetType().Name;
-                        if (tn == "OVRCameraRig" && rig == null) rig = c;
-                        if (tn == "TeleportInteractable") hotspots++;
-                        if (c is Transform && c.name.StartsWith("TeleportHotspot_")) markers++;
-                    }
+                    // Built before 1.0.16: Quest defaults, every separate object grabbable.
+                    info = root.AddComponent<RoomBuildInfo>();
+                    info.slug = slug;
+                    info.builtWith = "before 1.0.16";
+                    var ids = new List<string>();
+                    foreach (var o in RoomObjects(root)) ids.Add(o.name);
+                    info.grabbable = ids.ToArray();
                 }
-                if (root == null) return "ERROR: room root " + rootName + " is missing from " + scene.path + ". Rerun RoomKit.Build.";
+                var targets = new List<GameObject>();
+                var lost = new List<string>();
+                foreach (var id in info.grabbable ?? new string[0])
+                {
+                    var t = DirectChild(root, id);
+                    if (t == null) lost.Add(id);
+                    else if (!targets.Contains(t.gameObject)) targets.Add(t.gameObject);
+                }
 
-                string rigNote = "MISSING (run meta_add_camerarig)";
+                var lines = new List<string>();
+                lines.Add("OK finalized " + scene.path + " with RoomKit " + Version() + (opened != null ? " (opened it first)" : ""));
+                MetaSetup(scene, root, info, targets, lines);
+
+                if (!info.pickups) lines.Add("pickups: skipped (performance.pickups is off)");
+                else
+                {
+                    var pickups = new StepTally();
+                    foreach (var go in targets)
+                    {
+                        if (go.GetComponent<SketchScapePickup>() != null) { pickups.present++; continue; }
+                        go.AddComponent<SketchScapePickup>();
+                        pickups.added++;
+                    }
+                    lines.Add(pickups.Line("pickups", targets.Count));
+                }
+
+                var rig = FindInScene(scene, "OVRCameraRig");
+                if (!info.questPerformance)
+                {
+                    lines.Add("foveation (QuestPerformance): skipped (performance.quest_performance is off)");
+                    lines.Add("android quality: skipped (performance.quest_performance is off)");
+                }
+                else
+                {
+                    if (rig == null) lines.Add("foveation (QuestPerformance): skipped (no OVRCameraRig)");
+                    else if (rig.GetComponent<QuestPerformance>() != null) lines.Add("foveation (QuestPerformance): present");
+                    else { rig.gameObject.AddComponent<QuestPerformance>(); lines.Add("foveation (QuestPerformance): added"); }
+                    lines.Add("android quality: " + EnsureAndroidQualityWithoutMsaa());
+                }
+
                 if (rig != null)
                 {
                     var rt = rig.transform;
@@ -431,35 +535,500 @@ namespace SketchScape
                     rt.rotation = Quaternion.Euler(0f, yaw, 0f);
                     EditorUtility.SetDirty(rt);
                     string origin = SetFloorLevel(rig.gameObject);
-                    rigNote = rig.gameObject.name + " at (" + spawnX.ToString("0.##") + ", 0, " + spawnZ.ToString("0.##") + ") yaw " + yaw.ToString("0") + ", " + origin;
+                    lines.Add("rig: " + rig.gameObject.name + " at (" + spawnX.ToString("0.##", CultureInfo.InvariantCulture) + ", 0, " +
+                              spawnZ.ToString("0.##", CultureInfo.InvariantCulture) + ") yaw " + yaw.ToString("0", CultureInfo.InvariantCulture) + ", " + origin);
                 }
+                else lines.Add("rig: none in the scene" + (info.metaSetup ? " (see camera rig above)" : " (meta_setup is off)"));
 
-                var lines = new List<string>();
-                foreach (Transform child in root.transform)
-                {
-                    if (child.GetComponent<BoxCollider>() == null) continue;
-                    var kinds = new List<string>();
-                    foreach (var c in child.GetComponentsInChildren<Component>(true))
-                    {
-                        if (c == null) continue;
-                        var tn = c.GetType().Name;
-                        if ((tn == "Grabbable" || tn == "DistanceGrabInteractable" || tn == "HandGrabInteractable" || tn == "GrabInteractable" || tn == "Rigidbody") && !kinds.Contains(tn))
-                            kinds.Add(tn);
-                    }
-                    lines.Add(child.name + (kinds.Count > 0 ? " [" + string.Join(",", kinds) + "]" : " [not grabbable]"));
-                }
+                int quest, full;
+                long splats;
+                SceneSplats(scene, out quest, out full, out splats);
+                lines.Add("splats: " + quest + " Quest cop" + (quest == 1 ? "y" : "ies") + " + " + full + " full-res, " +
+                          splats.ToString("N0", CultureInfo.InvariantCulture) + " in all" +
+                          (info.target == "quest" && splats > QuestSplatBudget ? " - OVER the Quest budget, expect a low frame rate" : ""));
+                if (lost.Count > 0) lines.Add("grabbable ids not found under " + root.name + ": " + string.Join(", ", lost));
+
+                // The finalized marker RoomKit.Status reads: RoomBuildInfo.finalizedWith = this kit's version.
+                info.finalizedWith = Version();
+                EditorUtility.SetDirty(info);
                 EditorSceneManager.MarkSceneDirty(scene);
-                EditorSceneManager.SaveScene(scene);
+                bool saved = EditorSceneManager.SaveScene(scene);
+                if (!saved) lines.Add("WARNING: the scene did not save; save it in the Unity Editor");
                 SaveAgainIfDirtied(scene.path);
                 FrameSceneView(new Vector3(spawnX, 0f, spawnZ), yaw, 1.6f, root);
-                return Clip("OK saved " + scene.path + ". camera rig: " + rigNote + ". teleport hotspots: " + hotspots +
-                            " (markers " + markers + "). objects: " + (lines.Count > 0 ? string.Join("; ", lines) : "none"));
+                return Clip(string.Join("\n", lines));
             }
             catch (Exception e)
             {
                 Debug.LogException(e);
                 return "ERROR: finalize failed: " + e.GetType().Name + ": " + RoomKitWeb.Short(e.Message);
             }
+        }
+
+        static readonly string[] NearGrabTypes = { "GrabInteractable", "HandGrabInteractable" };
+        static readonly string[] DistanceGrabTypes = { "DistanceGrabInteractable", "DistanceHandGrabInteractable" };
+
+        /// <summary>Counts for one per-object Finalize step: "grab 3/3 added", "grab 3/3 present", "grab 3/3 (1 added, 2 present)".</summary>
+        sealed class StepTally
+        {
+            public int added, present;
+            public readonly List<string> failed = new List<string>();
+
+            public string Line(string what, int total)
+            {
+                if (total == 0) return what + ": none (no objects)";
+                string head = what + " " + (added + present) + "/" + total + " ";
+                string body;
+                if (failed.Count == 0 && added == 0) body = "present";
+                else if (failed.Count == 0 && present == 0) body = "added";
+                else body = "(" + added + " added, " + present + " present)";
+                return head + body + (failed.Count > 0 ? "; FAILED " + string.Join("; ", failed) : "");
+            }
+        }
+
+        /// <summary>Finalize's Meta XR steps, through the meta_add_* tools' handlers (MetaTools).</summary>
+        static void MetaSetup(Scene scene, GameObject root, RoomBuildInfo info, List<GameObject> targets, List<string> lines)
+        {
+            if (!info.metaSetup)
+            {
+                lines.Add("meta setup: skipped (performance.meta_setup is off): no camera rig, interaction rig, grab or teleport hotspots added");
+                return;
+            }
+            if (!MetaTools.Installed)
+            {
+                lines.Add("meta setup: SKIPPED - Meta's Unity MCP extension (package com.meta.xr.unity-mcp.extension, assembly " +
+                          "Meta.XR.MCP.Extension.Editor) is not in this project: no camera rig, interaction rig, grab or teleport hotspots added");
+                return;
+            }
+
+            // 1. Camera rig (meta_add_camerarig).
+            var rig = FindInScene(scene, "OVRCameraRig");
+            if (rig != null) lines.Add("camera rig: present");
+            else
+            {
+                string err = MetaTools.Run("AddCameraRig", null);
+                rig = FindInScene(scene, "OVRCameraRig");
+                lines.Add(rig != null ? "camera rig: added" : "camera rig: FAILED (" + RoomKitWeb.Short(err ?? "no OVRCameraRig afterwards") + ")");
+            }
+            if (rig == null)
+            {
+                lines.Add("interaction rig, grab, distance grab, teleport hotspots: skipped (no camera rig)");
+                return;
+            }
+
+            // 2. Interaction rig (meta_add_interactionrig): the comprehensive rig under the camera rig.
+            if (HasAny(rig.gameObject, "OVRCameraRigRef")) lines.Add("interaction rig: present");
+            else
+            {
+                string err = MetaTools.Run("AddInteractionRig", null);
+                lines.Add(HasAny(rig.gameObject, "OVRCameraRigRef") ? "interaction rig: added"
+                          : "interaction rig: FAILED (" + RoomKitWeb.Short(err ?? "no OVRCameraRigRef afterwards") + ")");
+            }
+
+            // 3. Near grab (meta_add_grabbable), then 4. distance grab (meta_add_distance_grabbable, PullToHand),
+            //    each object addressed by its full hierarchy path so a same-named object elsewhere can't be hit.
+            var grab = new StepTally();
+            var distance = new StepTally();
+            foreach (var go in targets)
+            {
+                string path = HierarchyPath(go);
+                if (HasAny(go, NearGrabTypes)) grab.present++;
+                else
+                {
+                    string err = MetaTools.Run("AddInteractionGrabbable", p => MetaTools.Set(p, "NameOrID", path));
+                    if (HasAny(go, NearGrabTypes)) grab.added++;
+                    else grab.failed.Add(go.name + " (" + RoomKitWeb.Short(err ?? "no GrabInteractable afterwards") + ")");
+                }
+            }
+            foreach (var go in targets)
+            {
+                string path = HierarchyPath(go);
+                if (HasAny(go, DistanceGrabTypes)) distance.present++;
+                else
+                {
+                    string err = MetaTools.Run("AddInteractionDistanceGrabbable", p =>
+                    {
+                        MetaTools.Set(p, "NameOrID", path);
+                        MetaTools.Set(p, "Mode", "PullToHand");
+                    });
+                    if (HasAny(go, DistanceGrabTypes)) distance.added++;
+                    else distance.failed.Add(go.name + " (" + RoomKitWeb.Short(err ?? "no DistanceGrabInteractable afterwards") + ")");
+                }
+            }
+            lines.Add(grab.Line("grab", targets.Count));
+            lines.Add(distance.Line("distance grab", targets.Count));
+
+            // 5. A Meta teleport hotspot (meta_add_teleport_hotspot, SnapPosition) at each RoomKit marker. The
+            //    tool makes a scene-root "TeleportHotspot"; it is moved under its marker so the room stays one tree.
+            var markers = HotspotMarkers(root);
+            var teleports = new StepTally();
+            foreach (var marker in markers)
+            {
+                var at = marker.position;
+                if (TeleportNear(scene, at)) { teleports.present++; continue; }
+                var before = new HashSet<GameObject>(scene.GetRootGameObjects());
+                string err = MetaTools.Run("AddTeleportHotspot", p =>
+                {
+                    MetaTools.Set(p, "Position", new[] { at.x, at.y, at.z });
+                    MetaTools.Set(p, "Snap", "SnapPosition");
+                });
+                foreach (var go in scene.GetRootGameObjects())
+                    if (!before.Contains(go) && go.name == "TeleportHotspot") { go.transform.SetParent(marker, true); break; }
+                if (TeleportNear(scene, at)) teleports.added++;
+                else teleports.failed.Add(marker.name + " (" + RoomKitWeb.Short(err ?? "no TeleportInteractable afterwards") + ")");
+            }
+            lines.Add(markers.Count == 0 ? "teleport hotspots: none (the spec has no hotspots)" : teleports.Line("teleport hotspots", markers.Count));
+        }
+
+        // ------------------------------------------------------------------
+        // Status
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// What is already done for a room, as one JSON line (no newlines), keys in this order:
+        /// slug, scene, scene_exists, open, built, objects, grabbable, distance_grabbable, pickups, teleports,
+        /// camera_rig, interaction_rig, quest_performance, quest_lod_renderers, full_res_renderers, splats_total,
+        /// finalized, android_msaa.
+        /// Read-only: never opens, changes or saves a scene. open = the room's scene is the active scene; when it
+        /// isn't, scene is Assets/SketchScape/AgentRooms/&lt;slug&gt;.unity, scene_exists says whether that file is
+        /// there, and every other scene value is null (android_msaa is project-wide: always filled in).
+        /// objects = the room's separate objects (children of the root with a collider); grabbable /
+        /// distance_grabbable / pickups = how many of them have Meta near grab / distance grab / SketchScapePickup;
+        /// teleports = Meta teleport hotspots (TeleportInteractable) in the scene; finalized = Finalize stamped
+        /// RoomBuildInfo.finalizedWith; android_msaa = MSAA samples of Android's default quality level (0 = off).
+        /// </summary>
+        public static string Status(string slug)
+        {
+            var j = new JsonLine();
+            try
+            {
+                bool validSlug = CheckSlug(slug) == null;
+                string defaultPath = validSlug ? RoomScenePath(slug) : null;
+                var active = SceneManager.GetActiveScene();
+                var root = validSlug ? FindRoomRoot(active, slug) : null;
+                bool open = root != null || (defaultPath != null && active.IsValid() && active.path == defaultPath);
+                string scenePath = open ? active.path : defaultPath;
+                j.Str("slug", slug).Str("scene", scenePath).Bool("scene_exists", !string.IsNullOrEmpty(scenePath) && File.Exists(scenePath)).Bool("open", open);
+                if (!open)
+                {
+                    foreach (var k in new[] { "built", "objects", "grabbable", "distance_grabbable", "pickups", "teleports", "camera_rig",
+                                              "interaction_rig", "quest_performance", "quest_lod_renderers", "full_res_renderers",
+                                              "splats_total", "finalized" })
+                        j.Null(k);
+                }
+                else
+                {
+                    var objects = root != null ? RoomObjects(root) : new List<GameObject>();
+                    int near = 0, far = 0, pickups = 0;
+                    foreach (var go in objects)
+                    {
+                        if (HasAny(go, NearGrabTypes)) near++;
+                        if (HasAny(go, DistanceGrabTypes)) far++;
+                        if (go.GetComponent<SketchScapePickup>() != null) pickups++;
+                    }
+                    var rig = FindInScene(active, "OVRCameraRig");
+                    int quest, full;
+                    long splats;
+                    SceneSplats(active, out quest, out full, out splats);
+                    var info = root != null ? root.GetComponent<RoomBuildInfo>() : null;
+                    j.Bool("built", root != null).Num("objects", objects.Count).Num("grabbable", near).Num("distance_grabbable", far)
+                     .Num("pickups", pickups).Num("teleports", ComponentsNamed(active, "TeleportInteractable").Count)
+                     .Bool("camera_rig", rig != null).Bool("interaction_rig", rig != null && HasAny(rig.gameObject, "OVRCameraRigRef"))
+                     .Bool("quest_performance", rig != null && rig.GetComponent<QuestPerformance>() != null)
+                     .Num("quest_lod_renderers", quest).Num("full_res_renderers", full).Num("splats_total", splats)
+                     .Bool("finalized", info != null && !string.IsNullOrEmpty(info.finalizedWith));
+                }
+                string qualityError;
+                var q = ReadAndroidQuality(out qualityError);
+                if (q != null && q.index >= 0 && q.index < q.aa.Length) j.Num("android_msaa", q.aa[q.index]);
+                else j.Null("android_msaa");
+                return j.ToString();
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+                return "{\"slug\":" + JsonLine.Quoted(slug) + ",\"error\":" + JsonLine.Quoted(e.GetType().Name + ": " + RoomKitWeb.Short(e.Message)) + "}";
+            }
+        }
+
+        /// <summary>A one-line JSON object writer (Status).</summary>
+        sealed class JsonLine
+        {
+            readonly StringBuilder sb = new StringBuilder("{");
+            bool any;
+
+            JsonLine Key(string k)
+            {
+                if (any) sb.Append(',');
+                any = true;
+                sb.Append('"').Append(k).Append("\":");
+                return this;
+            }
+
+            public JsonLine Str(string k, string v) { Key(k).sb.Append(v == null ? "null" : Quoted(v)); return this; }
+            public JsonLine Bool(string k, bool v) { Key(k).sb.Append(v ? "true" : "false"); return this; }
+            public JsonLine Num(string k, long v) { Key(k).sb.Append(v.ToString(CultureInfo.InvariantCulture)); return this; }
+            public JsonLine Null(string k) { Key(k).sb.Append("null"); return this; }
+            public override string ToString() { return sb + "}"; }
+
+            public static string Quoted(string s)
+            {
+                if (s == null) return "null";
+                var q = new StringBuilder("\"");
+                foreach (char c in s)
+                {
+                    switch (c)
+                    {
+                        case '"': q.Append("\\\""); break;
+                        case '\\': q.Append("\\\\"); break;
+                        case '\n': q.Append("\\n"); break;
+                        case '\r': q.Append("\\r"); break;
+                        case '\t': q.Append("\\t"); break;
+                        default:
+                            if (c < ' ') q.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
+                            else q.Append(c);
+                            break;
+                    }
+                }
+                return q.Append('"').ToString();
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Room lookup (Finalize / Status)
+        // ------------------------------------------------------------------
+
+        static string RoomScenePath(string slug) { return AgentRoomsFolder + "/" + slug + ".unity"; }
+
+        /// <summary>The root of room slug in scene: RoomBuildInfo.slug or the name SharedRoom_&lt;slug&gt;, or (a custom
+        /// spec.root) the RoomDirector root of the room's own scene file. Null when the scene doesn't hold the room.</summary>
+        static GameObject FindRoomRoot(Scene scene, string slug)
+        {
+            if (!scene.IsValid() || !scene.isLoaded) return null;
+            string rootName = "SharedRoom_" + slug;
+            GameObject byDirector = null;
+            foreach (var go in scene.GetRootGameObjects())
+            {
+                var info = go.GetComponent<RoomBuildInfo>();
+                if ((info != null && info.slug == slug) || go.name == rootName) return go;
+                if (byDirector == null && go.GetComponent<RoomDirector>() != null) byDirector = go;
+            }
+            return scene.path == RoomScenePath(slug) ? byDirector : null;
+        }
+
+        /// <summary>
+        /// The scene holding room slug: the active scene when it does; otherwise (allowOpen) the room's scene
+        /// file is opened, but only when no open scene has unsaved changes. error is set when neither works.
+        /// </summary>
+        static Scene RoomScene(string slug, bool allowOpen, out string opened, out string error)
+        {
+            opened = null;
+            error = null;
+            var active = SceneManager.GetActiveScene();
+            if (FindRoomRoot(active, slug) != null)
+            {
+                if (!active.path.StartsWith(AgentRoomsFolder + "/"))
+                    error = "the active scene '" + active.path + "' holds room " + slug + " but is not under " + AgentRoomsFolder + ".";
+                return active;
+            }
+            string path = RoomScenePath(slug);
+            if (!File.Exists(path))
+            {
+                error = "no room '" + slug + "': the active scene is '" + (active.path.Length > 0 ? active.path : active.name) +
+                        "' and " + path + " doesn't exist. Run RoomKit.Build first.";
+                return active;
+            }
+            if (!allowOpen)
+            {
+                error = "room " + slug + " is not the active scene (" + path + ").";
+                return active;
+            }
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                var s = SceneManager.GetSceneAt(i);
+                if (s.isDirty)
+                {
+                    error = "scene '" + (s.path.Length > 0 ? s.path : s.name) + "' has unsaved changes and room " + slug +
+                            " is not open. Save or discard them in the Unity Editor, then rerun. Nothing was changed.";
+                    return active;
+                }
+            }
+            opened = path;
+            return EditorSceneManager.OpenScene(path, OpenSceneMode.Single);
+        }
+
+        /// <summary>The room's separate objects: children of the root with a collider (what Build makes per spec object).</summary>
+        static List<GameObject> RoomObjects(GameObject root)
+        {
+            var list = new List<GameObject>();
+            foreach (Transform child in root.transform)
+                if (child.GetComponent<BoxCollider>() != null) list.Add(child.gameObject);
+            return list;
+        }
+
+        static Transform DirectChild(GameObject root, string name)
+        {
+            foreach (Transform child in root.transform)
+                if (child.name == name) return child;
+            return null;
+        }
+
+        /// <summary>RoomKit's hotspot markers (TeleportHotspots/TeleportHotspot_N), in build order.</summary>
+        static List<Transform> HotspotMarkers(GameObject root)
+        {
+            var list = new List<Transform>();
+            var group = root.transform.Find("TeleportHotspots");
+            if (group == null) return list;
+            foreach (Transform m in group)
+                if (m.name.StartsWith("TeleportHotspot_")) list.Add(m);
+            return list;
+        }
+
+        static string HierarchyPath(GameObject go)
+        {
+            var sb = new StringBuilder(go.name);
+            for (var t = go.transform.parent; t != null; t = t.parent) sb.Insert(0, t.name + "/");
+            return "/" + sb;
+        }
+
+        /// <summary>Components of the given type names (compared by name: RoomKit doesn't reference Meta's assemblies).</summary>
+        static List<Component> ComponentsNamed(Scene scene, params string[] typeNames)
+        {
+            var list = new List<Component>();
+            if (!scene.IsValid() || !scene.isLoaded) return list;
+            foreach (var go in scene.GetRootGameObjects())
+                foreach (var c in go.GetComponentsInChildren<MonoBehaviour>(true))
+                    if (c != null && Array.IndexOf(typeNames, c.GetType().Name) >= 0) list.Add(c);
+            return list;
+        }
+
+        static Component FindInScene(Scene scene, string typeName)
+        {
+            var found = ComponentsNamed(scene, typeName);
+            return found.Count > 0 ? found[0] : null;
+        }
+
+        static bool HasAny(GameObject go, params string[] typeNames)
+        {
+            foreach (var c in go.GetComponentsInChildren<MonoBehaviour>(true))
+                if (c != null && Array.IndexOf(typeNames, c.GetType().Name) >= 0) return true;
+            return false;
+        }
+
+        /// <summary>A Meta teleport hotspot (TeleportInteractable) within 0.3 m (horizontally) of p.</summary>
+        static bool TeleportNear(Scene scene, Vector3 p)
+        {
+            foreach (var c in ComponentsNamed(scene, "TeleportInteractable"))
+            {
+                var q = c.transform.position;
+                if (new Vector2(q.x - p.x, q.z - p.z).magnitude < 0.3f && Mathf.Abs(q.y - p.y) < 1f) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Splat renderers in the scene: how many draw a Quest copy (*_quest.ply), how many a full-resolution
+        /// splat, and the splats they draw in all (GsplatAsset.SplatCount).</summary>
+        static void SceneSplats(Scene scene, out int quest, out int full, out long splats)
+        {
+            quest = 0;
+            full = 0;
+            splats = 0;
+            if (!scene.IsValid() || !scene.isLoaded) return;
+            foreach (var go in scene.GetRootGameObjects())
+                foreach (var r in go.GetComponentsInChildren<Gsplat.GsplatRenderer>(true))
+                {
+                    var asset = r.GsplatAsset;
+                    if (asset == null) continue;
+                    if (IsQuestLod(AssetDatabase.GetAssetPath(asset))) quest++;
+                    else full++;
+                    splats += asset.SplatCount;
+                }
+        }
+
+        // ------------------------------------------------------------------
+        // Android quality (no MSAA on the Quest)
+        // ------------------------------------------------------------------
+
+        /// <summary>ProjectSettings/QualitySettings.asset as RoomKit needs it: every level's name, MSAA and whether
+        /// Android may use it, plus Android's default level (its m_PerPlatformDefaultQuality entry).</summary>
+        sealed class AndroidQuality
+        {
+            public SerializedObject so;
+            public SerializedProperty entry;   // m_PerPlatformDefaultQuality["Android"]
+            public int index;
+            public string[] names;
+            public int[] aa;
+            public bool[] usable;
+        }
+
+        static AndroidQuality ReadAndroidQuality(out string error)
+        {
+            error = null;
+            UnityEngine.Object settings = null;
+            foreach (var o in AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/QualitySettings.asset"))
+                if (o != null) { settings = o; break; }
+            if (settings == null) { error = "ProjectSettings/QualitySettings.asset is unreadable"; return null; }
+            var so = new SerializedObject(settings);
+            var levels = so.FindProperty("m_QualitySettings");
+            var map = so.FindProperty("m_PerPlatformDefaultQuality");
+            if (levels == null || !levels.isArray || map == null || !map.isArray) { error = "unexpected QualitySettings layout"; return null; }
+            var q = new AndroidQuality { so = so, index = -1 };
+            int n = levels.arraySize;
+            q.names = new string[n];
+            q.aa = new int[n];
+            q.usable = new bool[n];
+            for (int i = 0; i < n; i++)
+            {
+                var level = levels.GetArrayElementAtIndex(i);
+                var name = level.FindPropertyRelative("name");
+                var aa = level.FindPropertyRelative("antiAliasing");
+                var excluded = level.FindPropertyRelative("excludedTargetPlatforms");
+                q.names[i] = name != null ? name.stringValue : "level " + i;
+                q.aa[i] = aa != null ? aa.intValue : 0;
+                q.usable[i] = true;
+                if (excluded != null && excluded.isArray)
+                    for (int k = 0; k < excluded.arraySize; k++)
+                        if (excluded.GetArrayElementAtIndex(k).stringValue == "Android") q.usable[i] = false;
+            }
+            // A map<string, int>: serialized as an array of { first, second } pairs.
+            for (int i = 0; i < map.arraySize; i++)
+            {
+                var pair = map.GetArrayElementAtIndex(i);
+                var platform = pair.FindPropertyRelative("first");
+                if (platform != null && platform.stringValue == "Android") { q.entry = pair.FindPropertyRelative("second"); break; }
+            }
+            if (q.entry == null) { error = "no Android entry in the per-platform default quality levels"; return null; }
+            q.index = q.entry.intValue;
+            return q;
+        }
+
+        /// <summary>The highest-index quality level without MSAA that Android may use, or -1.</summary>
+        public static int PickNoMsaaLevel(int[] antiAliasing, bool[] usable)
+        {
+            for (int i = antiAliasing.Length - 1; i >= 0; i--)
+                if (antiAliasing[i] == 0 && (usable == null || usable[i])) return i;
+            return -1;
+        }
+
+        /// <summary>
+        /// MSAA on the Quest's eye textures costs a splat room most of its frame rate (Ultra's 4x MSAA was part of
+        /// the 5 FPS room): when Android's default quality level has MSAA, switch Android to the highest level
+        /// without it (what was done by hand on 2026-09-27).
+        /// </summary>
+        static string EnsureAndroidQualityWithoutMsaa()
+        {
+            string error;
+            var q = ReadAndroidQuality(out error);
+            if (q == null) return "skipped (" + error + ")";
+            if (q.index < 0 || q.index >= q.aa.Length) return "skipped (Android's default level " + q.index + " doesn't exist)";
+            if (q.aa[q.index] == 0) return "present (Android default '" + q.names[q.index] + "', MSAA off)";
+            int best = PickNoMsaaLevel(q.aa, q.usable);
+            if (best < 0) return "FAILED (no quality level without MSAA to give Android)";
+            string was = "'" + q.names[q.index] + "' (MSAA " + q.aa[q.index] + "x)";
+            q.entry.intValue = best;
+            q.so.ApplyModifiedPropertiesWithoutUndo();
+            AssetDatabase.SaveAssetIfDirty(q.so.targetObject);
+            return "added (switched Android's default from " + was + " to '" + q.names[best] + "', MSAA off)";
         }
 
         /// <summary>
@@ -794,8 +1363,23 @@ namespace SketchScape
         // Splats and objects
         // ------------------------------------------------------------------
 
-        /// <summary>Adds a GsplatRenderer for the asset at path to go. Returns the asset or null.</summary>
-        static Gsplat.GsplatAsset AttachSplat(GameObject go, string path, out string error)
+        public const string QuestLodSuffix = "_quest.ply";
+
+        /// <summary>True for a Quest-sized copy the sync wrote (&lt;name&gt;_quest.ply).</summary>
+        public static bool IsQuestLod(string path)
+        {
+            return !string.IsNullOrEmpty(path) && path.EndsWith(QuestLodSuffix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>The Quest-sized copy next to a splat (&lt;path without .ply&gt;_quest.ply) when the sync made one, else null.</summary>
+        public static string QuestLodPath(string path)
+        {
+            if (string.IsNullOrEmpty(path) || IsQuestLod(path) || !path.EndsWith(".ply", StringComparison.OrdinalIgnoreCase)) return null;
+            string quest = path.Substring(0, path.Length - 4) + QuestLodSuffix;
+            return File.Exists(quest) ? quest : null;
+        }
+
+        static Gsplat.GsplatAsset LoadSplat(string path, out string error)
         {
             error = null;
             if (string.IsNullOrEmpty(path)) { error = "no splat_path"; return null; }
@@ -805,7 +1389,46 @@ namespace SketchScape
                 if (File.Exists(path)) AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
                 asset = AssetDatabase.LoadAssetAtPath<Gsplat.GsplatAsset>(path);
             }
-            if (asset == null) { error = (File.Exists(path) ? "not a splat: " : "missing: ") + path; return null; }
+            if (asset == null) error = (File.Exists(path) ? "not a splat: " : "missing: ") + path;
+            return asset;
+        }
+
+        /// <summary>
+        /// Adds a GsplatRenderer to go for the splat at path, or for its Quest-sized copy when the spec prefers
+        /// it and the sync made one. Returns the rendered asset or null. placement = the bounds to lay the
+        /// object out with: always the full-resolution splat's (when needPlacement), so the Quest copy only
+        /// changes what is drawn, never where or how big.
+        /// </summary>
+        static Gsplat.GsplatAsset AttachSplat(GameObject go, string path, RoomPerformance perf, SplatTally tally, string what,
+                                              bool needPlacement, out Bounds placement, out string error)
+        {
+            placement = new Bounds();
+            error = null;
+            if (string.IsNullOrEmpty(path)) { error = "no splat_path"; return null; }
+            string questPath = perf.prefer_quest_lod ? QuestLodPath(path) : null;
+            Gsplat.GsplatAsset asset = null;
+            if (questPath != null)
+            {
+                string questError;
+                asset = LoadSplat(questPath, out questError);
+                if (asset == null) Debug.LogWarning("RoomKit: " + questError + "; using " + path);
+            }
+            bool quest = asset != null || IsQuestLod(path);
+            if (asset == null)
+            {
+                asset = LoadSplat(path, out error);
+                if (asset == null) return null;
+                if (perf.prefer_quest_lod && !IsQuestLod(path)) tally.noCopy.Add(what);
+                if (needPlacement) placement = asset.Bounds;
+            }
+            else if (needPlacement)
+            {
+                string fullError;
+                var full = LoadSplat(path, out fullError);
+                placement = full != null ? full.Bounds : asset.Bounds;
+            }
+            if (quest) tally.quest++; else tally.full++;
+            tally.splats += asset.SplatCount;
             var r = go.AddComponent<Gsplat.GsplatRenderer>();
             r.GsplatAsset = asset;
             var so = new SerializedObject(r);
@@ -818,7 +1441,8 @@ namespace SketchScape
             return asset;
         }
 
-        static GameObject BuildObject(Transform root, RoomObject o, string id, string genFolder, List<string> failures, out string kind)
+        static GameObject BuildObject(Transform root, RoomObject o, string id, string genFolder, List<string> failures,
+                                      RoomPerformance perf, SplatTally tally, out string kind)
         {
             var go = new GameObject(id);
             go.transform.SetParent(root, false);
@@ -829,7 +1453,8 @@ namespace SketchScape
             child.transform.SetParent(go.transform, false);
             string err = null;
             Gsplat.GsplatAsset asset = null;
-            if (!string.IsNullOrEmpty(o.splat_path)) asset = AttachSplat(child, o.splat_path, out err);
+            var ab = new Bounds();
+            if (!string.IsNullOrEmpty(o.splat_path)) asset = AttachSplat(child, o.splat_path, perf, tally, id, true, out ab, out err);
 
             if (asset == null)
             {
@@ -857,7 +1482,6 @@ namespace SketchScape
                 return go;
             }
 
-            var ab = asset.Bounds;
             if (upright)
             {
                 // Fast-SAM3D scans are right-handed and Z-up in PLY coordinates. Gsplat imports
@@ -1381,6 +2005,8 @@ namespace SketchScape
             if (s.shared.labels == null) s.shared.labels = new string[0];
             if (s.shared.default_account == null) s.shared.default_account = "";
             if (s.shared.snapshot_resource == null) s.shared.snapshot_resource = "";
+            if (s.performance == null) s.performance = new RoomPerformance();   // no block: Quest-ready defaults
+            s.performance.target = (s.performance.target ?? "").Trim().ToLowerInvariant() == "desktop" ? "desktop" : "quest";
             foreach (var o in s.objects) if (o != null && o.light == null) o.light = new RoomObjectLight();
             var list = new List<RoomObject>();
             foreach (var o in s.objects) if (o != null) list.Add(o);
@@ -1682,6 +2308,71 @@ namespace SketchScape
         static string Clip(string s)
         {
             return s.Length <= MaxReport ? s : s.Substring(0, MaxReport - 3) + "...";
+        }
+    }
+
+    /// <summary>
+    /// Meta's Unity MCP Extension (package com.meta.xr.unity-mcp.extension, Editor/Tools): the handlers behind
+    /// the meta_add_* MCP tools, each "public static object HandleCommand(&lt;Params&gt;)" returning
+    /// { success, message | error }. RoomKit.Finalize calls them directly, so a room gets exactly what the
+    /// agent's tool calls used to give it. Looked up by type name: RoomKit compiles and builds without the package.
+    /// </summary>
+    static class MetaTools
+    {
+        const string Namespace = "Meta.XR.MCP.Extension.Editor.";
+        const string AssemblySuffix = ", Meta.XR.MCP.Extension.Editor";
+
+        static Type Tool(string name) { return Type.GetType(Namespace + name + AssemblySuffix); }
+
+        public static bool Installed { get { return Tool("AddCameraRig") != null; } }
+
+        /// <summary>Runs &lt;tool&gt;.HandleCommand (setup fills in its params object). Null on success, else the error.</summary>
+        public static string Run(string tool, Action<object> setup)
+        {
+            var type = Tool(tool);
+            if (type == null) return tool + " is not in Meta's MCP extension";
+            var method = type.GetMethod("HandleCommand", BindingFlags.Public | BindingFlags.Static);
+            if (method == null) return tool + ".HandleCommand not found";
+            var parameters = method.GetParameters();
+            var args = new object[parameters.Length];
+            try
+            {
+                if (parameters.Length == 1)
+                {
+                    args[0] = Activator.CreateInstance(parameters[0].ParameterType);
+                    if (setup != null) setup(args[0]);
+                }
+                var result = method.Invoke(null, args);
+                if (result == null) return null;
+                var success = result.GetType().GetProperty("success");
+                if (success == null || !(success.GetValue(result, null) is bool) || (bool)success.GetValue(result, null)) return null;
+                var error = result.GetType().GetProperty("error");
+                var message = error != null ? error.GetValue(result, null) as string : null;
+                return string.IsNullOrEmpty(message) ? tool + " failed" : message;
+            }
+            catch (Exception e)
+            {
+                var inner = e is TargetInvocationException && e.InnerException != null ? e.InnerException : e;
+                Debug.LogException(inner);
+                return inner.GetType().Name + ": " + inner.Message;
+            }
+        }
+
+        /// <summary>Sets a params property; a string becomes the enum value of that name when the property is an enum
+        /// (an unknown name keeps the tool's default).</summary>
+        public static void Set(object target, string property, object value)
+        {
+            var p = target.GetType().GetProperty(property, BindingFlags.Public | BindingFlags.Instance);
+            if (p == null || !p.CanWrite) return;
+            var type = p.PropertyType;
+            var text = value as string;
+            if (type.IsEnum && text != null)
+            {
+                try { value = Enum.Parse(type, text, true); }
+                catch (ArgumentException) { return; }
+            }
+            else if (type == typeof(string) && value != null && text == null) value = value.ToString();
+            p.SetValue(target, value, null);
         }
     }
 }

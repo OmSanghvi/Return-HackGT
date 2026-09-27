@@ -712,6 +712,12 @@ class Runner:
         if wish:
             parts.append(f'The person who asked for it said: "{wish}"')
         parts.append("Make it a Quest room where both accounts can find their notes and letters.")
+        # A 2026-09-27 build overflowed Muse Spark's context and rebuilt a finished room twice (14.5 min):
+        # start from RoomKit's status, and let finalize do the Meta rig / grab / teleport setup.
+        parts.append("Follow the sketchscape-unity-room skill (/sandbox/.openclaw/workspace/skills/sketchscape-unity-room/"
+                     f"SKILL.md): first run status_code {room_slug(room_name)} and resume "
+                     "from what is already done (never rebuild a finished room); finalize_code adds the rig, grab, "
+                     "teleports, pickups and foveation, so make no meta_add_* calls.")
         return " ".join(parts)
 
     def _wsl(self, name: str, script: str, build_dir: Path) -> tuple[int, Path]:

@@ -11,11 +11,16 @@ Usage (every verb takes exactly one argument; JSON may be '-' for stdin):
     python3 unity_room_cli.py compose_room '{"scene_id": "<id>", "room_name": "Lazy Sunday"}'
     python3 unity_room_cli.py build_code <room-slug> [part]
     python3 unity_room_cli.py finalize_code <room-slug>
+    python3 unity_room_cli.py status_code <room-slug>
 
-compose_room prints a compact plan (summary, room, objects, environment,
-audio, images, unity_steps, ...) and saves the room spec and its C# under
+compose_room prints a short summary (room, objects, environment, unity_steps)
+and saves the full plan, the room spec and its C# under
 $SKETCHSCAPE_ROOM_STATE_DIR (default /tmp/sketchscape-rooms).
-build_code / finalize_code print C# for Unity_RunCommand between marker lines:
+finalize_code's RoomKit.Finalize adds the Quest camera rig, interaction rig,
+grab on every object, the teleport hotspots, pickups and foveation (no
+meta_add_* calls needed); status_code's RoomKit.Status prints one JSON line of
+what is already done, so a build can resume instead of starting over.
+build_code / finalize_code / status_code print C# for Unity_RunCommand between marker lines:
 
     === BUILD CODE: pass everything between the markers verbatim as Code to unity-mcp__Unity_RunCommand ===
     <C#>
@@ -71,22 +76,35 @@ def _print_code(label: str, code: str) -> None:
     print(f"=== END {label} CODE ===")
 
 
+def _compact_plan(plan: dict) -> dict:
+    """What the agent needs from a composed room, in about 1-2 KB. Every tool result stays in the agent's
+    context for the rest of the build, and a 90k-token context made Muse Spark restart a finished build twice."""
+    return {
+        "summary": plan.get("summary"),
+        "room": {"slug": plan["room"]["slug"], "scene_path": plan["room"]["scene_path"]},
+        "objects": [f"{o['id']} ({o['label']})" for o in (plan.get("objects") or [])][:16],
+        "in_photo_scene": (plan.get("in_photo_scene") or [])[:8],
+        "environment": plan.get("environment"),
+        "audio": (plan.get("audio") or [])[:4],
+        "images": len(plan.get("images") or []),
+        "particles": plan.get("particles") or [],
+        "shared": bool((plan.get("shared") or {}).get("enabled")),
+        "performance": plan.get("performance"),
+        "unity_steps": plan.get("unity_steps"),
+        "notes": (plan.get("notes") or [])[:3],
+    }
+
+
 def _compose(raw: str) -> None:
     result = ur.compose_room(_json_arg(raw))
     slug = result["plan"]["room"]["slug"]
     state = _state_dir()
     state.mkdir(parents=True, exist_ok=True)
     (state / f"{slug}.spec.json").write_text(json.dumps(result["spec"], indent=1, ensure_ascii=False), encoding="utf-8")
+    (state / f"{slug}.plan.json").write_text(json.dumps(result["plan"], indent=1, ensure_ascii=False), encoding="utf-8")
     (state / f"{slug}.build.cs").write_text(result["build_code"], encoding="utf-8")
     (state / f"{slug}.finalize.cs").write_text(result["finalize_code"], encoding="utf-8")
-    plan = result["plan"]
-    text = json.dumps(plan, separators=(",", ":"), ensure_ascii=False)
-    if len(text) > MAX_OUTPUT:  # many hotspots/objects: keep the plan printable
-        for key in ("notes", "images", "audio", "lights"):
-            plan[key] = plan[key][:3] if isinstance(plan.get(key), list) else plan.get(key)
-        for obj in plan["objects"]:
-            obj.pop("position", None)
-    print(json.dumps(plan, separators=(",", ":"), ensure_ascii=False))
+    print(json.dumps(_compact_plan(result["plan"]), separators=(",", ":"), ensure_ascii=False)[:MAX_OUTPUT])
 
 
 def _part_block(parts: list[str], k: int) -> str:
@@ -133,6 +151,10 @@ def _finalize_code(slug: str) -> None:
     spec_path = _state_dir() / f"{slug}.spec.json"
     spec = json.loads(spec_path.read_text(encoding="utf-8")) if spec_path.is_file() else None
     _print_code("FINALIZE", ur.room_finalize_command(slug, spec))
+
+
+def _status_code(slug: str) -> None:
+    _print_code("STATUS", ur.room_status_command(slug))
 
 
 def _list_assets(_: str) -> None:
@@ -184,10 +206,12 @@ _COMMANDS = {
     "compose_room": _compose,
     "build_code": _build_code,
     "finalize_code": _finalize_code,
+    "status_code": _status_code,
 }
 
 _USAGE = ("usage: unity_room_cli.py list_scenes all | list_assets all | search_images '<json>' | search_sounds '<json>' | "
-          "search_environment '<json>' | compose_room '<json>'|- | build_code <slug> [part] | finalize_code <slug>")
+          "search_environment '<json>' | compose_room '<json>'|- | build_code <slug> [part] | finalize_code <slug> | "
+          "status_code <slug>")
 
 
 def main(argv: list[str]) -> int:

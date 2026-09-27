@@ -542,6 +542,27 @@ def shared_block(project_id: Any) -> dict:
             "snapshot_resource": f"SharedSnapshots/{pid}"}
 
 
+# A Quest 2 ran a 3.37M-splat room at 5 FPS (2026-09-27). RoomKit therefore uses the sync's Quest-sized copies
+# (<file>_quest.ply: 120k splats per photo scene, 25k per object), adds SketchScapePickup to grabbable objects
+# and QuestPerformance (foveated rendering) to the rig, keeps Android free of MSAA, and does the Meta rig / grab /
+# teleport setup inside RoomKit.Finalize. A request can opt out per item with {"performance": {...}}.
+_PERFORMANCE_DEFAULTS: dict = {"target": "quest", "prefer_quest_lod": True, "pickups": True,
+                               "quest_performance": True, "meta_setup": True}
+
+
+def performance_block(request: Mapping[str, Any]) -> dict:
+    """The room spec's ``performance`` block: the Quest defaults, with any overrides from ``request["performance"]``."""
+    block = dict(_PERFORMANCE_DEFAULTS)
+    raw = request.get("performance")
+    if isinstance(raw, Mapping):
+        for key, default in _PERFORMANCE_DEFAULTS.items():
+            if key in raw:
+                block[key] = str(raw[key]).strip().lower() if isinstance(default, str) else bool(raw[key])
+    if block["target"] not in ("quest", "desktop"):
+        block["target"] = "quest"
+    return block
+
+
 def _room_project_id(request: Mapping[str, Any], scene: Optional[Mapping[str, Any]], matches: Sequence[Optional[Mapping[str, Any]]]) -> str:
     """The project a room belongs to: its photo scene's, else the one project all its matched scans share."""
     flag = request.get("shared")
@@ -1239,25 +1260,22 @@ def compose_room(request: Mapping[str, Any], *, catalog: Optional[Mapping[str, A
         "teleport": {"floor_collider": True, "hotspots": [c for h in hotspots for c in h]},
         "credits": credits,
         "shared": shared_block(_room_project_id(request, scene, matches)),
+        "performance": performance_block(request),
     }
     _check_jsonutility(spec)
 
     # ---- plan (compact, for the agent) ----------------------------------------------
     build_parts = room_build_parts(spec)
     n_parts = len(build_parts)
-    steps: list[dict] = [
-        {"tool": "unity-mcp__Unity_RunCommand",
-         "args": {"Title": f"Build room {slug}" + (f" (part {k}/{n_parts})" if n_parts > 1 else ""),
-                  "Code": f"<BUILD CODE{f' PART {k}/{n_parts}' if n_parts > 1 else ''} from: unity_room_cli.py build_code {slug}>"}}
-        for k in range(1, n_parts + 1)
-    ] + [
-        {"tool": "unity-mcp__meta_get_config_information", "args": {}},
-        {"tool": "unity-mcp__meta_add_camerarig", "args": {}},
-        {"tool": "unity-mcp__meta_add_interactionrig", "args": {}},
+    # RoomKit.Finalize (1.0.16) adds the Quest camera rig, interaction rig, grab on every object, the teleport
+    # hotspots, pickups and foveation itself: one call instead of ~20 meta_add_* calls that filled the agent's
+    # context (a 14-minute build on 2026-09-27 restarted twice after its context overflowed).
+    steps = [
+        f"build_code {slug} -> {n_parts} Unity_RunCommand call(s), part 1..{n_parts} in order",
+        f"finalize_code {slug} -> 1 Unity_RunCommand: Quest camera rig, interaction rig, near + distance grab on all "
+        f"{len(spec_objects)} object(s), {len(hotspots)} teleport hotspot(s), pickups, foveation; saves the scene",
+        f"status_code {slug} -> 1 Unity_RunCommand to confirm",
     ]
-    steps += [{"tool": "unity-mcp__meta_add_grabbable", "args": {"NameOrID": o["id"]}} for o in spec_objects]
-    steps += [{"tool": "unity-mcp__meta_add_teleport_hotspot", "args": {"Position": h, "Snap": "SnapPosition"}} for h in hotspots]
-    steps.append({"tool": "unity-mcp__Unity_RunCommand", "args": {"Title": f"Finalize room {slug}", "Code": f"<output of: unity_room_cli.py finalize_code {slug}>"}})
 
     real = sum(1 for o in spec_objects if o["splat_path"])
     summary = (
@@ -1287,6 +1305,7 @@ def compose_room(request: Mapping[str, Any], *, catalog: Optional[Mapping[str, A
         "staging": {"lighting_preset": staged["lighting_preset"], "reveal_order": staging["reveal_order"], "narration": staging["narration"]},
         "credits": len(credits),
         "unity_steps": steps,
+        "performance": spec["performance"],
         "shared": {"enabled": spec["shared"]["enabled"], "project_id": spec["shared"]["project_id"]},
         "notes": notes[:8],
     }
@@ -1494,3 +1513,27 @@ def room_finalize_command(slug: str, spec: Optional[Mapping[str, Any]] = None) -
         roomkit=ROOMKIT_TYPE, missing=_MISSING_ROOMKIT, slug=slug,
         x=repr(_r(spawn[0])), z=repr(_r(spawn[2])), yaw=repr(_r(player.get("yaw") or 0.0, 2)),
     )
+
+
+_STATUS_TEMPLATE = """using UnityEngine;
+using UnityEditor;
+
+internal class CommandScript : IRunCommand
+{{
+    public void Execute(ExecutionResult result)
+    {{
+        var kit = System.Type.GetType("{roomkit}");
+        if (kit == null) {{ result.LogError("{missing}"); return; }}
+        var status = kit.GetMethod("Status", new[] {{ typeof(string) }});
+        if (status == null) {{ result.LogError("ERROR: RoomKit is older than 1.0.16 (no Status). On the host run: python scripts/install_hackgt_roomkit.py"); return; }}
+        var json = (string)status.Invoke(null, new object[] {{ "{slug}" }}) ?? "";
+        result.Log(json.Replace("{{", "{{{{").Replace("}}", "}}}}"));
+    }}
+}}
+"""
+
+
+def room_status_command(slug: str) -> str:
+    """C# for ``Unity_RunCommand``: ``RoomKit.Status(slug)``, one JSON line saying what is already done
+    (built, grabbable, teleports, rig, finalized, ...). Read-only; lets an agent resume instead of rebuilding."""
+    return _STATUS_TEMPLATE.format(roomkit=ROOMKIT_TYPE, missing=_MISSING_ROOMKIT, slug=_checked_slug(slug))

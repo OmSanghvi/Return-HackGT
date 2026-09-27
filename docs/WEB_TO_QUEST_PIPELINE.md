@@ -200,3 +200,52 @@ APIs in runtime code), since the room can be viewed on a headset without an APK.
   `%LOCALAPPDATA%\SketchScape\room-runner.log` and `room-builds\<id>\`).
 - HackGTUnity has Player → Run In Background on, so Play mode keeps running when
   the Editor window isn't focused.
+
+## 9. Build speed and Quest readiness (2026-09-27, ~3 am)
+
+**What went wrong.** A room build (HackGT.jpg, 8 objects) took 14.5 min, and
+the agent took 13 min of that. Muse Spark built the room in 3 min, but its
+context passed ~90k tokens (compose outputs of 15-33 KB, six 16 KB
+`tool_search` results, ~20 `meta_add_*` calls, every build part twice). OpenClaw
+compacted it, and the agent **started the build over, twice**. The third
+RoomKit build took more than 60 s, so the MCP call timed out and the Unity MCP
+server paused after repeated failures. The finished room then ran at **5 FPS
+on a Quest 2**: 3.37M splats, Ultra quality with 4× MSAA.
+
+**Fixes.**
+- NemoClaw: `nemoclaw sketchscape recover` re-paired the gateway (the agent had
+  run in "embedded-fallback mode"). Inside the sandbox,
+  `openclaw config set mcp.servers.unity-mcp.requestTimeoutMs 180000` (Unity calls
+  may take 3 min; re-apply after a sandbox rebuild). `nemoclaw <sb> status`
+  reporting "Inference: unhealthy … invalid response body" is a false alarm for
+  Muse Spark: it's a reasoning model and the probe's 16-token budget is all spent
+  thinking. A real request answers in about 1 s.
+- Agent context: `compose_room` prints a ~2 KB summary (the full plan and spec
+  stay in the state dir). The skill gives exact `tool_call` ids, so there's no
+  `tool_search`. `status_code <slug>` (RoomKit.Status, one JSON line) comes first
+  and after any hiccup, so a build resumes instead of restarting. The runner's
+  prompt says the same and names the skill path.
+- RoomKit 1.0.16: `Finalize` does the Meta setup itself (camera rig, interaction
+  rig, near and distance grab (PullToHand) per object, teleport hotspots, all
+  through the Meta MCP extension's handlers). `Runtime/Controls/HeadCollisionGuard`
+  (added by another session) installs itself on any `OVRCameraRig`: it pushes the
+  rig back out when the head enters a collider and forces smooth turning. It also adds `SketchScapePickup` to grabbables and `QuestPerformance`
+  (foveation) to the rig, and keeps Android on a quality level without MSAA. A
+  build is ~10-14 agent calls instead of 22-83.
+- Quest splats: the sync writes `<file>_quest.ply` next to each splat (≤ 120k for
+  a photo scene, ≤ 25k per object; `scripts/decimate_splats.py` keeps the most
+  opaque, largest splats and scales them up slightly). The spec's
+  `performance` block (`target`, `prefer_quest_lod`, `pickups`,
+  `quest_performance`, `meta_setup`; all on by default) makes RoomKit use them.
+
+**Measured after the fixes (04:13 EDT, same runner prompt, cabin scene):**
+- The agent built and finalized `Speed_Check` in 94 s.
+- It used 63k tokens (48%), 18 tool calls and no compactions.
+- 270k splats in all (7 Quest copies, 0 full-res), and every object grabbable near and far.
+
+**Spotting it next time.** `nemoclaw sketchscape sessions list` shows tokens per
+session: a room build should stay well under 100% of the 131k context. Export a
+session with `nemoclaw sketchscape sessions export "agent:main:explicit:<id>"
+--agent main --format dir --out <dir>`. `compaction` entries mean it
+overflowed. On the headset, `adb logcat -s VrApi` prints `FPS=<n>/72` once a
+second.

@@ -8,6 +8,75 @@ The last session (`65c057b2-388a-42b5-a56f-ed1265d08877`) ran on a different
 Claude account, so it can't be resumed from the next one. This file is the
 handoff.
 
+## LATEST+6 (2026-09-27, ~3-4 am) — HackGT.jpg end to end, Quest 2 at 5 FPS fixed, faster NemoClaw builds
+
+Contract additions: **`docs/WEB_TO_QUEST_PIPELINE.md` §9** (build speed and Quest readiness).
+
+**HackGT.jpg test (live, via the web app's API calls through the Vercel `/api` proxy):** project "HackGT test 0215"
+(`c957ccd9…`), Account 2 joined by invite code, Account 1 uploaded HackGT.jpg with a note → 8 objects detected and
+reconstructed + whole-photo scene in ~3 min → "Build room in VR" as Account 2 → runner → Muse Spark built
+`Assets/SketchScape/AgentRooms/HackGT_test_0215.unity` (14.5 min; see below). Play mode read live notes/letters; a letter
+Alice→Bob was opened from inside the room. The live Vercel site (returnweb-hazel) still served the OLD bundle; the user
+said they deployed, URL not confirmed.
+
+**Quest 2 at 5 FPS (user's APK `HackGTUnity/stupid house.apk`, headset `hollywood`/Quest 2 over adb):** `adb logcat -s VrApi`
+showed `FPS=5/72, App=212ms`: 3.37M splats, Ultra quality + 4x MSAA. Fixed by hand for that scene: decimated copies in
+`Assets/SketchScape/QuestLOD/HackGT_test_0215/` (`scripts/decimate_splats.py`, 270k splats total), Android per-platform
+default quality → High (no MSAA), `QuestPerformance` (foveated rendering) on the rig. Not re-measured on the headset yet
+(needs a rebuilt APK). **The user asked not to touch `HackGT_test_0215.unity` for now; another Claude session edited it**
+(distance grab PullToHand on all 8 objects, smooth turning) and added `Runtime/Controls/HeadCollisionGuard.cs`.
+
+**Desktop controls (ported from the team's `unity/`):** `unity-hackgt/Assets/SketchScape/Runtime/Controls/`
+`DesktopCameraLook` (Editor-only; under an OVRCameraRig it drives OVRManager's head-pose offsets, because the rig rewrites
+the eye pose every frame with no headset; starts at 1.6 m), `DesktopPickup` (clicks skip the camera's own rig), and
+`SketchScapePickup` (no XRI; markers "Shared Tag"/"Contact Shadow" stay behind while carried).
+
+**Why builds were slow, and fixes:** see §9. In short: gateway pairing broken → `nemoclaw sketchscape recover`; Unity
+MCP 60 s timeout → `openclaw config set mcp.servers.unity-mcp.requestTimeoutMs 180000` (in the sandbox; redo after a
+rebuild); the agent's context overflowed (~90k) and it restarted a finished build twice → compact `compose_room` output,
+`status_code <slug>` resume-first skill, exact tool ids (no `tool_search`), RoomKit 1.0.16 `Finalize` does the Meta setup;
+the deploy script skips when the sandbox already has the same content (32 s → 2 s). `nemoclaw <sb> status` saying
+"Inference: unhealthy … invalid response body" is a false alarm for Muse Spark (reasoning tokens eat the probe's budget).
+
+**RoomKit 1.0.16 (installed, verified live):**
+- `Finalize` does the whole Meta setup through the Meta MCP extension's handlers: camera rig, interaction rig, near + distance
+  grab (PullToHand) per object, teleports. It also adds `SketchScapePickup` and `QuestPerformance`, keeps Android free of
+  MSAA, and stamps `RoomBuildInfo.finalizedWith`.
+- `Status(slug)` prints one JSON line. When the room's scene isn't the open one it returns `open:false` and null counts;
+  the skill treats that as "run finalize".
+- Build renders the `_quest.ply` copies.
+- **Build now refuses when any other open scene is dirty.** 1.0.15 silently discarded unsaved AgentRooms scenes.
+- `python scripts/sync_s3_assets_to_unity.py --quest-lod-only` backfilled copies for all 29 synced splats (23 objects,
+  6 scenes).
+
+**Live test (Speed_Check from the cabin scene, runner prompt, 04:13 EDT):**
+- 94 s agent time, 63k tokens (48% of context), 18 tool calls, 0 compactions. The slow HackGT build took 13 min, 4.8M
+  tokens, 83 calls and 3 compactions.
+- `Status`: 6/6 grab + distance grab + pickups, 8 teleports, rig, foveation, 7 Quest copies / 0 full-res, 270k splats,
+  finalized.
+- Scene: `Assets/SketchScape/AgentRooms/Speed_Check.unity`.
+
+**State at the end:**
+- The GPU host auto-stopped at 03:05 EDT, so the API is down until it's restarted.
+- The room-build runner is stopped (restart with `.\scripts\Start-SketchScape.ps1 -Runner`).
+- At the user's request, `HackGT_test_0215` was saved as-is at 04:13 (the other session's unsaved edits) and is the open
+  scene again.
+
+**Reveal fix (RoomDirector):**
+- Grabbable objects are no longer scale-revealed.
+- Why: RoomDirector shrank them to 0.1% in Awake. Meta's distance-grab components (`ISDK_DistanceHandGrabInteraction`)
+  then recorded that tiny scale at startup and kept restoring it, so objects popped up and vanished. That happened in
+  every room with distance grab.
+- Lights and sound still fade in.
+- The fix is in code only, so every room is fixed without scene edits.
+
+**Unity_RunCommand gotchas (6000.6):** `using System.Reflection` is refused (call `System.Type.GetType(...)
+.GetMethod(...).Invoke` fully qualified); Gsplat and Oculus types aren't referenceable from the command (use
+`SerializedObject` / `GetType().Name`); `GetInstanceID()` and `AssetDatabase.GetAssetPath(int)` don't compile;
+`result.Log` has no format specifiers (`{0:F1}`); C# keyword field names need `@` (`letter.@sealed`); after an
+install/compile, MCP says "Unity not detected" for ~20-40 s. Splats swapped outside Play mode may not show in the Scene view
+until Play or a scene reload.
+
 ## LATEST+5 (2026-09-27, ~1 am) — web app → "Build room in VR" → NemoClaw room with two accounts, notes and letters
 
 Contract: **`docs/WEB_TO_QUEST_PIPELINE.md`**. User decisions this round: the VR app is the HackGTUnity room
