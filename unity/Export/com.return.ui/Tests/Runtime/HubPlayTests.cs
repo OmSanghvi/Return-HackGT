@@ -67,6 +67,8 @@ namespace Return.UI.PlayTests
             Assert.IsNotNull(GameObject.Find("World:The lake house"));
             Assert.IsNull(GameObject.Find("ReturnHub"), "hub is hidden inside a world");
 
+            _head.position = new Vector3(3f, 1.6f, -2f); // simulate having walked around the world
+
             // the wrist Hub button calls the same ExitWorld while in a world
             _app.Hub.ExitWorld();
             yield return Until(() => _app.Hub.Session.State == SessionState.Hub, 8f);
@@ -74,6 +76,8 @@ namespace Return.UI.PlayTests
             Assert.IsNull(GameObject.Find("World:The lake house"));
             Assert.IsTrue(_app.Hub.RingVisible);
             Assert.AreEqual(ReturnTheme.Day, ThemeManager.Current);
+            // spawn back at the hub center, not wherever the walk-in-world left the rig
+            Assert.Less(new Vector2(_head.position.x, _head.position.z).magnitude, 0.01f);
         }
 
         [UnityTest]
