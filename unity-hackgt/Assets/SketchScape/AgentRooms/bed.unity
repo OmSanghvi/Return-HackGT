@@ -4545,8 +4545,8 @@ MonoBehaviour:
   m_legacyRelightingEnabled: 0
   m_legacyRelightingProxy: {fileID: 0}
   m_legacyRelightingSource: {fileID: 0}
-  SortMode: 1
-  SortRefreshRate: 3
+  SortMode: 0
+  SortRefreshRate: 1
   CutoutsRefreshRate: 1
   m_assetGuid: 86f08c49bb3c4caca3c27297cd85c88a
 --- !u!1 &564669052
@@ -5857,8 +5857,8 @@ MonoBehaviour:
   m_legacyRelightingEnabled: 0
   m_legacyRelightingProxy: {fileID: 0}
   m_legacyRelightingSource: {fileID: 0}
-  SortMode: 1
-  SortRefreshRate: 3
+  SortMode: 0
+  SortRefreshRate: 1
   CutoutsRefreshRate: 1
   m_assetGuid: e0ad088a764346fabe3a31c0831ba46b
 --- !u!1 &766728319
@@ -13940,8 +13940,8 @@ MonoBehaviour:
   m_legacyRelightingEnabled: 0
   m_legacyRelightingProxy: {fileID: 0}
   m_legacyRelightingSource: {fileID: 0}
-  SortMode: 1
-  SortRefreshRate: 3
+  SortMode: 0
+  SortRefreshRate: 1
   CutoutsRefreshRate: 1
   m_assetGuid: 4d33c4f7695f41189089449c0fd637d9
 --- !u!1 &1910917000

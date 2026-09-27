@@ -508,14 +508,18 @@ namespace SketchScape
         // Common tuning
         // ------------------------------------------------------------------
 
-        /// <summary>Sort splats every 3rd frame instead of every frame (the camera-motion thresholds still force a resort on big moves).</summary>
+        /// <summary>
+        /// Splats must sort every frame. With SortEveryNFrames the package still recomputes depth keys and runs the
+        /// global k-way merge every frame (GsplatSorter.DispatchSort), so on the frames between sorts the merge combines
+        /// fresh depths with stale per-renderer orders and the room flickers like static in VR.
+        /// </summary>
         static void TuneSplats(Ctx c)
         {
             int n = 0;
             foreach (var r in c.root.GetComponentsInChildren<Gsplat.GsplatRenderer>(true))
             {
-                r.SortMode = Gsplat.GsplatRenderer.GsplatSortMode.SortEveryNFrames;
-                r.SortRefreshRate = 3;
+                r.SortMode = Gsplat.GsplatRenderer.GsplatSortMode.Always;
+                r.SortRefreshRate = 1;
                 EditorUtility.SetDirty(r);
                 n++;
             }
