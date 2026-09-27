@@ -28,6 +28,31 @@ namespace SketchScape
         public RoomTeleport teleport = new RoomTeleport();
         public string[] credits = new string[0];
         public RoomShared shared = new RoomShared();
+        public RoomPerformance performance = new RoomPerformance();
+    }
+
+    /// <summary>
+    /// Quest readiness (RoomKit 1.0.16; docs/IMMERSIVE_SCENE_PIPELINE.md "Quest budgets"). A spec without
+    /// this block gets these defaults, i.e. every room is Quest-ready and interactive unless it opts out.
+    /// Build records the flags on the room (RoomBuildInfo) and Finalize follows them.
+    /// </summary>
+    [Serializable]
+    public class RoomPerformance
+    {
+        /// <summary>"quest" | "desktop": which device the room is sized for (the build report warns
+        /// when a "quest" room renders more splats than a Quest 2 keeps up with).</summary>
+        public string target = "quest";
+        /// <summary>Render the sync's Quest-sized copy (&lt;name&gt;_quest.ply next to the splat) when there is one;
+        /// placement always comes from the full-resolution splat.</summary>
+        public bool prefer_quest_lod = true;
+        /// <summary>Finalize adds SketchScapePickup (desktop pick-up in the Editor) to every grabbable object.</summary>
+        public bool pickups = true;
+        /// <summary>Finalize adds QuestPerformance (foveated rendering) to the OVRCameraRig and makes Android's
+        /// default quality level one without MSAA.</summary>
+        public bool quest_performance = true;
+        /// <summary>Finalize adds Meta's camera rig, interaction rig, near + distance grab on every grabbable
+        /// object and a teleport hotspot at every hotspot marker (the meta_add_* MCP tools' own handlers).</summary>
+        public bool meta_setup = true;
     }
 
     /// <summary>Shared layer (Return-HackGT docs/WEB_TO_QUEST_PIPELINE.md section 3): account switcher,
@@ -75,7 +100,7 @@ namespace SketchScape
         public float[] scale = { 1f, 1f, 1f };
         public float size_m = 0.5f;
         public float[] tint = { 0.8f, 0.8f, 0.8f };
-        public bool grabbable = true;
+        public bool grabbable = true;             // Finalize gives it Meta near + distance grab (and a pickup)
         public RoomObjectLight light = new RoomObjectLight();
     }
 

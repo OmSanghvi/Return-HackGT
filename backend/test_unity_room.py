@@ -101,7 +101,8 @@ class SpecShapeTests(_Base):
     def test_spec_matches_contract_and_is_jsonutility_safe(self) -> None:
         spec = self.compose(scene_id=_SCENE_ID, room_name="Lazy Sunday")["spec"]
         self.assertEqual(set(spec), {"version", "slug", "scene_path", "root", "player", "photo_scene", "objects", "environment",
-                                     "lights", "images", "audio", "particles", "staging", "teleport", "credits", "shared"})
+                                     "lights", "images", "audio", "particles", "staging", "teleport", "credits", "shared",
+                                 "performance"})
         self.assertEqual(set(spec["shared"]), {"enabled", "project_id", "api_base", "accounts", "labels", "default_account",
                                                "snapshot_resource"})
         self.assertEqual(spec["slug"], "Lazy_Sunday")
@@ -142,8 +143,10 @@ class SpecShapeTests(_Base):
         # The layout got the contract's object fields and the eye height.
         self.assertEqual(self.calls[0]["eye"], 1.6)
         self.assertEqual(set(self.calls[0]["objects"][0]), {"id", "pose", "native_extent", "bounds_min", "bounds_max", "label_size_m"})
-        grabs = [s["args"]["NameOrID"] for s in plan["unity_steps"] if s["tool"].endswith("meta_add_grabbable")]
-        self.assertEqual(grabs, [o["id"] for o in spec["objects"]])
+        # RoomKit.Finalize makes every object grabbable itself: the plan asks for one finalize call, no meta_add_*.
+        self.assertTrue(any(s.startswith("finalize_code ") and f"distance grab on all {len(spec['objects'])} object" in s
+                            for s in plan["unity_steps"]))
+        self.assertFalse(any("meta_add" in s for s in plan["unity_steps"]))
 
     def test_prefix_scene_id_and_eye_height(self) -> None:
         spec = self.compose(scene_id=_SCENE_ID[:8], room_name="R", player_eye_height=1.2)["spec"]
@@ -262,9 +265,8 @@ class AnalysisDefaultsTests(_Base):
         self.assertIn([0.0, 0.0, 0.0], pts)
         self.assertTrue(any(p[0] < -1.5 for p in pts) and any(p[0] > 1.5 for p in pts))
         self.assertTrue(all(p[1] == 0.0 for p in pts))
-        steps = [s["args"]["Position"] for s in self.compose(scene_id=_SCENE_ID, room_name="R")["plan"]["unity_steps"]
-                 if s["tool"].endswith("teleport_hotspot")]
-        self.assertEqual(steps, pts)
+        steps = self.compose(scene_id=_SCENE_ID, room_name="R")["plan"]["unity_steps"]
+        self.assertTrue(any(f"{len(pts)} teleport hotspot(s)" in s for s in steps))  # Finalize places them
 
     def test_staging_from_connection_insight(self) -> None:
         spec = self.compose(scene_id=_SCENE_ID, room_name="R", connection_insight=_INSIGHT)["spec"]
@@ -472,6 +474,32 @@ class CSharpTests(_Base):
         self.assertIn('new object[] { "R", 0.0f, 0.0f, 0.0f }', code)
         self.assertEqual(code.count("{"), code.count("}"))
 
+    def test_status_code_calls_roomkit_status_and_says_when_roomkit_is_too_old(self) -> None:
+        code = ur.room_status_command("Cabin_Room")
+        self.assertIn('GetMethod("Status", new[] { typeof(string) })', code)
+        self.assertIn('new object[] { "Cabin_Room" }', code)
+        self.assertIn("older than 1.0.16", code)
+        self.assertIn('Replace("{", "{{")', code)  # the JSON line goes through result.Log's format string
+        self.assertEqual(code.count("{"), code.count("}"))
+        with self.assertRaises(st.SceneToolError):
+            ur.room_status_command("../escape")
+
+
+class PerformanceBlockTests(_Base):
+    def test_quest_defaults_are_on(self) -> None:
+        perf = self.compose(scene_id=_SCENE_ID, room_name="R")["spec"]["performance"]
+        self.assertEqual(perf, {"target": "quest", "prefer_quest_lod": True, "pickups": True,
+                                "quest_performance": True, "meta_setup": True})
+
+    def test_request_can_turn_items_off_and_bad_values_fall_back(self) -> None:
+        perf = self.compose(scene_id=_SCENE_ID, room_name="R",
+                            performance={"prefer_quest_lod": False, "target": "Desktop", "unknown": 1})["spec"]["performance"]
+        self.assertFalse(perf["prefer_quest_lod"])
+        self.assertEqual(perf["target"], "desktop")
+        self.assertNotIn("unknown", perf)
+        self.assertEqual(ur.performance_block({"performance": {"target": "vr"}})["target"], "quest")
+        self.assertEqual(ur.performance_block({"performance": "nope"}), ur.performance_block({}))
+
 
 class CliTests(unittest.TestCase):
     MAX_OUTPUT_CHARS = 12_000
@@ -510,8 +538,8 @@ class CliTests(unittest.TestCase):
         out = self._run("compose_room", json.dumps({"objects": objects, "images": images, "connection_insight": _INSIGHT,
                                                     "room_name": "Big Room", "scene_id": "none"}))
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
-        steps = [s["args"]["Title"] for s in json.loads(out.stdout)["unity_steps"] if s["tool"] == "unity-mcp__Unity_RunCommand"]
-        self.assertTrue(steps[0].startswith("Build room Big_Room (part 1/"))
+        steps = json.loads(out.stdout)["unity_steps"]
+        self.assertRegex(steps[0], r"^build_code Big_Room -> [3-9] Unity_RunCommand call\(s\)")
         build = self._run("build_code", "Big_Room")
         self.assertEqual(build.returncode, 0, build.stderr)
         self.assertIn("=== BUILD CODE PART 1/", build.stdout)
@@ -520,6 +548,24 @@ class CliTests(unittest.TestCase):
         two = self._run("build_code", "Big_Room", "2")
         self.assertIn(f"=== BUILD CODE PART 2/{n}:", two.stdout)
         self.assertNotIn(f"PART 1/{n}", two.stdout)
+
+    def test_compose_prints_a_short_summary_and_status_code_works(self) -> None:
+        # Every tool result stays in the agent's context for the whole build: keep compose's under ~3 KB.
+        objects = [{"label": w} for w in ("tomato", "guitar", "mug", "bookshelf", "photo frame", "oak table", "armchair", "candle")]
+        out = self._run("compose_room", json.dumps({"objects": objects, "connection_insight": _INSIGHT,
+                                                    "room_name": "Short Room", "scene_id": "none"}))
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertLess(len(out.stdout), 3000)
+        summary = json.loads(out.stdout)
+        self.assertNotIn('"position"', out.stdout)
+        self.assertEqual(summary["room"]["slug"], "Short_Room")
+        self.assertEqual(summary["performance"]["target"], "quest")
+        self.assertTrue(summary["unity_steps"][-1].startswith("status_code Short_Room"))
+        self.assertTrue((Path(self._state.name) / "Short_Room.plan.json").is_file())  # the full plan is kept
+        status = self._run("status_code", "Short_Room")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("=== STATUS CODE:", status.stdout)
+        self.assertIn('"Short_Room"', status.stdout)
 
 
     def test_list_scenes_and_assets(self) -> None:

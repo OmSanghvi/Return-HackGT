@@ -1,4 +1,4 @@
-"""Tests for the stdlib pieces of sync_s3_assets_to_unity (PNG masks, PLY I/O,
+"""Tests for the stdlib pieces of sync_s3_assets_to_unity (PNG masks, PLY I/O, Quest copies,
 scene cut-out, catalog merge). No AWS access.
 
 Run with: python -m unittest scripts/test_sync_s3_assets_to_unity.py
@@ -7,6 +7,7 @@ Run with: python -m unittest scripts/test_sync_s3_assets_to_unity.py
 import base64
 import json
 import math
+import os
 import struct
 import sys
 import tempfile
@@ -501,6 +502,183 @@ class SyncSceneOfflineTests(unittest.TestCase):
         entry = sync.sync_scene(upload, synced[:1], bucket=sync.DEFAULT_BUCKET, project_id="p", unity=self.root / "unity", tmp=work2)
         self.assertEqual(entry["cut_asset_ids"], [])
         self.assertEqual(entry["cut"]["removed"], {})
+
+
+SOURCE_META = (
+    "fileFormatVersion: 2\n"
+    "guid: 84b1ded785eadec4c8bcdbf335bd5a24\n"
+    "ScriptedImporter:\n"
+    "  internalIDToNameTable: []\n"
+    "  externalObjects: {}\n"
+    "  serializedVersion: 2\n"
+    "  userData: \n"
+    "  assetBundleName: \n"
+    "  assetBundleVariant: \n"
+    "  script: {fileID: 11500000, guid: 7468ea6559404cbc8f3e83b0b1a00683, type: 3}\n"
+    "  Compression: 1\n"
+    "  SourceCoordinates: 0\n"
+)
+
+
+def _guid(meta_text):
+    return next(line.split(":", 1)[1].strip() for line in meta_text.splitlines() if line.startswith("guid:"))
+
+
+class QuestCopyTests(unittest.TestCase):
+    """<name>_quest.ply copies next to synced splats (RoomKit renders them on the Quest)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.unity = self.root / "unity"
+        self.lib = self.unity / sync.LIBRARY_DIR
+        self.lib.mkdir(parents=True)
+        self.stage = self.root / "stage"
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _splat(self, path, n, meta=True):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_ply(path, [_row(i * 0.01, 0.0, 1.0, opacity=2.0 - (i % 7)) for i in range(n)])
+        if meta:
+            path.with_name(path.name + ".meta").write_text(SOURCE_META, encoding="utf-8")
+        return path
+
+    def test_copy_is_decimated_with_a_fresh_guid_and_the_source_importer_settings(self) -> None:
+        src = self._splat(self.lib / "cat_12345678.ply", 40)
+        info = sync.make_quest_copy(src, 10, stage=self.stage)
+        dst = self.lib / "cat_12345678_quest.ply"
+        self.assertEqual((info["path"], info["action"], info["source"], info["kept"]), (dst, "made", 40, 10))
+        self.assertEqual(sync.GaussianPly.read(dst).count, 10)
+        meta_bytes = (self.lib / "cat_12345678_quest.ply.meta").read_bytes()
+        self.assertNotIn(b"\r", meta_bytes)  # LF only, as Unity writes it (also on Windows)
+        meta = meta_bytes.decode("utf-8")
+        guid = _guid(meta)
+        self.assertRegex(guid, r"^[0-9a-f]{32}$")
+        self.assertNotEqual(guid, _guid(SOURCE_META))
+        self.assertEqual(meta.replace(guid, "X"), SOURCE_META.replace(_guid(SOURCE_META), "X"))
+        # Nothing else lands in Assets and the stage is left empty.
+        self.assertEqual(sorted(p.name for p in self.lib.iterdir()),
+                         ["cat_12345678.ply", "cat_12345678.ply.meta", "cat_12345678_quest.ply", "cat_12345678_quest.ply.meta"])
+        self.assertEqual(list(self.stage.iterdir()), [])
+        # The source is never touched.
+        self.assertEqual(sync.GaussianPly.read(src).count, 40)
+
+    def test_the_meta_is_in_assets_before_the_ply(self) -> None:
+        src = self._splat(self.lib / "boat_abcdef12.ply", 30)
+        moved = []
+        real_replace = os.replace
+
+        def record(a, b):
+            if Path(b).parent == self.lib:
+                moved.append(Path(b).name)
+            return real_replace(a, b)
+
+        with mock.patch.object(sync.os, "replace", side_effect=record):
+            sync.make_quest_copy(src, 5, stage=self.stage)
+        self.assertEqual(moved, ["boat_abcdef12_quest.ply.meta", "boat_abcdef12_quest.ply"])
+
+    def test_small_source_is_copied_as_is_and_no_meta_gets_the_gsplat_defaults(self) -> None:
+        src = self._splat(self.lib / "net_00000001.ply", 6, meta=False)
+        info = sync.make_quest_copy(src, 10, stage=self.stage)
+        self.assertEqual((info["action"], info["kept"]), ("copied", 6))
+        self.assertEqual(info["path"].read_bytes(), src.read_bytes())
+        meta = (self.lib / "net_00000001_quest.ply.meta").read_bytes().decode("utf-8")
+        self.assertEqual(meta, sync.GSPLAT_META_TEMPLATE.format(guid=_guid(meta)))
+        self.assertIn("  Compression: 1\n  SourceCoordinates: 0\n", meta)
+
+    def test_current_copy_is_skipped_and_a_newer_source_regenerates_it_keeping_its_guid(self) -> None:
+        src = self._splat(self.lib / "rug_11112222.ply", 40)
+        sync.make_quest_copy(src, 10, stage=self.stage)
+        dst, meta = self.lib / "rug_11112222_quest.ply", self.lib / "rug_11112222_quest.ply.meta"
+        meta_text = meta.read_text(encoding="utf-8")
+        again = sync.make_quest_copy(src, 10, stage=self.stage)
+        self.assertEqual((again["action"], again["kept"]), ("current", 10))
+        # The source changes (e.g. the colour gain rewrote it): the copy is made again, same GUID.
+        self._splat(src, 60, meta=False)
+        later = dst.stat().st_mtime + 5
+        os.utime(src, (later, later))
+        redo = sync.make_quest_copy(src, 10, stage=self.stage)
+        self.assertEqual((redo["action"], redo["source"]), ("made", 60))
+        self.assertEqual(meta.read_text(encoding="utf-8"), meta_text)
+        # Another budget makes it again too (the copy's count no longer matches).
+        self.assertEqual(sync.make_quest_copy(src, 20, stage=self.stage)["kept"], 20)
+        self.assertEqual(sync.GaussianPly.read(dst).count, 20)
+        self.assertEqual(meta.read_text(encoding="utf-8"), meta_text)
+
+    def test_scenes_get_the_scene_budget_and_quest_files_are_never_sources(self) -> None:
+        self._splat(self.lib / "cat_12345678.ply", 40)
+        self._splat(self.lib / "stale_quest.ply", 40)  # a copy, not a source
+        scene = self._splat(self.unity / sync.SCENES_DIR / "3ae525c1" / "scene.ply", 50)
+        found = sync.project_splats(self.unity)
+        self.assertEqual(found, [f"{sync.LIBRARY_DIR}/cat_12345678.ply", f"{sync.SCENES_DIR}/3ae525c1/scene.ply"])
+        results = sync.make_quest_copies(self.unity, found + [f"{sync.LIBRARY_DIR}/stale_quest.ply", "Assets/missing.ply"],
+                                         object_splats=5, scene_splats=12, stage=self.stage)
+        self.assertEqual(sync.GaussianPly.read(self.lib / "cat_12345678_quest.ply").count, 5)
+        self.assertEqual(sync.GaussianPly.read(scene.with_name("scene_quest.ply")).count, 12)
+        self.assertFalse((self.lib / "stale_quest_quest.ply").exists())
+        self.assertEqual([r["action"] for r in results], ["made", "made", "failed"])
+
+    def test_a_bad_ply_is_reported_not_raised(self) -> None:
+        bad = self.lib / "broken_00000000.ply"
+        bad.write_bytes(b"ply\nformat ascii 1.0\nelement vertex 1\nproperty float x\nend_header\n0\n")
+        info = sync.make_quest_copy(bad, 10, stage=self.stage)
+        self.assertEqual(info["action"], "failed")
+        self.assertIn("ValueError", info["error"])
+        self.assertEqual(sorted(p.name for p in self.lib.iterdir()), ["broken_00000000.ply"])
+
+    def test_quest_lod_only_needs_no_aws_and_leaves_the_catalog_alone(self) -> None:
+        self._splat(self.lib / "cat_12345678.ply", 40)
+        self._splat(self.lib / "boat_abcdef12.ply", 40)
+        catalog = self.root / "catalog.json"
+
+        def no_aws(*args):
+            raise AssertionError("AWS must not be called")
+
+        with mock.patch.object(sync, "_aws", no_aws), mock.patch.object(sync, "CATALOG_PATH", catalog), \
+                mock.patch("sys.stdout", new_callable=lambda: __import__("io").StringIO()):
+            code = sync.main(["--unity-project", str(self.unity), "--quest-lod-only", f"{sync.LIBRARY_DIR}/cat_12345678.ply",
+                              "--quest-object-splats", "7", "--quest-stage-dir", str(self.stage)])
+        self.assertEqual(code, 0)
+        self.assertEqual(sync.GaussianPly.read(self.lib / "cat_12345678_quest.ply").count, 7)
+        self.assertFalse((self.lib / "boat_abcdef12_quest.ply").exists())  # only the named path
+        self.assertFalse(catalog.exists())
+
+    def test_a_label_sync_writes_quest_copies_but_not_into_the_catalog(self) -> None:
+        s3 = self.root / "s3"
+        job = "job1"
+        src = s3 / "artifacts" / job / "reconstruction.ply"
+        src.parent.mkdir(parents=True)
+        _write_ply(src, [_row(i * 0.01, 0.0, 1.0) for i in range(30)])
+        asset = {"asset_id": "abcdef1234567890", "label": "cat", "status": "ready", "kind": "reconstruction",
+                 "reconstruction_job_id": job, "updated_at": "2026-09-27T00:00:00Z"}
+
+        def fake_aws(*args):
+            assert args[:2] == ("s3", "cp"), args
+            Path(args[3]).write_bytes((s3 / args[2].split(f"s3://{sync.DEFAULT_BUCKET}/")[-1]).read_bytes())
+            return ""
+
+        catalog = self.root / "catalog.json"
+        with mock.patch.object(sync, "_aws", fake_aws), mock.patch.object(sync, "_s3_get", lambda *a: False), \
+                mock.patch.object(sync, "load_assets", lambda *a: [asset]), mock.patch.object(sync, "CATALOG_PATH", catalog), \
+                mock.patch("sys.stdout", new_callable=lambda: __import__("io").StringIO()):
+            code = sync.main(["--unity-project", str(self.unity), "--labels", "cat", "--quest-object-splats", "4",
+                              "--quest-stage-dir", str(self.stage)])
+        self.assertEqual(code, 0)
+        self.assertEqual(sync.GaussianPly.read(self.lib / "cat_abcdef12.ply").count, 30)
+        self.assertEqual(sync.GaussianPly.read(self.lib / "cat_abcdef12_quest.ply").count, 4)
+        self.assertTrue((self.lib / "cat_abcdef12_quest.ply.meta").is_file())
+        written = json.loads(catalog.read_text(encoding="utf-8"))
+        self.assertEqual([a["unity_path"] for a in written["assets"]], [f"{sync.LIBRARY_DIR}/cat_abcdef12.ply"])
+        # --no-quest-lod: no copy.
+        (self.lib / "cat_abcdef12_quest.ply").unlink()
+        (self.lib / "cat_abcdef12_quest.ply.meta").unlink()
+        with mock.patch.object(sync, "_aws", fake_aws), mock.patch.object(sync, "_s3_get", lambda *a: False), \
+                mock.patch.object(sync, "load_assets", lambda *a: [asset]), mock.patch.object(sync, "CATALOG_PATH", catalog), \
+                mock.patch("sys.stdout", new_callable=lambda: __import__("io").StringIO()):
+            sync.main(["--unity-project", str(self.unity), "--labels", "cat", "--no-quest-lod"])
+        self.assertFalse((self.lib / "cat_abcdef12_quest.ply").exists())
 
 
 class CatalogTests(unittest.TestCase):

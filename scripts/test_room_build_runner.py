@@ -307,6 +307,8 @@ class HappyPathTests(RunnerTestCase):
         self.assertIn("Call it Cabin living room.", prompt)
         self.assertIn("Make it feel like our winter trip, cozy by the fire.", prompt)
         self.assertIn("Make it a Quest room where both accounts can find their notes and letters.", prompt)
+        self.assertIn("first run status_code Cabin_living_room and resume", prompt)  # resume, never rebuild
+        self.assertIn("make no meta_add_* calls", prompt)
         self.assertFalse(self.cfg.lock_path.exists())      # released
         self.assertFalse(self.cfg.state_path.exists())     # nothing to resume
 

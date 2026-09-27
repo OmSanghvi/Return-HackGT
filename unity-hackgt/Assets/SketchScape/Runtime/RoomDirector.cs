@@ -2,7 +2,8 @@
 // Canonical source: Return-HackGT/unity-hackgt/ (see scripts/install_hackgt_roomkit.py).
 //
 // Configured by the Editor RoomKit at build time. On Play it:
-//  - reveals objects in order (ease-out scale from ~0, overlapping),
+//  - reveals non-grabbable objects in order (ease-out scale from ~0, overlapping);
+//    grabbable ones stay at full scale (see IsGrabbable),
 //  - fades lights and ambient audio up from zero,
 //  - plays the narration clip (if any) once the reveal starts,
 //  - then keeps a gentle glow pulse and a motif shimmer running.
@@ -38,6 +39,7 @@ namespace SketchScape
         public Color moodColor = new Color(1f, 0.75f, 0.5f);
 
         Vector3[] _targetScales;
+        bool[] _keepScale;
         float[] _lightTargets;
         float[] _audioTargets;
         float _glowBase;
@@ -54,12 +56,14 @@ namespace SketchScape
         {
             int n = revealTargets != null ? revealTargets.Length : 0;
             _targetScales = new Vector3[n];
+            _keepScale = new bool[n];
             for (int i = 0; i < n; i++)
             {
                 var t = revealTargets[i];
                 if (t == null) continue;
                 _targetScales[i] = t.localScale;
-                t.localScale = _targetScales[i] * Tiny;
+                _keepScale[i] = IsGrabbable(t);
+                if (!_keepScale[i]) t.localScale = _targetScales[i] * Tiny;
                 if (keepObjectsKinematic)
                 {
                     var body = t.GetComponent<Rigidbody>();
@@ -97,12 +101,22 @@ namespace SketchScape
             _start = Time.time + startDelay;
         }
 
+        /// <summary>
+        /// Grabbable objects are not scale-revealed. Meta's grab and distance-grab components (Interaction SDK)
+        /// record an object's scale when they start and keep putting it back, so an object shrunk for the reveal
+        /// in Awake was held at 0.1%: it popped up, then vanished (2026-09-27).
+        /// </summary>
+        static bool IsGrabbable(Transform t)
+        {
+            return t.GetComponent<SketchScapePickup>() != null || t.GetComponent("Grabbable") != null;
+        }
+
         /// <summary>Restart the reveal from the beginning (e.g. from a debug button).</summary>
         [ContextMenu("Replay Reveal")]
         public void Replay()
         {
             for (int i = 0; i < _targetScales.Length; i++)
-                if (revealTargets[i] != null) revealTargets[i].localScale = _targetScales[i] * Tiny;
+                if (revealTargets[i] != null && !_keepScale[i]) revealTargets[i].localScale = _targetScales[i] * Tiny;
             _revealDone = false;
             _narrationPlayed = false;
             _start = Time.time + startDelay;
@@ -125,7 +139,7 @@ namespace SketchScape
                 for (int i = 0; i < _targetScales.Length; i++)
                 {
                     var tr = revealTargets[i];
-                    if (tr == null) continue;
+                    if (tr == null || _keepScale[i]) continue;
                     float u = (t - i * _stride) / revealSeconds;
                     if (u < 1f) all = false;
                     tr.localScale = _targetScales[i] * Mathf.Max(Tiny, EaseOutBack(Mathf.Clamp01(u)));

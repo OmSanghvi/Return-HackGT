@@ -196,6 +196,7 @@ Sync behaviour (scripts/sync_s3_assets_to_unity.py `--project-id <p>` and/or `--
   check is in `pose.sync_refine` {coverage, depth_factor, gap_m_before/after, colour_gain}. Library PLYs of
   cut objects may get a per-channel colour gain (clamped 0.7-1.6) to match the photo (`--no-colour-gain` off).
 - `scenes[].cut` records `below_support_pruned`, `filled` and `photo_check`.
+- Every splat it writes also gets a Quest-sized copy next to it, `<name>_quest.ply` (not a catalog asset; see 5b).
 
 ## 5. Room spec (compose_room -> `SketchScape.RoomKit.Build(string json)`)
 
@@ -237,28 +238,69 @@ JsonUtility-compatible: no nested arrays, no dictionaries, no nulls (use
   "staging": {"enabled": true, "mood_color": [..3], "glow_position": [..3], "motif_xz": [x0, z0, x1, z1],
               "reveal_order": ["cat"], "reveal_seconds": 1.2, "narration": "...", "narration_audio_url": ""},
   "teleport": {"floor_collider": true, "hotspots": [x0, y0, z0, x1, y1, z1]},
-  "credits": ["'Title' by Author, CC BY 4.0, via Openverse"]
+  "credits": ["'Title' by Author, CC BY 4.0, via Openverse"],
+  "performance": {"target": "quest", "prefer_quest_lod": true, "pickups": true,
+                  "quest_performance": true, "meta_setup": true}   // optional; absent = these defaults (5b)
 }
 ```
 
-`RoomKit.Build` refuses to run when a non-AgentRooms scene has unsaved changes,
+`RoomKit.Build` refuses to run when an open scene other than the room's own has
+unsaved changes (1.0.16; before, unsaved AgentRooms scenes were discarded),
 creates the scene at `scene_path`, downloads every URL once into
 `Assets/SketchScape/WebCache/` (failures are reported, never fatal), builds
-everything, adds a `SketchScape.RoomDirector` (runtime reveal/ambience) to the
+everything, adds a `SketchScape.RoomDirector` (runtime reveal/ambience) and a
+`SketchScape.RoomBuildInfo` (the performance flags + grabbable ids, for Finalize) to the
 root, saves, and returns a short plain-text report (< 2 KB) of what exists and
 what failed. `RoomKit.Finalize(string slug, float spawnX, float spawnZ, float yaw)`
-moves the Meta camera rig to the spawn point, saves, and reports the room.
+does the Meta XR setup, moves the camera rig to the spawn point, saves, and reports (5b).
 
-Conventions (RoomKit 1.0.14, type `"SketchScape.RoomKit, Assembly-CSharp-Editor"`, `Version()`):
+Conventions (RoomKit 1.0.16, type `"SketchScape.RoomKit, Assembly-CSharp-Editor"`, `Version()`):
 - Build report lines: `OK built <path> root=<root>`, `objects N: id(splat,transform|splat,upright|cube)...`,
   `photo_scene=ok|missing|off sky=... lights= images=a/b audio=a/b particles= hotspots= staging=on(reveal N) lighting=baked`,
   `credits: ...`, optional `notes: ...`, `failures: none|...`, `next: ...`. Errors start with `ERROR`.
 - Gsplat imports PLY (x, y, z) as local (x, y, -z) (`GSPLAT_IMPORT_MAP`); that flip is the one reflection
   right-handed data needs, so photo and object splats get proper rotations. Upright mode: Euler(90,0,0), positive scale.
-- `objects[].id` is the GameObject name (`meta_add_grabbable` NameOrID); `images[].rotation` has +Z pointing away
+- `objects[].id` is the GameObject name under the root (Finalize targets `/<root>/<id>`); `images[].rotation` has +Z pointing away
   from the viewer; the floor plane is centred at the world origin; `floor.height` is -0.02 under a floor-kind photo scene.
 - Floor-kind photo scenes tint the room floor to the photo's own floor colour; surface-kind scenes (no floor in the
   photo) get a collider-less plinth 0.12 m under the surface. After Build/Finalize the Scene View sits at spawn + eye height.
+
+## 5b. Quest budgets + RoomKit 1.0.16 finalize
+
+A room built on 2026-09-27 ran at 5 FPS on a Quest 2: 3.37M Gaussian splats (one 976k-splat teddy bear),
+the Ultra quality level (4x MSAA), no foveation. Every room is now Quest-ready by default:
+
+- **Quest copies (sync).** `scripts/sync_s3_assets_to_unity.py` writes `<name>_quest.ply` next to every splat
+  it syncs (`decimate_splats.decimate`: the most important splats by opacity x area, kept splats scaled up
+  <= 1.3x to keep coverage). Budgets: 25,000 per object (`--quest-object-splats`), 120,000 per photo scene
+  (`--quest-scene-splats`), so a photo scene + 6 objects is ~270k; a smaller source is copied as is;
+  `--no-quest-lod` turns it off. The copy's `.meta` is the source's (same Gsplat importer settings) with a new
+  GUID, moved into `Assets` before the PLY (both are staged in `%LOCALAPPDATA%\SketchScape\questlod-stage`).
+  A copy newer than its source with the right count is skipped; a remade copy keeps its GUID.
+  `--quest-lod-only [PATH ...]` makes / refreshes copies for splats already in the project (no AWS, catalog
+  untouched), e.g. for scans synced before 2026-09-27.
+- **Build** renders `<path>_quest.ply` instead of `<path>.ply` when it exists and `prefer_quest_lod` is on
+  (objects and the photo scene); placement and colliders still come from the full-resolution splat, so the
+  layout is identical either way. Report line: `splats: <n> Quest copies + <m> full-res, <total> in all
+  (target quest)`, naming splats that have no copy and warning above 400,000 splats. `next:` says
+  `finalize_code <slug>`.
+- **Finalize** (one Run Command instead of ~20 `meta_add_*` calls) follows the flags Build recorded
+  (`RoomBuildInfo`; a room built before 1.0.16 gets the defaults, every object grabbable) and only adds what is
+  missing, in order: Meta camera rig -> interaction rig -> near grab and distance grab (PullToHand) on every
+  grabbable object -> a Meta teleport hotspot (SnapPosition) at every `TeleportHotspots/TeleportHotspot_N`
+  marker, moved under its marker (`meta_setup`; it calls the `meta_add_*` tools' own handlers from
+  `com.meta.xr.unity-mcp.extension`, and says so if the package is missing) -> `SketchScapePickup` on every
+  grabbable object (`pickups`) -> `QuestPerformance` (foveated rendering) on the `OVRCameraRig` and, if
+  Android's default quality level has MSAA, Android switched to the highest level without it
+  (`quest_performance`) -> rig to the spawn (floor-level tracking) -> `RoomBuildInfo.finalizedWith` stamped
+  -> save. One report line per step, `added`, `present`, `skipped` or `FAILED`, e.g. `grab 3/3 added`,
+  `teleport hotspots 4/4 present`. When the room's scene isn't the active one, Finalize opens it first,
+  never over unsaved changes. Running it twice is safe.
+- **Status** `RoomKit.Status(string slug)` (read-only; `status_code <slug>`) returns one JSON line with the keys
+  `slug, scene, scene_exists, open, built, objects, grabbable, distance_grabbable, pickups, teleports,
+  camera_rig, interaction_rig, quest_performance, quest_lod_renderers, full_res_renderers, splats_total,
+  finalized, android_msaa`. It never opens a scene: when the room isn't the active scene, `open` is false,
+  `scene_exists` says whether `AgentRooms/<slug>.unity` exists and the other scene values are null.
 
 ## 6. Agent tools (sandbox skill `sketchscape-unity-room`)
 

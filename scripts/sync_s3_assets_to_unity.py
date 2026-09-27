@@ -49,6 +49,19 @@ document's, else ``artifacts/<job_id>/pose.json``), ``photo``, ``upload_id``,
 ``job_id``, ``mask_area_frac`` and PLY bounds, so ``backend/scene_layout.
 photo_room_layout`` can rebuild the photo as a room.
 
+Quest copies (docs/IMMERSIVE_SCENE_PIPELINE.md, "Quest budgets"): every splat
+written into the Unity project also gets a headset-sized copy next to it,
+``<name>_quest.ply`` (``decimate_splats.decimate``: 25k splats per object,
+120k per photo scene; a smaller source is copied as is), which RoomKit renders
+when the room spec's ``performance.prefer_quest_lod`` is on (a 3.37M-splat
+room ran at 5 FPS on a Quest 2). Each copy gets a ``.meta`` with the source's
+Gsplat importer settings and a new GUID, written before the PLY appears in
+``Assets`` (the copy is staged outside it, then moved in). A copy newer than
+its source with the right splat count is left alone; a regenerated copy keeps
+its GUID. The copies are not catalog assets. ``--quest-lod-only [PATH ...]``
+makes / refreshes them for splats already in the project (no AWS, catalog
+untouched); ``--no-quest-lod`` skips them.
+
 Standard library only (plus the AWS CLI, already logged in via
 ``aws login``), so it runs from any Python 3.10+ on this machine.
 
@@ -56,6 +69,8 @@ Standard library only (plus the AWS CLI, already logged in via
         [--bucket NAME] [--table NAME] [--region us-east-1] [--labels cat tomato]
         [--project-id ID]   # every ready scan of one project + its photos' scenes
         [--scene-id ID ...] # standalone photo scenes (no objects), e.g. testroom1
+        [--quest-object-splats 25000] [--quest-scene-splats 120000] [--no-quest-lod]
+    python scripts/sync_s3_assets_to_unity.py --quest-lod-only [Assets/SketchScape/AssetLibrary/cat_1234abcd.ply ...]
 """
 
 from __future__ import annotations
@@ -64,12 +79,14 @@ import argparse
 import bisect
 import json
 import math
+import os
 import re
 import shutil
 import struct
 import subprocess
 import sys
 import tempfile
+import uuid
 import zlib
 from array import array
 from pathlib import Path
@@ -115,6 +132,31 @@ FILL_BLUR_PX = 5  # box blur radius over the patch colours (pixels)
 PRUNE_BELOW_M = {"surface": 0.05, "floor": 0.12}  # scene Gaussians this far below the support are floaters
 CATALOG_GRID = (16, 12)  # the scene's depth grid is kept in the catalog at this coarser size
 
+# Quest copies (<name>_quest.ply next to each synced splat; RoomKit renders them for the headset).
+# A Quest 2 ran a 3.37M-splat room at 5 FPS; these budgets keep a photo scene + ~6 objects near 270k.
+QUEST_SUFFIX = "_quest"
+QUEST_OBJECT_SPLATS = 25000
+QUEST_SCENE_SPLATS = 120000
+QUEST_MAX_SCALE_UP = 1.3  # decimate_splats' cap on the coverage-preserving scale-up of kept splats
+QUEST_STAGE_DIR = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "SketchScape" / "questlod-stage"
+# What Unity writes for a PLY the Gsplat importer (com.arloopa.unitysplats) imports with its defaults
+# (Compression 1 = Spark, SourceCoordinates 0 = Unspecified); used when the source has no .meta yet.
+GSPLAT_META_TEMPLATE = (
+    "fileFormatVersion: 2\n"
+    "guid: {guid}\n"
+    "ScriptedImporter:\n"
+    "  internalIDToNameTable: []\n"
+    "  externalObjects: {{}}\n"
+    "  serializedVersion: 2\n"
+    "  userData: \n"
+    "  assetBundleName: \n"
+    "  assetBundleVariant: \n"
+    "  script: {{fileID: 11500000, guid: 7468ea6559404cbc8f3e83b0b1a00683, type: 3}}\n"
+    "  Compression: 1\n"
+    "  SourceCoordinates: 0\n"
+)
+_GUID_LINE = re.compile(r"^guid: *[0-9a-fA-F]*[ \t]*$", re.MULTILINE)
+
 
 def _load_scene_layout():
     """backend/scene_layout.py (stdlib only), loaded by path so backend/'s
@@ -131,6 +173,20 @@ def _load_scene_layout():
 
 
 scene_layout = _load_scene_layout()
+
+
+def _load_decimate():
+    """scripts/decimate_splats.py (stdlib only), loaded by path like scene_layout."""
+    import importlib.util
+
+    path = Path(__file__).resolve().parent / "decimate_splats.py"
+    spec = importlib.util.spec_from_file_location("decimate_splats", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+decimate_splats = _load_decimate()
 
 
 # ---------------------------------------------------------------------------
@@ -1065,6 +1121,145 @@ def _r(values, digits: int = 4) -> list[float]:
 
 
 # ---------------------------------------------------------------------------
+# Quest copies (<name>_quest.ply)
+# ---------------------------------------------------------------------------
+
+
+def is_quest_copy(path) -> bool:
+    return Path(path).stem.endswith(QUEST_SUFFIX)
+
+
+def quest_path(ply) -> Path:
+    """``.../boat_c1e624fe.ply`` -> ``.../boat_c1e624fe_quest.ply`` (what RoomKit looks for)."""
+    ply = Path(ply)
+    return ply.with_name(ply.stem + QUEST_SUFFIX + ply.suffix)
+
+
+def _meta_path(path: Path) -> Path:
+    return path.with_name(path.name + ".meta")
+
+
+def quest_meta_text(source_meta: Path) -> str:
+    """The copy's ``.meta``: the source's (same Gsplat importer settings) with a new GUID, or the
+    Gsplat importer's defaults when Unity hasn't imported the source yet (no ``.meta``)."""
+    guid = uuid.uuid4().hex  # 32 hex digits, like Unity's
+    try:
+        text = source_meta.read_text(encoding="utf-8")
+    except OSError:
+        text = ""
+    if not _GUID_LINE.search(text) or "ScriptedImporter:" not in text:
+        return GSPLAT_META_TEMPLATE.format(guid=guid)
+    return _GUID_LINE.sub(f"guid: {guid}", text, count=1)
+
+
+def _move_into_place(staged: Path, dest: Path) -> None:
+    try:
+        os.replace(staged, dest)  # atomic on one volume
+    except OSError:
+        shutil.move(str(staged), str(dest))  # stage on another drive: copy + delete
+
+
+def make_quest_copy(src, budget: int, *, stage: Path = QUEST_STAGE_DIR, max_scale_up: float = QUEST_MAX_SCALE_UP,
+                    force: bool = False) -> dict:
+    """Write ``<src>_quest.ply`` next to ``src``: its ``budget`` most important splats
+    (``decimate_splats.decimate``), or a plain copy when it has no more than that.
+
+    Unity must never see a half-written PLY or a PLY without its ``.meta`` (it would give the
+    copy its own GUID), so the copy is written in ``stage`` (outside ``Assets``), a new copy's
+    ``.meta`` is moved in first, then the PLY. An existing copy keeps its ``.meta`` (and so its
+    GUID: rooms that use it keep working). A copy newer than its source with the expected splat
+    count is left alone unless ``force``.
+
+    Returns ``{"path", "action": "made"|"copied"|"current"|"failed", "source", "kept", "scale_up", "error"?}``."""
+    src = Path(src)
+    dst = quest_path(src)
+    dst_meta = _meta_path(dst)
+    info = {"path": dst, "action": "failed", "source": None, "kept": None, "scale_up": 1.0}
+    try:
+        _, _, count = decimate_splats.read_header(src)
+        info["source"] = count
+        want = min(budget, count)
+        if not force and dst.is_file() and dst_meta.is_file() and dst.stat().st_mtime >= src.stat().st_mtime:
+            try:
+                _, _, have = decimate_splats.read_header(dst)
+            except (ValueError, OSError):
+                have = None
+            if have == want:
+                info.update(action="current", kept=have)
+                return info
+        stage = Path(stage)
+        stage.mkdir(parents=True, exist_ok=True)
+        token = uuid.uuid4().hex[:8]
+        staged = stage / f"{token}_{dst.name}"
+        staged_meta = stage / f"{token}_{dst_meta.name}"
+        try:
+            if count <= budget:
+                shutil.copyfile(src, staged)
+                info.update(action="copied", kept=count)
+            else:
+                stats = decimate_splats.decimate(src, staged, budget, max_scale_up)
+                info.update(action="made", kept=stats["kept"], scale_up=stats["scale_up"])
+            if not dst_meta.is_file():
+                staged_meta.write_text(quest_meta_text(_meta_path(src)), encoding="utf-8", newline="\n")  # LF, as Unity writes
+                _move_into_place(staged_meta, dst_meta)  # the .meta is in Assets before the PLY
+            _move_into_place(staged, dst)
+        finally:
+            for leftover in (staged, staged_meta, staged.with_name(staged.name + ".writing")):
+                if leftover.exists():
+                    leftover.unlink()
+    except (ValueError, OSError) as exc:
+        info.update(action="failed", error=f"{type(exc).__name__}: {exc}")
+    return info
+
+
+def quest_budget(rel_path: str, *, object_splats: int, scene_splats: int) -> int:
+    """Photo scenes (``Assets/SketchScape/Scenes/...``) get the scene budget, everything else the object one."""
+    return scene_splats if rel_path.replace("\\", "/").startswith(SCENES_DIR + "/") else object_splats
+
+
+def project_splats(unity: Path) -> list[str]:
+    """Every synced splat in the Unity project (not the ``_quest`` copies), as project-relative paths."""
+    found = []
+    for pattern in (f"{LIBRARY_DIR}/*.ply", f"{SCENES_DIR}/*/*.ply"):
+        for path in sorted(Path(unity).glob(pattern)):
+            if path.is_file() and not is_quest_copy(path):
+                found.append(path.relative_to(unity).as_posix())
+    return found
+
+
+def make_quest_copies(unity: Path, rel_paths, *, object_splats: int = QUEST_OBJECT_SPLATS,
+                      scene_splats: int = QUEST_SCENE_SPLATS, stage: Path = QUEST_STAGE_DIR, force: bool = False) -> list[dict]:
+    """``make_quest_copy`` for each project-relative splat path (``_quest`` copies and missing
+    files are skipped with a note); prints one line each and never raises for a bad file."""
+    results = []
+    for rel in dict.fromkeys(rel_paths):
+        if not rel:
+            continue
+        rel = str(rel).replace("\\", "/")
+        src = Path(unity) / rel
+        if is_quest_copy(src) or src.suffix.lower() != ".ply":
+            print(f"quest  {rel}: skipped (not a source splat)")
+            continue
+        if not src.is_file():
+            print(f"quest  {rel}: skipped (missing)")
+            results.append({"path": quest_path(src), "action": "failed", "source": None, "kept": None,
+                            "scale_up": 1.0, "error": "source missing"})
+            continue
+        budget = quest_budget(rel, object_splats=object_splats, scene_splats=scene_splats)
+        info = make_quest_copy(src, budget, stage=stage, force=force)
+        name = info["path"].name
+        if info["action"] == "failed":
+            print(f"quest  {name}: FAILED ({info.get('error')})")
+        elif info["action"] == "current":
+            print(f"quest  {name}: up to date ({info['kept']:,} splats)")
+        else:
+            print(f"quest  {name}: {info['kept']:,} of {info['source']:,} splats"
+                  + (f", scale x{info['scale_up']:.2f}" if info["action"] == "made" else ", copied as is"))
+        results.append(info)
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Sync
 # ---------------------------------------------------------------------------
 
@@ -1287,7 +1482,7 @@ def sync_standalone_scene(scene_id: str, *, bucket: str, unity: Path, tmp: Path,
     return sync_scene(scene_id, [], bucket=bucket, project_id="", unity=unity, tmp=tmp)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--unity-project", default=str(REPO.parent / "HackGTUnity"))
     parser.add_argument("--bucket", default=DEFAULT_BUCKET)
@@ -1302,11 +1497,37 @@ def main() -> int:
     )
     parser.add_argument("--no-colour-gain", action="store_true",
                         help="don't match the colour of cut-out scans to the photo (their PLYs stay as reconstructed)")
-    args = parser.parse_args()
+    parser.add_argument("--quest-object-splats", type=int, default=QUEST_OBJECT_SPLATS,
+                        help=f"splat budget of an object's Quest copy <name>_quest.ply (default {QUEST_OBJECT_SPLATS})")
+    parser.add_argument("--quest-scene-splats", type=int, default=QUEST_SCENE_SPLATS,
+                        help=f"splat budget of a photo scene's Quest copy scene_quest.ply (default {QUEST_SCENE_SPLATS})")
+    parser.add_argument("--no-quest-lod", action="store_true",
+                        help="don't write the Quest-sized <name>_quest.ply copies next to the synced splats")
+    parser.add_argument("--quest-lod-only", nargs="*", metavar="PATH",
+                        help="no AWS and no catalog change: only make / refresh the Quest copies of splats already in "
+                             "the Unity project (every AssetLibrary / Scenes PLY, or just these project-relative paths)")
+    parser.add_argument("--quest-stage-dir", default=str(QUEST_STAGE_DIR),
+                        help="where Quest copies are written before they move into Assets (default %(default)s)")
+    args = parser.parse_args(argv)
     global COLOUR_GAIN_ENABLED
     COLOUR_GAIN_ENABLED = not args.no_colour_gain
+    if args.quest_object_splats <= 0 or args.quest_scene_splats <= 0:
+        parser.error("--quest-object-splats / --quest-scene-splats must be positive")
 
     unity = Path(args.unity_project)
+    quest_opts = {"object_splats": args.quest_object_splats, "scene_splats": args.quest_scene_splats,
+                  "stage": Path(args.quest_stage_dir)}
+    if args.quest_lod_only is not None:
+        if not (unity / "Assets").is_dir():
+            print(f"error: {unity} is not a Unity project (no Assets/)", file=sys.stderr)
+            return 2
+        paths = args.quest_lod_only or project_splats(unity)
+        results = make_quest_copies(unity, paths, **quest_opts)
+        failed = sum(1 for r in results if r["action"] == "failed")
+        print(f"Quest copies: {len(results) - failed} ok, {failed} failed under {unity}. "
+              "Refresh the Unity Editor's AssetDatabase so the Gsplat importer imports them.")
+        return 1 if failed else 0
+
     library = unity / LIBRARY_DIR
     library.mkdir(parents=True, exist_ok=True)
     scenes_only = bool(args.scene_id) and not args.project_id and args.labels is None
@@ -1348,11 +1569,18 @@ def main() -> int:
             layout_preview(scene, merged["assets"])
         except Exception as exc:  # the preview must never fail a sync
             print(f"  layout preview failed: {type(exc).__name__}: {exc}")
+    # Quest copies last: the colour gain above may have rewritten a scan's PLY after it was synced.
+    quest_note = "Quest copies off (--no-quest-lod)"
+    if not args.no_quest_lod:
+        paths = [a["unity_path"] for a in catalog] + [s["unity_path"] for s in scenes if s.get("unity_path")]
+        results = make_quest_copies(unity, paths, **quest_opts)
+        failed = sum(1 for r in results if r["action"] == "failed")
+        quest_note = f"{len(results) - failed} Quest copies ok" + (f", {failed} FAILED (rooms render those full-res)" if failed else "")
     posed = sum(1 for a in catalog if is_pose_v2(a.get("pose")))
+    shown = CATALOG_PATH.relative_to(REPO) if CATALOG_PATH.is_relative_to(REPO) else CATALOG_PATH
     print(
         f"Wrote {len(catalog)} asset(s) ({posed} with a pose v2) and {len(scenes)} scene(s) under {unity}; "
-        f"catalog now has {len(merged['assets'])} assets / {len(merged['scenes'])} scenes in "
-        f"{CATALOG_PATH.relative_to(REPO)}."
+        f"{quest_note}; catalog now has {len(merged['assets'])} assets / {len(merged['scenes'])} scenes in {shown}."
     )
     print("Next: refresh the Unity Editor's AssetDatabase so the Gsplat importer imports them.")
     return 0
