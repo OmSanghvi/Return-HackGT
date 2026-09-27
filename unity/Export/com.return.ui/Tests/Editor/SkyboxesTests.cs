@@ -19,7 +19,7 @@ namespace Return.UI.Tests
         public void FileFor_MatchesTheDesignedMap()
         {
             Assert.AreEqual("sky-kloofendal-48d-partly-cloudy", Skyboxes.FileFor(SceneKey.Hub));
-            Assert.AreEqual("sky-evening-meadow", Skyboxes.FileFor(SceneKey.Meadow));
+            Assert.AreEqual("sky-kloofendal-48d-partly-cloudy", Skyboxes.FileFor(SceneKey.Meadow));
             Assert.AreEqual("sky-kloofendal-48d-partly-cloudy", Skyboxes.FileFor(SceneKey.Plain));
             Assert.AreEqual("sky-citrus-orchard", Skyboxes.FileFor(SceneKey.Clouds));
             Assert.AreEqual("sky-citrus-orchard", Skyboxes.FileFor(SceneKey.CloudSea));

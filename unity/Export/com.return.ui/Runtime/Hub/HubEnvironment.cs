@@ -6,9 +6,9 @@ namespace Return.UI
 {
     /// <summary>
     /// The hub's sky: a real equirectangular skybox (RenderSettings.skybox) graded to match the room's mood, ambient
-    /// light and fog tinted from its horizon color, and a meadow grass floor underfoot ringed by distant hills and
-    /// trees. Used for the hub and, with a different sky, for stub worlds (extras off there: no floor/hills/trees/
-    /// fireflies/motes/lanterns, just the plain fogged floor, so stub worlds stay cheap). Used to build a painted
+    /// light and fog tinted from its horizon color, and still water underfoot. Used for the hub and, with a different
+    /// sky, for stub worlds (extras off there: no water/fireflies/motes/lanterns, just the plain fogged floor, so stub
+    /// worlds stay cheap). Used to build a painted
     /// dome + panorama backdrop; that's gone in favor of Skyboxes, so the portal windows (RoomPortal) are now the
     /// only place a painted sky still gets drawn.
     /// </summary>
@@ -26,7 +26,7 @@ namespace Return.UI
         public static SceneKey DefaultScene(bool dusk) => dusk ? SceneKey.Hub : SceneKey.Meadow;
 
         /// <summary>Build under parent. arcDegrees is unused now that the sky is a real skybox rather than a curved panorama
-        /// (kept so existing callers don't need to change). extras adds the meadow floor, hills ring, distant trees,
+        /// (kept so existing callers don't need to change). extras adds the still-water floor,
         /// fireflies, motes, lanterns and daytime birds, and toggles the hub ambience loop with this object's enabled
         /// state; leave false for stub worlds.</summary>
         public static HubEnvironment Build(Transform parent, Transform head, SceneKey scene, bool dusk, float arcDegrees = 150f, bool extras = false)
@@ -39,14 +39,8 @@ namespace Return.UI
 
             if (extras)
             {
-                var horizon = Skyboxes.Horizon(scene);
-                // soft warm sun so the hills, trees and portal frames shade as solid shapes instead of flat cutouts; it
-                // lives under the hub root, so it switches off with the hub while a world (with its own sun) is loaded
-                var sunGo = new GameObject("Sun"); sunGo.transform.SetParent(go.transform, false); sunGo.transform.localRotation = Quaternion.Euler(50f, -30f, 0f);
-                var sun = sunGo.AddComponent<Light>(); sun.type = LightType.Directional; sun.color = new Color(1f, 0.96f, 0.9f); sun.intensity = 1.1f; sun.shadows = LightShadows.None;
-                RenderSettings.sun = sun;
-                env.BuildPhotoGround(go.transform); // the photographed meadow sky (sky-evening-meadow) supplies the distant landscape and treeline
-                DistantTrees.Create(go.transform);
+                // still water instead of the fogged disc: reflects the sky (no ripples, see WaterFloor)
+                WaterFloor.Create(go.transform);
                 Motes.Create(go.transform);
                 // fireflies and lanterns only make sense once it's dark; day gets drifting blossom petals and birdsong instead
                 if (dusk) { Fireflies.Create(go.transform); Lanterns.Create(go.transform); }
@@ -64,23 +58,6 @@ namespace Return.UI
                 floor.AddComponent<MeshRenderer>().sharedMaterial = env._floor;
             }
             return env;
-        }
-
-        /// <summary>Photo grass (Poly Haven leafy_grass, tinted to the HDRI's own ground color) tiled in world space under the
-        /// viewer, fading out between 8 and 24 m so it melts into the photographed meadow in the skybox instead of
-        /// ending at an edge. The tint is the sky's average ground color (rows ~20-35 degrees below the horizon) over the
-        /// grass photo's average, measured once when the assets were picked.</summary>
-        void BuildPhotoGround(Transform parent)
-        {
-            var floor = new GameObject("Floor"); floor.transform.SetParent(parent, false);
-            floor.AddComponent<MeshFilter>().sharedMesh = SkyBackdrop.Quad();
-            floor.transform.localRotation = Quaternion.Euler(90, 0, 0); floor.transform.localPosition = new Vector3(0, -0.02f, 0); floor.transform.localScale = new Vector3(60, 60, 1);
-            _floor = WorldShaders.Create(WorldShaders.Photo, "Photo");
-            var grass = Resources.Load<Texture2D>("ReturnUI/Ground/leafy-grass");
-            if (grass != null) _floor.SetTexture("_MainTex", grass);
-            _floor.SetColor("_Tint", new Color(0.42f, 0.6f, 0.4f, 1f));
-            _floor.SetFloat("_WorldTiling", 2.5f); _floor.SetFloat("_FadeInner", 8f); _floor.SetFloat("_FadeOuter", 24f);
-            floor.AddComponent<MeshRenderer>().sharedMaterial = _floor;
         }
 
         /// <summary>RenderSettings.skybox/ambient/fog and the liquid-glass blur source, all from this environment's sky.

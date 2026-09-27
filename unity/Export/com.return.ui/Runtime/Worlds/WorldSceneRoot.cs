@@ -84,7 +84,6 @@ namespace Return.UI
     {
         public const string ContactShadow = "Return/ContactShadow";
         public const string WorldEdge = "Return/WorldEdge";
-        public const string Photo = "Return/Photo";
         const string Root = "ReturnUI/Shaders/";
 
         public static Material Create(string shaderName, string templateName)

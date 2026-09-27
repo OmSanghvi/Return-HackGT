@@ -42,6 +42,3 @@ infra/aws/.terraform.tfstate.lock.info
 !unity/Export/com.return.ui/Runtime/Data/
 .claude/worktrees/
 
-# Poly Haven source models for baking hub tree impostors (Editor/ReturnImpostorBaker); large, re-downloadable, not shipped
-unity/Assets/_PhotorealSource/
-unity/Assets/_PhotorealSource.meta
