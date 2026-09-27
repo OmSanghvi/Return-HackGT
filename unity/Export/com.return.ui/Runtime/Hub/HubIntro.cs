@@ -153,9 +153,9 @@ namespace Return.UI
             _nudgeHidden = false;
             var panel = SpatialPanel.Create("Nudge", 560, 120, transform);
             var fwd = _head.forward; fwd.y = 0; if (fwd.sqrMagnitude < 0.01f) fwd = Vector3.forward; fwd.Normalize();
-            panel.transform.position = _head.position + fwd * (ReturnSpatial.PortalRingRadius * 0.85f) + Vector3.down * 0.55f;
+            panel.transform.position = _head.position + fwd * (ReturnSpatial.PortalRingRadius * 0.6f) + Vector3.down * 0.35f;
             panel.transform.rotation = Quaternion.LookRotation(fwd);
-            panel.transform.localScale = Vector3.one * 0.0016f;
+            panel.transform.localScale = Vector3.one * 0.0026f;
             var col = UI.V(panel.rect, "Nudge", 8, UI.Pad(24), TextAnchor.MiddleCenter); UI.Stretch(col);
             UI.Bg(col, ColorRole.Glass, 30); UI.Border(col, ColorRole.GlassEdge, 30, 2);
             UI.Text(col, "Reach toward a world to step in", TextStyle.Body, ColorRole.OnGlass, TextAlignmentOptions.Center);

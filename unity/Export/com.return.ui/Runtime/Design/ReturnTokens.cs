@@ -319,12 +319,12 @@ namespace Return.Design
         public const float TargetGap = 0.012f;
         /// <summary>Poke travel (7mm).</summary>
         public const float PressDepth = 0.007f;
-        /// <summary>RoomPortal arched window width.</summary>
-        public const float PortalWidth = 0.9f;
-        /// <summary>RoomPortal height.</summary>
-        public const float PortalHeight = 1.2f;
-        /// <summary>Portals float on an arc this far from the viewer.</summary>
-        public const float PortalRingRadius = 2.4f;
+        /// <summary>RoomPortal doorway width: large and prominent, a real gateway rather than a placeholder frame.</summary>
+        public const float PortalWidth = 1.4f;
+        /// <summary>RoomPortal doorway height.</summary>
+        public const float PortalHeight = 2.3f;
+        /// <summary>Portals sit on an arc this far from the viewer, spaced further out to fit the larger doorways.</summary>
+        public const float PortalRingRadius = 4.6f;
         /// <summary>Portal bob amplitude (2cm over 6s).</summary>
         public const float PortalBob = 0.02f;
         /// <summary>Nameplate height above the head.</summary>

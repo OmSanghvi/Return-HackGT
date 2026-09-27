@@ -6,9 +6,10 @@ namespace Return.UI
 {
     /// <summary>
     /// Keeps a world from ever cutting to black void at its edge: exponential fog tinted to the room's horizon color,
-    /// density set from the world's bounds, plus a large ground disc beyond those bounds that dissolves from a ground
-    /// color to fully transparent toward its rim, so the floor melts into the real skybox behind it instead of stopping short.
-    /// Restores whatever RenderSettings.fog* was before this world loaded when it unloads.
+    /// density set from the world's bounds, a ground disc beyond those bounds that stays opaque out to a ring of
+    /// distant hills (so there's no visible drop-off past the world's own floor), and the hills ring itself, far
+    /// enough out that fog hides its own outer edge. Restores whatever RenderSettings.fog* was before this world
+    /// loaded when it unloads.
     /// </summary>
     public class WorldEdge : MonoBehaviour
     {
@@ -43,7 +44,9 @@ namespace Return.UI
 
         void BuildGroundDisc(Bounds bounds, float worldRadius, Color horizon)
         {
-            float discRadius = worldRadius * 2.2f + 3f; // well beyond the world's own footprint
+            // hills start right where the ground disc ends, so there's no gap that shows a drop-off between them
+            float hillsInner = worldRadius * 1.3f, hillsOuter = worldRadius * 3f + 10f;
+            float discRadius = hillsInner;
             var disc = new GameObject("Ground");
             disc.transform.SetParent(transform, false);
             disc.transform.position = new Vector3(bounds.center.x, bounds.min.y - 0.05f, bounds.center.z); // just under the scene's own ground, so it only shows past the ground's edge
@@ -56,11 +59,16 @@ namespace Return.UI
 
             _material = WorldShaders.Create(WorldShaders.WorldEdge, "WorldEdge");
             var ground = Color.Lerp(horizon, Color.black, 0.2f); ground.a = 1f; // a touch darker than the horizon so it still reads as ground
-            var edgeColor = horizon; edgeColor.a = 0f;
+            var edgeColor = ground; edgeColor.a = 1f; // opaque all the way out now: the hills ring (not a fade to transparent) is what hides the disc's own edge
             if (_material.HasProperty("_GroundColor")) _material.SetColor("_GroundColor", ground);
             if (_material.HasProperty("_EdgeColor")) _material.SetColor("_EdgeColor", edgeColor);
-            if (_material.HasProperty("_InnerRadius")) _material.SetFloat("_InnerRadius", Mathf.Clamp01(worldRadius / discRadius));
+            if (_material.HasProperty("_InnerRadius")) _material.SetFloat("_InnerRadius", 0.9f); // nearly solid; no transparency left to hide a seam against the hills
             mr.sharedMaterial = _material;
+
+            var hillColor = Color.Lerp(ground, new Color(0.42f, 0.58f, 0.36f), 0.65f); // ground tone nudged green, so the ring reads as land, not just a darker fog wall
+            float maxHeight = Mathf.Clamp(worldRadius * 0.35f, 2f, 12f);
+            var hills = HillsRing.Build(transform, hillsInner, hillsOuter, maxHeight, hillColor, Mathf.RoundToInt(worldRadius * 97f) + 13);
+            hills.transform.position = disc.transform.position; // same height/center as the ground disc it continues
         }
 
         void OnDestroy()

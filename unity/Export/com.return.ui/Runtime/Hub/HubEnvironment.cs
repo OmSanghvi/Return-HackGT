@@ -8,8 +8,9 @@ namespace Return.UI
     /// The hub's sky: a real equirectangular skybox (RenderSettings.skybox) graded to match the room's mood, ambient
     /// light and fog tinted from its horizon color, and still water underfoot. Used for the hub and, with a different
     /// sky, for stub worlds (extras off there: no water/fireflies/motes/lanterns, just the plain fogged floor, so stub
-    /// worlds stay cheap). Used to build a painted dome + panorama backdrop; that's gone in favor of Skyboxes, so the
-    /// portal windows (RoomPortal) are now the only place a painted sky still gets drawn.
+    /// worlds stay cheap). Used to build a painted
+    /// dome + panorama backdrop; that's gone in favor of Skyboxes, so the portal windows (RoomPortal) are now the
+    /// only place a painted sky still gets drawn.
     /// </summary>
     public class HubEnvironment : MonoBehaviour
     {
@@ -25,8 +26,9 @@ namespace Return.UI
         public static SceneKey DefaultScene(bool dusk) => dusk ? SceneKey.Hub : SceneKey.Meadow;
 
         /// <summary>Build under parent. arcDegrees is unused now that the sky is a real skybox rather than a curved panorama
-        /// (kept so existing callers don't need to change). extras adds the still-water floor, fireflies, motes, lanterns
-        /// and daytime birds, and toggles the hub ambience loop with this object's enabled state; leave false for stub worlds.</summary>
+        /// (kept so existing callers don't need to change). extras adds the still-water floor,
+        /// fireflies, motes, lanterns and daytime birds, and toggles the hub ambience loop with this object's enabled
+        /// state; leave false for stub worlds.</summary>
         public static HubEnvironment Build(Transform parent, Transform head, SceneKey scene, bool dusk, float arcDegrees = 150f, bool extras = false)
         {
             var go = new GameObject("Environment"); go.transform.SetParent(parent, false);
@@ -37,7 +39,7 @@ namespace Return.UI
 
             if (extras)
             {
-                // still water instead of the fogged disc: reflects the sky, ripples where controllers point or dip in
+                // still water instead of the fogged disc: reflects the sky (no ripples, see WaterFloor)
                 WaterFloor.Create(go.transform);
                 Motes.Create(go.transform);
                 // fireflies and lanterns only make sense once it's dark; day gets drifting blossom petals and birdsong instead
@@ -83,7 +85,7 @@ namespace Return.UI
         void OnDisable() { if (_extras) ReturnAudio.Ambience(false, 1.2f, _dusk); }
 
         // _sky is a cached, shared Skyboxes material (reused across every HubEnvironment for the same scene), so it is
-        // never destroyed here; only the fogged-floor material this instance owns.
+        // never destroyed here; only the floor material this instance owns (the meadow disc, or the stub-world fogged disc).
         void OnDestroy() { if (_floor != null) Destroy(_floor); }
     }
 }

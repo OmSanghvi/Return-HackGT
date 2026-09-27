@@ -16,7 +16,6 @@ namespace Return.UI
     /// </summary>
     public class HubController : MonoBehaviour
     {
-        public const float RingRadius = ReturnSpatial.PortalRingRadius;
 
         public IRoomStore store;
         public Transform head, leftHand;
@@ -154,18 +153,42 @@ namespace Return.UI
             PortalsLaidOut?.Invoke(_cards.Where(c => c != null).Select(c => c.portal).ToList());
         }
 
+        /// <summary>Hall layout (play-test sketch): the portals stand on an oval ahead of spawn, split into a left and a
+        /// right row that face inward across the hall, open at the spawn end and at the far end. Returns a slot's position
+        /// relative to spawn (x right, z ahead, before the viewer's yaw) for index i of n; face it with FacingIn. Pure and testable.</summary>
+        public static Vector3 HallSlot(int i, int n)
+        {
+            float theta; // degrees around the hall's center, 0 = far end, negative = left
+            if (n <= 1) theta = 0f;
+            else
+            {
+                int left = (n + 1) / 2, right = n - left;
+                bool onLeft = i < left;
+                int k = onLeft ? i : i - left, count = onLeft ? left : right;
+                float u = count == 1 ? 0.5f : k / (float)(count - 1);
+                // left row runs near -> far, right row far -> near, so index order sweeps clockwise around the hall
+                theta = onLeft ? -Mathf.Lerp(HallNearDeg, HallFarDeg, u) : Mathf.Lerp(HallFarDeg, HallNearDeg, u);
+            }
+            float r = theta * Mathf.Deg2Rad;
+            return new Vector3(Mathf.Sin(r) * HallRadius, 0f, HallCenter + Mathf.Cos(r) * HallRadius);
+        }
+
+        /// <summary>Rotation for a slot so the portal opens toward a point just ahead of spawn: angled across the hall, but
+        /// never edge-on from where you stand (its forward points away from that point, the viewer is on its -Z side).</summary>
+        public static Quaternion FacingIn(Vector3 slot) => Quaternion.LookRotation(new Vector3(slot.x, 0f, slot.z - HallAim));
+
+        public const float HallCenter = 4.2f, HallRadius = 3f, HallNearDeg = 130f, HallFarDeg = 45f, HallAim = 1.5f;
+
         void LayoutRing()
         {
             int n = _cards.Count;
-            float span = Mathf.Min(150f, 38f * (n - 1));
+            var yaw = Quaternion.Euler(0, _yaw, 0);
             for (int i = 0; i < n; i++)
             {
-                float t = n == 1 ? 0.5f : i / (float)(n - 1);
-                float a = Mathf.Lerp(-span / 2f, span / 2f, t);
-                var dir = Quaternion.Euler(0, _yaw + a, 0) * Vector3.forward;
                 var tr = _cards[i] != null ? _cards[i].transform : null;
                 if (tr == null) continue;
-                tr.position = new Vector3(0, 0, 0) + dir * RingRadius; tr.rotation = Quaternion.LookRotation(dir);
+                var slot = HallSlot(i, n);
+                tr.position = yaw * slot; tr.rotation = yaw * FacingIn(slot);
             }
         }
 

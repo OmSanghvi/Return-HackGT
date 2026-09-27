@@ -15,6 +15,8 @@ namespace Return.UI
     public class ArrivalCard : MonoBehaviour
     {
         const float FadeSeconds = 0.5f, HoldSeconds = 2.5f; // 0.5 in + 2.5 hold + 0.5 out = 3.5s
+        /// <summary>Full show duration; WorldSession locks movement for this long while the card is up.</summary>
+        public const float TotalSeconds = FadeSeconds * 2f + HoldSeconds;
 
         CanvasGroup _cg;
 

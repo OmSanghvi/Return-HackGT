@@ -3,9 +3,9 @@ using UnityEngine;
 
 namespace Return.UI
 {
-    /// <summary>~45 sparse blossom petals drifting down over the day hub: soft pink/white, slow fall with a gentle sway.
-    /// Day's replacement for Fireflies and Lanterns (dusk-only, see HubEnvironment). Same technique as Motes: built-in
-    /// ParticleSystem modules only, no per-frame script, so it stays cheap on Quest.</summary>
+    /// <summary>~160 cherry-blossom petals drifting down over the day hub: pink gradient (no pure white), oval-shaped,
+    /// slow fall with a gentle sway. Day's replacement for Fireflies and Lanterns (dusk-only, see HubEnvironment).
+    /// Same technique as Motes: built-in ParticleSystem modules only, no per-frame script, so it stays cheap on Quest.</summary>
     public static class Petals
     {
         public static ParticleSystem Create(Transform parent)
@@ -13,17 +13,21 @@ namespace Return.UI
             var go = new GameObject("Petals"); go.transform.SetParent(parent, false);
             var ps = go.AddComponent<ParticleSystem>();
             var main = ps.main;
-            main.loop = true; main.playOnAwake = true; main.maxParticles = 45;
+            main.loop = true; main.playOnAwake = true; main.maxParticles = 160;
             main.simulationSpace = ParticleSystemSimulationSpace.Local;
-            main.startLifetime = 16f; main.startSpeed = 0.16f; main.startSize = 0.03f;
-            main.startColor = new ParticleSystem.MinMaxGradient(new Color(1f, 0.86f, 0.9f, 0.85f), new Color(1f, 1f, 1f, 0.75f));
+            main.startLifetime = 16f; main.startSpeed = 0.16f;
+            main.startSize3D = true; // an oval petal, not a round fleck
+            main.startSizeX = new ParticleSystem.MinMaxCurve(0.06f, 0.11f);
+            main.startSizeY = new ParticleSystem.MinMaxCurve(0.036f, 0.066f); // ~0.6x width
+            main.startSizeZ = new ParticleSystem.MinMaxCurve(0.06f, 0.11f); // all three axes must share a curve mode
+            main.startColor = new ParticleSystem.MinMaxGradient(new Color(1f, 0.72f, 0.82f, 0.95f), new Color(0.98f, 0.83f, 0.9f, 0.9f));
             main.gravityModifier = 0.03f; // heavier and slower than Motes' dust
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, 360f * Mathf.Deg2Rad);
 
-            var emission = ps.emission; emission.rateOverTime = 3f; // ~45 alive at once given the 16s lifetime, sparse by design
+            var emission = ps.emission; emission.rateOverTime = 10f;
 
             var shape = ps.shape;
-            shape.shapeType = ParticleSystemShapeType.Circle; shape.radius = 7f; shape.position = new Vector3(0, 3.6f, 0); shape.rotation = new Vector3(90, 0, 0);
+            shape.shapeType = ParticleSystemShapeType.Circle; shape.radius = 10f; shape.position = new Vector3(0, 4.5f, 0); shape.rotation = new Vector3(90, 0, 0);
 
             var vel = ps.velocityOverLifetime; vel.enabled = true;
             vel.x = new ParticleSystem.MinMaxCurve(-0.06f, 0.06f); vel.z = new ParticleSystem.MinMaxCurve(-0.06f, 0.06f); vel.y = new ParticleSystem.MinMaxCurve(0f, 0f); // all three axes must share a curve mode

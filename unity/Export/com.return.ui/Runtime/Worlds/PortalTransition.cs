@@ -6,18 +6,21 @@ using UnityEngine.Rendering;
 namespace Return.UI
 {
     /// <summary>
-    /// Step through a portal instead of a plain cut: the chosen portal bumps up, the XR Origin (not the camera, so tracking
-    /// survives) glides ~1m into or out of the arch, and a comfort vignette tightens then releases across the move.
-    /// WorldSession calls EnterStep/ExitStep around its existing fade/load; this file owns only the glide and vignette.
+    /// Step through a portal instead of a plain cut: the rig never moves. The chosen portal swells toward the viewer
+    /// over ~1s, filling the view, with a comfort vignette rising alongside it, while the screen fades to opaque.
+    /// WorldSession starts the fade partway through EnterStep, calls Restore right after the fade goes opaque (while the screen hides
+    /// it), and ExitStep on the way back for the whoosh only. This file owns just the bloom and vignette.
     /// </summary>
     public class PortalTransition
     {
-        const float GlideDistance = 1f;
+        const float FillDistance = 0.35f; // how close the swollen portal ends up in front of the head
+        const float FillScale = 2.5f;     // grows to this multiple of its ring size so the window fills the view
         const float MaxVignette = 0.55f;
-        public float glideSeconds = 1.1f;
+        public float bloomSeconds = 1.0f;
 
         Material _vignetteMat;
-        Vector3 _rigStart;
+        Transform _portal;
+        Vector3 _portalLocalPos, _portalLocalScale;
         static readonly int AmountId = Shader.PropertyToID("_Amount");
 
         public PortalTransition(Transform head)
@@ -48,42 +51,49 @@ namespace Return.UI
             return fwd.normalized;
         }
 
-        async Task Glide(Transform rig, Vector3 from, Vector3 to, RoomPortal bloomPortal)
+        /// <summary>Bloom the chosen portal toward the head over bloomSeconds, vignette rising alongside it. No portal
+        /// (null) just rises the vignette on the same clock. Call before hiding the hub / loading the world.</summary>
+        public async Task EnterStep(RoomPortal portal, Transform head)
         {
-            var baseScale = bloomPortal != null ? bloomPortal.transform.localScale : Vector3.one;
+            ReturnAudio.Play(ReturnAudio.WhooshIn, 0.45f);
+            var portalTr = portal != null ? portal.transform : null;
+            Vector3 fromPos = Vector3.zero, toPos = Vector3.zero, fromScale = Vector3.one, toScale = Vector3.one;
+            if (portalTr != null)
+            {
+                _portal = portalTr; _portalLocalPos = portalTr.localPosition; _portalLocalScale = portalTr.localScale;
+                fromPos = portalTr.position; fromScale = portalTr.localScale;
+                var headPos = head != null ? head.position : Vector3.zero;
+                var dir = fromPos - headPos; if (dir.sqrMagnitude < 0.0001f) dir = FlatForward(head); else dir.Normalize();
+                toPos = headPos + dir * FillDistance;
+                toScale = fromScale * FillScale;
+            }
             float t = 0;
-            while (t < glideSeconds)
+            while (t < bloomSeconds)
             {
                 t += Time.unscaledDeltaTime;
-                float x = Mathf.Clamp01(t / glideSeconds);
-                float e = EaseInOut(x);
-                float bump = Mathf.Sin(x * Mathf.PI); // rises then falls across the whole glide: comfort in, comfort out
-                if (rig != null) rig.position = Vector3.Lerp(from, to, e);
-                if (bloomPortal != null) bloomPortal.transform.localScale = baseScale * (1f + 0.15f * bump);
-                SetVignette(bump * MaxVignette);
+                float e = EaseInOut(Mathf.Clamp01(t / bloomSeconds));
+                if (portalTr != null) { portalTr.position = Vector3.Lerp(fromPos, toPos, e); portalTr.localScale = Vector3.Lerp(fromScale, toScale, e); }
+                SetVignette(e * MaxVignette);
                 await Task.Yield();
             }
-            if (rig != null) rig.position = to;
-            if (bloomPortal != null) bloomPortal.transform.localScale = baseScale;
+            if (portalTr != null) { portalTr.position = toPos; portalTr.localScale = toScale; }
+            SetVignette(MaxVignette);
+        }
+
+        /// <summary>Put the bloomed portal back where it lives on the ring. Call once the screen is opaque (right after
+        /// the fade-to-1 completes), so the snap-back is hidden. Safe to call with nothing bloomed.</summary>
+        public void Restore()
+        {
+            if (_portal != null) { _portal.localPosition = _portalLocalPos; _portal.localScale = _portalLocalScale; _portal = null; }
             SetVignette(0f);
         }
 
-        /// <summary>Glide the rig ~1m into the portal's arch. Call before hiding the hub / loading the world.</summary>
-        public Task EnterStep(RoomPortal portal, Transform head)
-        {
-            ReturnAudio.Play(ReturnAudio.WhooshIn, 0.45f);
-            var rig = head != null ? head.root : null;
-            _rigStart = rig != null ? rig.position : Vector3.zero;
-            return Glide(rig, _rigStart, _rigStart + FlatForward(head) * GlideDistance, portal);
-        }
-
-        /// <summary>Glide the rig ~1m back out, restoring the position it had before EnterStep. Call after the hub is shown again.</summary>
+        /// <summary>No glide back: the rig never moved, so this is just the return whoosh and a clean vignette.</summary>
         public Task ExitStep(Transform head)
         {
             ReturnAudio.Play(ReturnAudio.WhooshOut, 0.45f);
-            var rig = head != null ? head.root : null;
-            var current = rig != null ? rig.position : Vector3.zero;
-            return Glide(rig, current, _rigStart, null);
+            SetVignette(0f);
+            return Task.CompletedTask;
         }
     }
 }
