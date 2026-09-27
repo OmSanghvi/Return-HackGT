@@ -23,20 +23,35 @@ namespace SketchScape
 
         internal struct Destination
         {
-            public string slug, label, hdr;
+            public string slug, label, image;
+            public bool photo;      // true: a portrait photo shown full-frame; false: an equirect HDRI, centre-cropped by PortalKit
             public Color rim;
-            public Destination(string slug, string label, string hdr, Color rim) { this.slug = slug; this.label = label; this.hdr = hdr; this.rim = rim; }
+            public Destination(string slug, string label, string image, bool photo, Color rim) { this.slug = slug; this.label = label; this.image = image; this.photo = photo; this.rim = rim; }
         }
 
+        // The two photos are the team hub's own (unity/.../ReturnUI/Photos): the bench under the window and the
+        // doors-and-whiteboard room. The hackathon table has no photo in the repo, so it shows its room HDRI.
         internal static readonly Destination[] Destinations =
         {
-            new Destination("bed", "Bench by the Window", "Assets/SketchScape/WebCache/dc654f4399f58713.hdr", new Color(0.25f, 0.85f, 0.90f)),
-            new Destination("hackathon_spot", "Hackathon Table", "Assets/SketchScape/WebCache/c5e38171ceca8839.hdr", new Color(1.00f, 0.70f, 0.30f)),
-            new Destination("hackgt_workspace", "Whiteboard Room", "Assets/SketchScape/WebCache/9c740be5148ce00b.hdr", new Color(0.70f, 0.55f, 1.00f)),
+            new Destination("bed", "Bench by the Window", HubFolder + "/Photos/hackathon-situation.jpg", true, new Color(0.25f, 0.85f, 0.90f)),
+            new Destination("hackathon_spot", "Hackathon Table", "Assets/SketchScape/WebCache/c5e38171ceca8839.hdr", false, new Color(1.00f, 0.70f, 0.30f)),
+            new Destination("hackgt_workspace", "Whiteboard Room", HubFolder + "/Photos/working-situation.jpg", true, new Color(0.70f, 0.55f, 1.00f)),
         };
 
         [MenuItem("SketchScape/Polish/Build Worlds Hub")]
         static void Menu() { BuildHub(); }
+
+        /// <summary>Batch-mode entry: -executeMethod SketchScape.HubBuilder.BuildHubBatch (hub only).</summary>
+        public static void BuildHubBatch()
+        {
+            try { BuildHub(); }
+            catch (System.Exception e)
+            {
+                Debug.LogException(e);
+                Debug.LogError("Polish: hub FAILED: " + e.Message);
+                EditorApplication.Exit(1);
+            }
+        }
 
         internal static Texture2D HubSky()
         {
@@ -146,8 +161,21 @@ namespace SketchScape
                 var pos = arcCenter + new Vector3(Mathf.Sin(a) * radius, 0f, Mathf.Cos(a) * radius);
                 // PortalKit: at yaw 0 the doorway faces -Z. Face the spawn: yaw = atan2(-dx, dz) of (portal - spawn).
                 float yaw = Mathf.Atan2(-pos.x, pos.z) * Mathf.Rad2Deg;
-                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(d.hdr);
-                PortalKit.Build(hub, "Portal " + d.slug, pos, yaw, d.label, tex, d.rim, d.slug, HubFolder);
+                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(d.image);
+                if (tex == null) Debug.LogWarning("Polish: hub portal image missing: " + d.image);
+                var portal = PortalKit.Build(hub, "Portal " + d.slug, pos, yaw, d.label, tex, d.rim, d.slug, HubFolder);
+                if (d.photo)
+                {
+                    // A portrait photo fills the whole doorway (1.4 x 2.3 has the same aspect as the photos).
+                    var doorway = portal.transform.Find("Doorway");
+                    var r = doorway != null ? doorway.GetComponent<Renderer>() : null;
+                    if (r != null && r.sharedMaterial != null)
+                    {
+                        r.sharedMaterial.mainTextureScale = Vector2.one;
+                        r.sharedMaterial.mainTextureOffset = Vector2.zero;
+                        EditorUtility.SetDirty(r.sharedMaterial);
+                    }
+                }
             }
 
             RoomPolish.AddScreenFade(scene);
