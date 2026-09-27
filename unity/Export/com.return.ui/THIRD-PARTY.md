@@ -28,6 +28,9 @@ All clips converted/mixed to Ogg Vorbis at 44.1kHz with ffmpeg. Total folder siz
 ## Skyboxes (`Runtime/Resources/ReturnUI/Skyboxes`)
 Real equirectangular skies (`Return.Design.Skyboxes`), replacing the old painted dome + panorama. All from Poly Haven (polyhaven.com), CC0: `kloofendal_48d_partly_cloudy_puresky`, `citrus_orchard_puresky`, `kloofendal_38d_partly_cloudy_puresky`, `kloppenheim_06_puresky`, `belfast_sunset_puresky`. Tonemapped JPGs downscaled to 4096x2048 and color-graded (desaturated ~20%, lifted toward pale haze) on 2026-09-26 to match the hub's dreamy daylight theme.
 
+## Props (`Runtime/Resources/ReturnUI/Props`)
+- **tree_default.glb, tree_detailed.glb, tree_cone.glb, tree_fat.glb, tree_blocks.glb**: from Kenney's "Nature Kit" (kenney.nl/assets/nature-kit), copied from `unity/Assets/Worlds/Props/nature-kit/` (the world-scene prop library) for `Runtime/Hub/DistantTrees.cs`'s hub treeline. Author: Kenney (kenney.nl). License: CC0 1.0, see `LICENSE-Kenney-nature-kit.txt`.
+
 ## Unity packages (not bundled)
 This package depends on `com.unity.ugui`, `com.unity.inputsystem` and URP. The XR files activate only if `com.unity.xr.interaction.toolkit` is installed. The XR Interaction Toolkit sample rig used by `Return > Build VR Hub Scene` is imported from Unity's package samples, not shipped here.
 

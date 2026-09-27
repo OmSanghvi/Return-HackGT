@@ -6,10 +6,11 @@ namespace Return.UI
 {
     /// <summary>
     /// The hub's sky: a real equirectangular skybox (RenderSettings.skybox) graded to match the room's mood, ambient
-    /// light and fog tinted from its horizon color, and still water underfoot. Used for the hub and, with a different
-    /// sky, for stub worlds (extras off there: no water/fireflies/motes/lanterns, just the plain fogged floor, so stub
-    /// worlds stay cheap). Used to build a painted dome + panorama backdrop; that's gone in favor of Skyboxes, so the
-    /// portal windows (RoomPortal) are now the only place a painted sky still gets drawn.
+    /// light and fog tinted from its horizon color, and a meadow grass floor underfoot ringed by distant hills and
+    /// trees. Used for the hub and, with a different sky, for stub worlds (extras off there: no floor/hills/trees/
+    /// fireflies/motes/lanterns, just the plain fogged floor, so stub worlds stay cheap). Used to build a painted
+    /// dome + panorama backdrop; that's gone in favor of Skyboxes, so the portal windows (RoomPortal) are now the
+    /// only place a painted sky still gets drawn.
     /// </summary>
     public class HubEnvironment : MonoBehaviour
     {
@@ -25,8 +26,9 @@ namespace Return.UI
         public static SceneKey DefaultScene(bool dusk) => dusk ? SceneKey.Hub : SceneKey.Meadow;
 
         /// <summary>Build under parent. arcDegrees is unused now that the sky is a real skybox rather than a curved panorama
-        /// (kept so existing callers don't need to change). extras adds the still-water floor, fireflies, motes, lanterns
-        /// and daytime birds, and toggles the hub ambience loop with this object's enabled state; leave false for stub worlds.</summary>
+        /// (kept so existing callers don't need to change). extras adds the meadow floor, hills ring, distant trees,
+        /// fireflies, motes, lanterns and daytime birds, and toggles the hub ambience loop with this object's enabled
+        /// state; leave false for stub worlds.</summary>
         public static HubEnvironment Build(Transform parent, Transform head, SceneKey scene, bool dusk, float arcDegrees = 150f, bool extras = false)
         {
             var go = new GameObject("Environment"); go.transform.SetParent(parent, false);
@@ -37,8 +39,11 @@ namespace Return.UI
 
             if (extras)
             {
-                // still water instead of the fogged disc: reflects the sky, ripples where controllers point or dip in
-                WaterFloor.Create(go.transform);
+                var horizon = Skyboxes.Horizon(scene);
+                env.BuildMeadowFloor(go.transform, horizon);
+                var hillColor = Color.Lerp(new Color(0.5f, 0.55f, 0.45f), horizon, 0.4f); // green-grey, blended toward horizon so the ring doesn't jump out against the sky
+                HillsRing.Build(go.transform, 35f, 70f, 6f, hillColor, 11);
+                DistantTrees.Create(go.transform);
                 Motes.Create(go.transform);
                 // fireflies and lanterns only make sense once it's dark; day gets drifting blossom petals and birdsong instead
                 if (dusk) { Fireflies.Create(go.transform); Lanterns.Create(go.transform); }
@@ -56,6 +61,22 @@ namespace Return.UI
                 floor.AddComponent<MeshRenderer>().sharedMaterial = env._floor;
             }
             return env;
+        }
+
+        /// <summary>Big grass disc (Return/WorldEdge, not Flat: Flat only fades alpha, and this needs a color-to-color
+        /// blend) under the viewer: soft spring green at the center, blended toward the sky's own horizon color by its
+        /// rim at radius 60, so it reads as meadow rather than a flat green disc. Replaces WaterFloor (left in the file,
+        /// unused, per the play-test note to drop the wave effect).</summary>
+        void BuildMeadowFloor(Transform parent, Color horizon)
+        {
+            var floor = new GameObject("Floor"); floor.transform.SetParent(parent, false);
+            floor.AddComponent<MeshFilter>().sharedMesh = SkyBackdrop.Quad();
+            floor.transform.localRotation = Quaternion.Euler(90, 0, 0); floor.transform.localPosition = new Vector3(0, -0.02f, 0); floor.transform.localScale = new Vector3(120, 120, 1);
+            _floor = WorldShaders.Create(WorldShaders.WorldEdge, "WorldEdge");
+            var grass = new Color(0.55f, 0.68f, 0.42f);
+            var edge = Color.Lerp(grass, horizon, 0.35f);
+            _floor.SetColor("_GroundColor", grass); _floor.SetColor("_EdgeColor", edge); _floor.SetFloat("_InnerRadius", 0.3f);
+            floor.AddComponent<MeshRenderer>().sharedMaterial = _floor;
         }
 
         /// <summary>RenderSettings.skybox/ambient/fog and the liquid-glass blur source, all from this environment's sky.
@@ -83,7 +104,7 @@ namespace Return.UI
         void OnDisable() { if (_extras) ReturnAudio.Ambience(false, 1.2f, _dusk); }
 
         // _sky is a cached, shared Skyboxes material (reused across every HubEnvironment for the same scene), so it is
-        // never destroyed here; only the fogged-floor material this instance owns.
+        // never destroyed here; only the floor material this instance owns (the meadow disc, or the stub-world fogged disc).
         void OnDestroy() { if (_floor != null) Destroy(_floor); }
     }
 }
