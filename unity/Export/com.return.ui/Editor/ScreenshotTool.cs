@@ -70,7 +70,7 @@ namespace Return.UI.Editor
                 Shot(t + "-5-waiting");
                 Go(Route.RoomUpload, "ava-graduation"); Shot(t + "-6-upload");
                 Go(Route.Room, "last-summer"); Shot(t + "-7-building");
-                Go(Route.Room, "lake-house"); Shot(t + "-8-ready");
+                Go(Route.Room, "hackathon-situation"); Shot(t + "-8-ready");
             }
             rt.Release();
         }
@@ -104,7 +104,7 @@ namespace Return.UI.Editor
             camGo.transform.rotation = Quaternion.Euler(0, -45, 0); Shot("hub-2b-ring-left");
             camGo.transform.rotation = Quaternion.Euler(0, 45, 0); Shot("hub-2c-ring-right");
             camGo.transform.rotation = Quaternion.identity;
-            var room = app.Store.Get("lake-house");
+            var room = app.Store.Get("hackathon-situation");
             GameObject.Find("ReturnHub").SetActive(false);
             new StubWorldLoader().Build(room, camGo.transform); Shot("hub-4-world");
             rt.Release();
