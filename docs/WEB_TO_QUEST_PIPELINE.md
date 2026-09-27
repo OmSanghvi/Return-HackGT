@@ -14,11 +14,12 @@ interface here only together with every consumer.
 
 Scope decided by the user on 2026-09-27: the Quest app is the HackGTUnity room
 (not the team's `unity/` hub); one headset, with an in-world account switcher
-(multi-headset networking, Build Plan step 22, is out of scope); rooms reach
-the Quest as an APK. The in-world guide agent is out of scope. The user also
-said this work may contradict `AGENT.md` (its step gates and hard rules don't
-bind it). Kept anyway: no secrets in files, commits, command arguments, chat or
-logs; the web app's mock mode keeps working; tests stay green.
+(multi-headset networking, Build Plan step 22, is out of scope); rooms stay in
+the HackGTUnity Editor, with no Android APK (§6). The in-world guide agent is
+out of scope. The user also said this work may contradict `AGENT.md` (its step
+gates and hard rules don't bind it). Kept anyway: no secrets in files, commits,
+command arguments, chat or logs; the web app's mock mode keeps working; tests
+stay green.
 
 ## 0. Hosts, identities, addresses
 
@@ -133,14 +134,15 @@ belongs to a project. JsonUtility-safe (no nulls, nested arrays or dicts):
 
 `{"enabled": false, ...}` (all strings empty, arrays empty) when there is no project.
 
-## 4. Shared snapshot (offline copy in the APK)
+## 4. Shared snapshot (offline copy)
 
 The runner writes it into HackGTUnity after syncing and before the agent builds:
 `Assets/SketchScape/Resources/SharedSnapshots/<project_id>.json`, plus each
 readable letter page as `Assets/SketchScape/Resources/SharedSnapshots/<project_id>/<letter_id>.png`.
-Because it sits under `Resources/`, the player loads it on the device with
-`Resources.Load` (`"SharedSnapshots/<project_id>"`); `Assets/` paths don't exist
-there. The Quest uses it when the API is unreachable. It holds, per account,
+Because it sits under `Resources/`, the room loads it with `Resources.Load`
+(`"SharedSnapshots/<project_id>"`), which works in the Editor and in any player
+build (`Assets/` paths don't exist in a player). The room uses it when the API
+is unreachable. It holds, per account,
 **exactly the `/v1/rooms/{p}/shared` response for that account** (never a
 letter body the account couldn't read):
 

@@ -125,7 +125,7 @@ def _room_build_is_stale(build, now: datetime, lease_seconds: float) -> bool:
 
 
 def _requeued_room_build(build, now: datetime):
-    # ``runner_id`` is kept: if that runner was only slow (a long APK build)
+    # ``runner_id`` is kept: if that runner was only slow (a long agent build)
     # and reports again before anyone else claims the build, it re-attaches.
     return build.model_copy(
         update={"status": "requested", "message": ROOM_BUILD_REQUEUED_MESSAGE, "updated_at": iso_z(now)}
