@@ -8,6 +8,33 @@ The last session (`65c057b2-388a-42b5-a56f-ed1265d08877`) ran on a different
 Claude account, so it can't be resumed from the next one. This file is the
 handoff.
 
+## LATEST+7 (2026-09-27, ~6-7 am) — Room polish: shells, grounding, barriers, one APK with three rooms
+
+**What:** `unity-hackgt/Assets/SketchScape/Editor/RoomPolish/RoomPolish*.cs` (Editor, menu `SketchScape > Polish`,
+batch `Unity.exe -batchmode -projectPath <proj> -executeMethod SketchScape.RoomPolish.PolishAllBatch -quit -logFile <log>`,
+~2 min, needs graphics for the probe bake) hardcodes a visual polish for `bed`, `hackgt_workspace`, `hackathon_spot`:
+- a real room shell per scene (0.15 m walls with colliders = the barriers HeadCollisionGuard / the ISDK capsule stop at,
+  ceiling, baseboards, emissive ceiling panels) sized just outside the photo splat so holes show wall colour, not sky;
+- fog off (splats ignore fog), trilight ambient from the scan colours, box-projected rebaked reflection probe,
+  `Floor Apron` off, teleport floor shrunk to the room, hotspots pulled out of walls;
+- grounding: backpack rested on the floor + contact shadow (workspace); hackathon tables were flat slabs at floor level,
+  so the scan and props are lifted 0.72 m onto a built table and the chair put on the floor (check in-headset: if the far
+  scan reads as a raised platform, set `Photo Scene` back to y 0.91 in `RoomPolish.HackathonSpot.cs` and re-run);
+- every `GsplatRenderer` sorts every 3rd frame (`SortEveryNFrames`, rate 3).
+Everything lives under `SharedRoom_<slug>/Polish` and re-running rebuilds it (absolute positions). A RoomKit rebuild of a
+room drops the polish. Polished scenes, `_Generated` materials, bake output and the ceiling-tile texture are mirrored under
+`unity-hackgt/Assets/SketchScape/AgentRooms/` + `WebCache/` (the `.ply` splats stay out of git).
+
+**Project settings (mirrored under `unity-hackgt/Assets/XR/Settings` and `unity-hackgt/ProjectSettings`):** OpenXR render
+mode Single Pass Instanced -> Multi-pass and foveation API -> Legacy (the UnitySplats README lists SPI + Built-in as
+unsupported; Built-in only supports Legacy), Android "High" shadowDistance 40 -> 15, Build Settings = the three rooms.
+
+**Runtime:** `Runtime/Controls/SceneCycler.cs` installs itself on startup; clicking either thumbstick loads the next
+scene in Build Settings (Tab on desktop). APK `HackGTUnity/stupid house polished.apk` (not in git) ran on the Quest at
+72/72 FPS, App 3.5 ms, 0 stale frames in the workspace room.
+
+Colours assigned from scripts (materials, lights, ambient) are plain sRGB as in the Inspector; no `.linear` conversion.
+
 ## LATEST+6 (2026-09-27, ~3-4 am) — HackGT.jpg end to end, Quest 2 at 5 FPS fixed, faster NemoClaw builds
 
 Contract additions: **`docs/WEB_TO_QUEST_PIPELINE.md` §9** (build speed and Quest readiness).

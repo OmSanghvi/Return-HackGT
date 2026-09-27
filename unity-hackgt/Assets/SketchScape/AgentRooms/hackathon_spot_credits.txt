@@ -1,0 +1,8 @@
+Credits for hackathon_spot (Assets/SketchScape/AgentRooms/hackathon_spot.unity)
+
+'Artist Workshop' HDRI by Oliksiy Yakovlyev, CC0, via Poly Haven
+'Dirty Carpet' texture by Rohit Seervi, CC0, via Poly Haven
+'city hum night' by klankbeeld, CC BY 4.0, via Freesound/Openverse
+Sound: 'city hum night' 'city hum night' by klankbeeld, CC BY 4.0, via Freesound/Openverse <https://cdn.freesound.org/previews/346/346658_1648170-hq.mp3>
+Sky (HDRI): <https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/artist_workshop_2k.hdr>
+Floor texture: <https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dirty_carpet/dirty_carpet_diff_1k.jpg>
