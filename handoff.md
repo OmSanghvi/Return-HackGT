@@ -8,6 +8,37 @@ The last session (`65c057b2-388a-42b5-a56f-ed1265d08877`) ran on a different
 Claude account, so it can't be resumed from the next one. This file is the
 handoff.
 
+## LATEST+5 (2026-09-27, ~1 am) — web app → "Build room in VR" → NemoClaw room with two accounts, notes and letters
+
+Contract: **`docs/WEB_TO_QUEST_PIPELINE.md`**. User decisions this round: the VR app is the HackGTUnity room
+(not the team's `unity/` hub); one headset with an in-world Account 1 / Account 2 switcher; **no Android APK**;
+this work may contradict `AGENT.md` (gates / hard rules). The in-world guide agent is out of scope.
+
+**What works now (verified live):**
+- **Web app** (`web-app/`, real mode): account picker, create/invite/join, uploads with a personal `note`
+  (editable later), live polling to ready, sealed letters (typed or Notability page; the recipient sees only
+  the envelope until opening), and a **"Build room in VR"** panel with live status (mock mode simulates it).
+  Not yet deployed to Vercel (needs a push; the prod build uses `VITE_SKETCHSCAPE_API_URL=/api`).
+- **Backend** (deployed to EC2): room builds (`/v1/projects/{p}/room-builds`, cancel, runner claim/status with
+  `SKETCHSCAPE_NEMOCLAW_TOKEN`), the headset view `GET /v1/rooms/{p}/shared` (per-account notes, letters,
+  attribution, latest build), upload notes, a job release route and an expired-lease sweep.
+- **Runner** (`scripts/room_build_runner.py`, or `Start-SketchScape.ps1 -Runner`): claim → sync → offline
+  snapshot (`HackGTUnity/Assets/SketchScape/Resources/SharedSnapshots/`) → Editor lock → deploy skills →
+  Muse Spark builds the room → `ready`. The token file is `%USERPROFILE%\.config\sketchscape\room-runner-token`.
+- **VR layer** (RoomKit 1.0.15): `shared` block from compose_room → an in-world switcher, note cards beside each
+  person's objects, envelopes that unfold into the letter page (recipient-only open), object tags; live via the
+  Vercel HTTPS proxy, snapshot offline. Drive it from code: `SharedRoomSession.SwitchTo/OpenLetter/Describe`.
+- **GPU**: the dispatcher waits for ready services and releases failed hand-overs; SAM 3.1 picks instances by the
+  VLM box (same-kind objects no longer collide); job folders and the scene cache are cleaned.
+
+**Demo data:** cabin project `674a8bcb…` (room `Cabin_living_room.unity`, letters Alice→Bob `3006f0a0…` and
+Bob→Alice `2f545f48…` left SEALED for the demo) and the web-made two-account project `867f9d0c…`
+("Cabin weekend 0431").
+
+**Gotchas:** the Meta SDK "Android SDK not Found" modal can block the Editor (and Unity MCP) after a domain
+reload — dismiss it; the Editor lock (`%LOCALAPPDATA%\SketchScape\unity-editor.lock`) must be free for builds;
+`/opt/pytorch` on the GPU host (9.7 GB, unused) is a deletion candidate awaiting the user's OK.
+
 ## LATEST+4 (2026-09-26, near midnight) — one photo → an immersive room you stand inside (NemoClaw + RoomKit)
 
 Contract: **`docs/IMMERSIVE_SCENE_PIPELINE.md`** (kept current, incl. every convention found this round).

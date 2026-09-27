@@ -40,6 +40,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from gaussian_ply_safety import sanitize_ply_opacity_file
+import disk_hygiene
 import scene_pose
 
 logging.basicConfig(
@@ -108,6 +109,14 @@ HEALTH_TIMEOUT = float(os.environ.get("SKETCHSCAPE_SIDECAR_HEALTH_TIMEOUT", "3")
 PLACEMENT_TIMEOUT = float(os.environ.get("SKETCHSCAPE_PLACEMENT_TIMEOUT", "60"))
 SCENE_TIMEOUT = float(os.environ.get("SKETCHSCAPE_SCENE_TIMEOUT", "180"))
 ANALYZE_TIMEOUT = float(os.environ.get("SKETCHSCAPE_ANALYZE_TIMEOUT", "120"))
+# Disk hygiene (docs/WEB_TO_QUEST_PIPELINE.md 7): each finished job's work dir
+# (inputs, PLY, scene files -- all already reported to the API/S3) is removed
+# once nothing needs it; SKETCHSCAPE_KEEP_JOB_DIRS=1 keeps them for debugging.
+# At startup, dirs older than SKETCHSCAPE_JOB_DIR_MAX_AGE_HOURS are swept from
+# WORK_DIR and the legacy /tmp/sketchscape-jobs.
+KEEP_JOB_DIRS = disk_hygiene.env_flag("SKETCHSCAPE_KEEP_JOB_DIRS", False)
+JOB_DIR_MAX_AGE_HOURS = disk_hygiene.env_float("SKETCHSCAPE_JOB_DIR_MAX_AGE_HOURS", 3.0)
+LEGACY_WORK_DIR = Path("/tmp/sketchscape-jobs")
 
 # ---------------------------------------------------------------------------
 # Global pipeline (loaded once at startup)
@@ -614,14 +623,56 @@ def _run_one_job(job_id: str, subject_hint: str) -> None:
             _job_status[job_id] = {"status": "failed", "error": str(exc)[:500]}
     finally:
         restart_after_job = _cleanup_gpu(job_id[:8], restart_after_job)
+        if not completed:
+            _remove_job_dir(work, job_id[:8])
         if restart_after_job:
             log.error("[%s] Restarting worker after CUDA failure", job_id[:8])
             os._exit(1)
     if completed:
         # The photo's whole-scene capture, after the object is reported and
-        # off the job thread: never fails or delays the object job.
-        threading.Thread(target=_ensure_scene, args=(job_id, image_path), daemon=True,
+        # off the job thread: never fails or delays the object job. It still
+        # reads image.png, so the job dir is removed when it is done.
+        threading.Thread(target=_scene_then_cleanup, args=(job_id, image_path, work), daemon=True,
                          name=f"scene-{job_id[:8]}").start()
+
+
+def _remove_job_dir(path: Path, tag: str) -> None:
+    """Remove a finished job's work dir (everything in it was already
+    reported to the API); never raises, never touches paths outside WORK_DIR."""
+    if KEEP_JOB_DIRS:
+        return
+    try:
+        path = Path(path)
+        if path.resolve().parent not in {WORK_DIR.resolve(), (WORK_DIR / "scenes").resolve()}:
+            log.warning("[%s] Not removing %s: outside %s", tag, path, WORK_DIR)
+            return
+        freed = disk_hygiene.remove_tree(path)
+        if freed:
+            log.info("[%s] Removed work dir %s (%.1f MB)", tag, path, freed / 2**20)
+    except Exception:
+        log.exception("[%s] Could not remove work dir %s", tag, path)
+
+
+def _scene_then_cleanup(job_id: str, image_path: Path, work: Path) -> None:
+    try:
+        _ensure_scene(job_id, image_path)
+    finally:
+        _remove_job_dir(work, job_id[:8])
+
+
+def _startup_sweep() -> None:
+    """Remove job dirs a crash/restart left behind (older than a few hours)."""
+    roots = []
+    for root in (WORK_DIR, LEGACY_WORK_DIR):
+        if root.is_dir() and root.resolve() not in {r.resolve() for r in roots}:
+            roots.append(root)
+    try:
+        result = disk_hygiene.sweep_old_dirs(roots, JOB_DIR_MAX_AGE_HOURS * 3600, nested=["scenes"])
+        log.info("Startup sweep of %s: removed %d dir(s) older than %.1fh, freed %.1f MB",
+                 ", ".join(str(r) for r in roots), result["removed"], JOB_DIR_MAX_AGE_HOURS,
+                 result["freed_bytes"] / 2**20)
+    except Exception:
+        log.exception("Startup sweep failed")
 
 
 def _run_local_job(local_id: str, spec: dict) -> None:
@@ -711,21 +762,26 @@ def _ensure_scene(job_id: str, image_path: Path) -> None:
             return
         out_dir = WORK_DIR / "scenes" / upload_id
         out_dir.mkdir(parents=True, exist_ok=True)
-        t0 = time.time()
-        result = _http_json(f"{SCENE_URL}/v1/scene",
-                            {"image_path": str(image_path), "out_dir": str(out_dir), "upload_id": upload_id,
-                             "photo": str(info.get("image_key") or "")},
-                            timeout=SCENE_TIMEOUT)
-        scene_json, scene_ply = _scene_files(result, out_dir)
-        log.info("[%s] Scene captured in %.1fs: %s %s", tag, time.time() - t0, scene_json, scene_ply)
-        files = {"scene_json": scene_json, "scene_ply": scene_ply}
-        analysis = _analyze(image_path, out_dir, tag)
-        if analysis is not None:
-            files["analysis_json"] = analysis
-        _post_multipart(f"/v1/internal/reconstructions/{job_id}/scene",
-                        {"worker_token": WORKER_TOKEN, **({"worker_id": WORKER_ID} if WORKER_ID else {})},
-                        {k: v for k, v in files.items() if v is not None})
-        log.info("[%s] Scene stored for upload %s", tag, upload_id)
+        try:
+            t0 = time.time()
+            result = _http_json(f"{SCENE_URL}/v1/scene",
+                                {"image_path": str(image_path), "out_dir": str(out_dir), "upload_id": upload_id,
+                                 "photo": str(info.get("image_key") or "")},
+                                timeout=SCENE_TIMEOUT)
+            scene_json, scene_ply = _scene_files(result, out_dir)
+            log.info("[%s] Scene captured in %.1fs: %s %s", tag, time.time() - t0, scene_json, scene_ply)
+            files = {"scene_json": scene_json, "scene_ply": scene_ply}
+            analysis = _analyze(image_path, out_dir, tag)
+            if analysis is not None:
+                files["analysis_json"] = analysis
+            _post_multipart(f"/v1/internal/reconstructions/{job_id}/scene",
+                            {"worker_token": WORKER_TOKEN, **({"worker_id": WORKER_ID} if WORKER_ID else {})},
+                            {k: v for k, v in files.items() if v is not None})
+            log.info("[%s] Scene stored for upload %s", tag, upload_id)
+        finally:
+            # Stored in S3 by the API (or failed and will be retried from a
+            # fresh capture): the local copy is never read again.
+            _remove_job_dir(out_dir, tag)
     except Exception as exc:
         log.warning("[%s] Scene capture skipped: %s", tag, exc)
         with _scene_lock:
@@ -985,6 +1041,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     WORK_DIR.mkdir(parents=True, exist_ok=True)
+    _startup_sweep()
     # Load models in background thread so HTTP server starts immediately
     threading.Thread(target=_load_pipeline, daemon=True, name="pipeline-loader").start()
     # Job execution: always exactly one runner thread. GPU_CONCURRENCY only

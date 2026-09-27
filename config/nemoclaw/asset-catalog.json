@@ -3308,6 +3308,625 @@
         }
       },
       "mask_area_frac": 0.16865
+    },
+    {
+      "label": "green sofa",
+      "asset_id": "ed938f220b5542d3a91dbfa7a3b58e90",
+      "project_id": "867f9d0c74844b7f88828d9bd85d327e",
+      "upload_id": "d343eb56f640459fbed2e067af52c48e",
+      "job_id": "a2602f397954417ea6d6625a13d64abe",
+      "unity_path": "Assets/SketchScape/AssetLibrary/green_sofa_ed938f22.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/a2602f397954417ea6d6625a13d64abe/reconstruction.ply",
+      "vertices": 563776,
+      "repaired_opacity": 0,
+      "native_extent": [
+        0.9946,
+        0.3691,
+        0.4519
+      ],
+      "bounds_min": [
+        -0.4954,
+        -0.1713,
+        -0.2283
+      ],
+      "bounds_max": [
+        0.4993,
+        0.1978,
+        0.2236
+      ],
+      "photo": "uploads/867f9d0c74844b7f88828d9bd85d327e/d343eb56f640459fbed2e067af52c48e/source.jpg",
+      "pose": {
+        "version": 2,
+        "frame": "opencv",
+        "image_size": [
+          720,
+          476
+        ],
+        "intrinsics": {
+          "fx": 381.8394,
+          "fy": 381.8394,
+          "cx": 360.0,
+          "cy": 238.0
+        },
+        "gravity_up_cam": [
+          0.052514,
+          -0.938858,
+          -0.340277
+        ],
+        "support_plane": {
+          "normal_cam": [
+            0.052514,
+            -0.938858,
+            -0.340277
+          ],
+          "offset": 1.4739,
+          "camera_height": 1.4739,
+          "kind": "floor",
+          "method": "floor-plane",
+          "plane_fit_deg": 1.466,
+          "plane_inlier_frac": 0.9621,
+          "kind_reason": "camera height in floor range",
+          "area_m2": 5.425,
+          "candidates": [
+            {
+              "height_m": 1.55,
+              "area_m2": 5.425
+            }
+          ]
+        },
+        "metric": true,
+        "object": {
+          "mask_bbox": [
+            0,
+            179,
+            215,
+            431
+          ],
+          "mask_area_frac": 0.117548,
+          "centroid_cam": [
+            -1.14536,
+            0.41164,
+            1.64033
+          ],
+          "base_cam": [
+            -1.1473,
+            0.44633,
+            1.6529
+          ],
+          "extent_m": {
+            "width": 1.4641,
+            "height": 0.4803,
+            "depth": 0.6402
+          },
+          "yaw_deg": 69.55,
+          "points_used": 36520,
+          "splat_to_cam": {
+            "rotation_wxyz": [
+              0.304921,
+              0.503306,
+              -0.654261,
+              0.475024
+            ],
+            "translation": [
+              -1.210404,
+              0.291087,
+              1.995225
+            ],
+            "scale": 1.582022
+          },
+          "reprojection_iou": 0.6624
+        },
+        "raw": {
+          "version": 1,
+          "camera_convention": "sam3d-pointmap",
+          "ss_keys": [
+            "6drotation_normalized",
+            "coords",
+            "coords_original",
+            "downsample_factor",
+            "rotation",
+            "scale",
+            "shape",
+            "translation",
+            "translation_scale"
+          ],
+          "rotation": [
+            0.455258,
+            0.583068,
+            0.545418,
+            0.39407
+          ],
+          "rotation_shape": [
+            1,
+            4
+          ],
+          "translation": [
+            0.511612,
+            -0.128928,
+            1.125377
+          ],
+          "translation_shape": [
+            1,
+            3
+          ],
+          "scale": [
+            1.187221,
+            1.187221,
+            1.187221
+          ],
+          "scale_shape": [
+            1,
+            3
+          ],
+          "downsample_factor": [
+            1.0
+          ],
+          "downsample_factor_shape": [],
+          "image_size": [
+            720,
+            476
+          ],
+          "pointmap": {
+            "valid_points": 342720,
+            "percentiles": {
+              "x": {
+                "1": -1.113583,
+                "2": -1.104328,
+                "5": -1.072141,
+                "50": 0.000182,
+                "95": 0.971917,
+                "98": 1.078671,
+                "99": 1.147529
+              },
+              "y": {
+                "1": -0.427728,
+                "2": -0.401615,
+                "5": -0.341356,
+                "50": 0.000782,
+                "95": 1.138166,
+                "98": 1.249985,
+                "99": 1.292132
+              },
+              "z": {
+                "1": 0.552332,
+                "2": 0.566517,
+                "5": 0.599025,
+                "50": 1.527078,
+                "95": 2.636098,
+                "98": 3.108485,
+                "99": 3.479477
+              }
+            }
+          }
+        },
+        "verification": {
+          "iou_sam3d_camera": 0.5723,
+          "sam3d_intrinsics": {
+            "fx": 406.314,
+            "fy": 406.698,
+            "cx": 359.887,
+            "cy": 238.154
+          },
+          "sam3d_splat_to_cam": {
+            "rotation_wxyz": [
+              0.39407,
+              0.545418,
+              -0.583068,
+              0.455258
+            ],
+            "translation": [
+              -0.511612,
+              0.128928,
+              1.125377
+            ],
+            "scale": 1.187221
+          },
+          "depth_scale_to_scene": 1.630284,
+          "iou_rebased": 0.5706,
+          "refine": {
+            "targets": 1500,
+            "sources": 2000,
+            "hypotheses": [
+              {
+                "name": "prior",
+                "iou_init": 0.5706,
+                "iou": 0.6896,
+                "depth_residual": 0.1229,
+                "up_cos": 1.0,
+                "score": 0.5666
+              },
+              {
+                "name": "prior_rot_reseated",
+                "iou_init": 0.7142,
+                "iou": 0.6912,
+                "depth_residual": 0.1067,
+                "up_cos": 0.997,
+                "score": 0.5831
+              },
+              {
+                "name": "yaw0",
+                "iou_init": 0.5481,
+                "iou": 0.6623,
+                "depth_residual": 0.1216,
+                "up_cos": 0.552,
+                "score": 0.3169
+              },
+              {
+                "name": "yaw90",
+                "iou_init": 0.6378,
+                "iou": 0.5446,
+                "depth_residual": 0.1253,
+                "up_cos": 0.54,
+                "score": 0.1892
+              },
+              {
+                "name": "yaw180",
+                "iou_init": 0.688,
+                "iou": 0.6408,
+                "depth_residual": 0.087,
+                "up_cos": 0.998,
+                "score": 0.5529
+              },
+              {
+                "name": "yaw270",
+                "iou_init": 0.5247,
+                "iou": 0.5026,
+                "depth_residual": 0.1319,
+                "up_cos": 0.815,
+                "score": 0.2783
+              }
+            ],
+            "final_prior": {
+              "name": "prior_rot_reseated",
+              "iou": 0.6624,
+              "scale_factor": 0.8,
+              "depth_residual": 0.0803,
+              "up_cos": 0.999
+            },
+            "final_alt": {
+              "name": "yaw180",
+              "iou": 0.6566,
+              "scale_factor": 1.1,
+              "depth_residual": 0.1014,
+              "up_cos": 0.999
+            },
+            "chosen": "prior_rot_reseated",
+            "iou": 0.6624,
+            "depth_residual": 0.0803,
+            "up_cos": 0.999,
+            "seconds": 2.67
+          }
+        },
+        "sync_refine": {
+          "pixels": 27120,
+          "coverage": 0.8239,
+          "depth_factor": 1.0,
+          "colour_gain": [
+            1.6,
+            1.6,
+            1.6
+          ],
+          "gap_m_before": -0.0183
+        }
+      },
+      "mask_area_frac": 0.11755
+    },
+    {
+      "label": "green sofa",
+      "asset_id": "18f220397cbc4d6c80911ac23e886df3",
+      "project_id": "867f9d0c74844b7f88828d9bd85d327e",
+      "upload_id": "c049ae96ae7d4478b509da55b9c025e5",
+      "job_id": "39b0eedc13d04a9b96af94bb271e541d",
+      "unity_path": "Assets/SketchScape/AssetLibrary/green_sofa_18f22039.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/39b0eedc13d04a9b96af94bb271e541d/reconstruction.ply",
+      "vertices": 539360,
+      "repaired_opacity": 0,
+      "native_extent": [
+        0.9832,
+        0.3847,
+        0.4316
+      ],
+      "bounds_min": [
+        -0.4891,
+        -0.1929,
+        -0.2187
+      ],
+      "bounds_max": [
+        0.4942,
+        0.1918,
+        0.2129
+      ],
+      "photo": "uploads/867f9d0c74844b7f88828d9bd85d327e/c049ae96ae7d4478b509da55b9c025e5/source.jpg",
+      "pose": {
+        "version": 2,
+        "frame": "opencv",
+        "image_size": [
+          720,
+          635
+        ],
+        "intrinsics": {
+          "fx": 476.7696,
+          "fy": 476.7697,
+          "cx": 360.0,
+          "cy": 317.5
+        },
+        "gravity_up_cam": [
+          0.001323,
+          -0.93493,
+          -0.354829
+        ],
+        "support_plane": {
+          "normal_cam": [
+            0.001323,
+            -0.93493,
+            -0.354829
+          ],
+          "offset": 1.5489,
+          "camera_height": 1.5489,
+          "kind": "floor",
+          "method": "floor-plane",
+          "plane_fit_deg": 1.029,
+          "plane_inlier_frac": 0.9462,
+          "kind_reason": "camera height in floor range",
+          "area_m2": 6.149,
+          "candidates": [
+            {
+              "height_m": 1.61,
+              "area_m2": 6.149
+            }
+          ]
+        },
+        "metric": true,
+        "object": {
+          "mask_bbox": [
+            0,
+            238,
+            287,
+            575
+          ],
+          "mask_area_frac": 0.15692,
+          "centroid_cam": [
+            -0.86388,
+            0.45524,
+            1.67953
+          ],
+          "base_cam": [
+            -0.86393,
+            0.48906,
+            1.69237
+          ],
+          "extent_m": {
+            "width": 1.5872,
+            "height": 0.5287,
+            "depth": 0.7777
+          },
+          "yaw_deg": 81.86,
+          "points_used": 66461,
+          "splat_to_cam": {
+            "rotation_wxyz": [
+              0.360617,
+              0.548409,
+              -0.622676,
+              0.426002
+            ],
+            "translation": [
+              -0.731336,
+              0.345906,
+              1.858379
+            ],
+            "scale": 2.025187
+          },
+          "reprojection_iou": 0.6551,
+          "splat_to_cam_gpu": {
+            "rotation_wxyz": [
+              0.360617,
+              0.548409,
+              -0.622676,
+              0.426002
+            ],
+            "translation": [
+              -0.778846,
+              0.368377,
+              1.979104
+            ],
+            "scale": 2.156749
+          }
+        },
+        "raw": {
+          "version": 1,
+          "camera_convention": "sam3d-pointmap",
+          "ss_keys": [
+            "6drotation_normalized",
+            "coords",
+            "coords_original",
+            "downsample_factor",
+            "rotation",
+            "scale",
+            "shape",
+            "translation",
+            "translation_scale"
+          ],
+          "rotation": [
+            0.376699,
+            0.601352,
+            0.58725,
+            0.389372
+          ],
+          "rotation_shape": [
+            1,
+            4
+          ],
+          "translation": [
+            0.428267,
+            -0.134352,
+            1.214333
+          ],
+          "translation_shape": [
+            1,
+            3
+          ],
+          "scale": [
+            1.834565,
+            1.834565,
+            1.834565
+          ],
+          "scale_shape": [
+            1,
+            3
+          ],
+          "downsample_factor": [
+            1.0
+          ],
+          "downsample_factor_shape": [],
+          "image_size": [
+            720,
+            635
+          ],
+          "pointmap": {
+            "valid_points": 457200,
+            "percentiles": {
+              "x": {
+                "1": -1.532995,
+                "2": -1.512176,
+                "5": -1.42867,
+                "50": -0.000184,
+                "95": 0.799354,
+                "98": 0.826489,
+                "99": 0.843968
+              },
+              "y": {
+                "1": -0.470188,
+                "2": -0.445682,
+                "5": -0.386411,
+                "50": 0.000134,
+                "95": 1.277606,
+                "98": 1.368751,
+                "99": 1.401098
+              },
+              "z": {
+                "1": 0.547928,
+                "2": 0.559194,
+                "5": 0.595607,
+                "50": 1.704502,
+                "95": 2.705848,
+                "98": 3.28508,
+                "99": 3.537191
+              }
+            }
+          }
+        },
+        "verification": {
+          "iou_sam3d_camera": 0.5325,
+          "sam3d_intrinsics": {
+            "fx": 509.567,
+            "fy": 508.576,
+            "cx": 359.901,
+            "cy": 317.654
+          },
+          "sam3d_splat_to_cam": {
+            "rotation_wxyz": [
+              0.389372,
+              0.58725,
+              -0.601352,
+              0.376699
+            ],
+            "translation": [
+              -0.428267,
+              0.134352,
+              1.214333
+            ],
+            "scale": 1.834565
+          },
+          "depth_scale_to_scene": 1.619306,
+          "iou_rebased": 0.533,
+          "refine": {
+            "targets": 1500,
+            "sources": 2000,
+            "hypotheses": [
+              {
+                "name": "prior",
+                "iou_init": 0.533,
+                "iou": 0.6836,
+                "depth_residual": 0.1449,
+                "up_cos": 1.0,
+                "score": 0.5387
+              },
+              {
+                "name": "prior_rot_reseated",
+                "iou_init": 0.6461,
+                "iou": 0.6298,
+                "depth_residual": 0.1016,
+                "up_cos": 0.999,
+                "score": 0.5278
+              },
+              {
+                "name": "yaw0",
+                "iou_init": 0.6532,
+                "iou": 0.6292,
+                "depth_residual": 0.0994,
+                "up_cos": 0.998,
+                "score": 0.5289
+              },
+              {
+                "name": "yaw90",
+                "iou_init": 0.5086,
+                "iou": 0.4918,
+                "depth_residual": 0.0911,
+                "up_cos": -0.382,
+                "score": -0.2904
+              },
+              {
+                "name": "yaw180",
+                "iou_init": 0.5269,
+                "iou": 0.5963,
+                "depth_residual": 0.1179,
+                "up_cos": 0.841,
+                "score": 0.3986
+              },
+              {
+                "name": "yaw270",
+                "iou_init": 0.638,
+                "iou": 0.539,
+                "depth_residual": 0.1385,
+                "up_cos": 0.618,
+                "score": 0.2096
+              }
+            ],
+            "final_prior": {
+              "name": "prior",
+              "iou": 0.6551,
+              "scale_factor": 0.9,
+              "depth_residual": 0.1098,
+              "up_cos": 1.0
+            },
+            "final_alt": {
+              "name": "yaw0",
+              "iou": 0.6246,
+              "scale_factor": 0.8,
+              "depth_residual": 0.0689,
+              "up_cos": 0.999
+            },
+            "chosen": "prior",
+            "iou": 0.6551,
+            "depth_residual": 0.1098,
+            "up_cos": 1.0,
+            "seconds": 2.63
+          }
+        },
+        "sync_refine": {
+          "pixels": 37220,
+          "coverage": 0.9009,
+          "depth_factor": 0.939,
+          "colour_gain": [
+            1.6,
+            1.6,
+            1.6
+          ],
+          "gap_m_before": 0.1065,
+          "gap_m_after": -0.0
+        }
+      },
+      "mask_area_frac": 0.15692
     }
   ],
   "scenes": [
@@ -6060,6 +6679,1901 @@
               1.6
             ],
             "gap_m_before": 0.0034
+          }
+        }
+      }
+    },
+    {
+      "scene_id": "c049ae96ae7d4478b509da55b9c025e5",
+      "project_id": "867f9d0c74844b7f88828d9bd85d327e",
+      "photo": "uploads/867f9d0c74844b7f88828d9bd85d327e/c049ae96ae7d4478b509da55b9c025e5/source.jpg",
+      "unity_path": "Assets/SketchScape/Scenes/c049ae96/scene.ply",
+      "scene": {
+        "version": 1,
+        "upload_id": "c049ae96ae7d4478b509da55b9c025e5",
+        "photo": "uploads/867f9d0c74844b7f88828d9bd85d327e/c049ae96ae7d4478b509da55b9c025e5/source.jpg",
+        "frame": "opencv",
+        "image_size": [
+          720,
+          635
+        ],
+        "intrinsics": {
+          "fx": 476.7696,
+          "fy": 476.7697,
+          "cx": 360.0,
+          "cy": 317.5
+        },
+        "gravity_up_cam": [
+          0.001323,
+          -0.93493,
+          -0.354829
+        ],
+        "support_plane": {
+          "normal_cam": [
+            0.001323,
+            -0.93493,
+            -0.354829
+          ],
+          "offset": 1.5489,
+          "camera_height": 1.5489,
+          "kind": "floor",
+          "method": "floor-plane",
+          "plane_fit_deg": 1.029,
+          "plane_inlier_frac": 0.9462,
+          "kind_reason": "camera height in floor range",
+          "area_m2": 6.149,
+          "candidates": [
+            {
+              "height_m": 1.61,
+              "area_m2": 6.149
+            }
+          ]
+        },
+        "depth_range_m": [
+          0.8661,
+          5.8773
+        ],
+        "splat": {
+          "file": "scene.ply",
+          "count": 600000,
+          "source": "apple-sharp",
+          "aligned_scale": 1.0,
+          "align_log_mad": 0.01768,
+          "metric_scale": {
+            "source": "sharp",
+            "moge_over_sharp": 0.90797,
+            "moge_factor": 1.10136,
+            "align_log_mad": 0.01768,
+            "align_pixels": 433739
+          },
+          "align_pixels": 433739,
+          "prune": {
+            "input": 1179648,
+            "nonfinite": 0,
+            "after_filter": 1168099,
+            "output": 600000
+          },
+          "sh_degree": 0,
+          "color_space": "sRGB"
+        },
+        "models": {
+          "depth": "moge-2 Ruicheng/moge-2-vitl-normal",
+          "gravity": "geocalib (pinhole, focal prior from moge-2) + moge-2 normals mean-shift + floor-plane snap",
+          "splat": "sharp sharp_2572gikvuh.pt (apple/ml-sharp)"
+        },
+        "gravity": {
+          "source": "geocalib",
+          "method": "prior+normals",
+          "support_fraction": 0.2741,
+          "refine_deg": 2.32,
+          "prior_up": [
+            -0.0186,
+            -0.942209,
+            -0.334508
+          ],
+          "final_minus_prior_deg": 1.68
+        },
+        "timings_s": {
+          "geometry": 0.0,
+          "geometry_cached": true,
+          "sharp": 0.05,
+          "sharp_inference": 4.36,
+          "total": 0.4
+        },
+        "vram_peak_gb": 8.24,
+        "depth_grid": {
+          "w": 192,
+          "h": 1,
+          "points_cam": [
+            -1.3906,
+            -1.1985,
+            2.0121,
+            -1.502,
+            -1.5098,
+            2.4907,
+            -1.5714,
+            -1.8663,
+            3.0896,
+            -1.2727,
+            -1.8879,
+            3.1037,
+            -0.9776,
+            -1.8648,
+            3.0765,
+            -0.8626,
+            -2.2126,
+            3.6885,
+            -0.4828,
+            -2.2766,
+            3.7428,
+            -0.1318,
+            -2.3158,
+            3.8073,
+            0.2147,
+            -2.3418,
+            3.8633,
+            0.6375,
+            -2.3936,
+            3.9216,
+            0.9546,
+            -2.4095,
+            3.975,
+            1.3366,
+            -2.4202,
+            4.0205,
+            1.8095,
+            -2.4929,
+            4.0984,
+            2.15,
+            -2.5105,
+            4.1416,
+            2.5355,
+            -2.4223,
+            3.9962,
+            2.4784,
+            -2.0886,
+            3.4102,
+            -1.4454,
+            -1.0409,
+            2.0851,
+            -1.331,
+            -1.0879,
+            2.2072,
+            -1.6041,
+            -1.561,
+            3.1669,
+            -1.3664,
+            -1.5857,
+            3.2171,
+            -0.988,
+            -1.5606,
+            3.1934,
+            -0.8294,
+            -1.8911,
+            3.8205,
+            -0.5318,
+            -1.8673,
+            3.8708,
+            -0.1448,
+            -1.928,
+            3.945,
+            0.2478,
+            -1.9657,
+            4.0051,
+            0.6361,
+            -1.9979,
+            4.0707,
+            1.0429,
+            -2.0252,
+            4.1263,
+            1.407,
+            -2.0378,
+            4.2058,
+            2.4717,
+            -2.7754,
+            5.6791,
+            2.4823,
+            -2.349,
+            4.7057,
+            2.6473,
+            -2.0734,
+            4.2426,
+            2.6969,
+            -1.8347,
+            3.7542,
+            -1.4665,
+            -0.8086,
+            2.084,
+            -1.3273,
+            -0.8679,
+            2.201,
+            -1.6302,
+            -1.2638,
+            3.205,
+            -1.3564,
+            -1.3041,
+            3.325,
+            -1.0399,
+            -1.2852,
+            3.2944,
+            -0.8964,
+            -1.5863,
+            3.939,
+            -0.4908,
+            -1.5942,
+            4.0004,
+            -0.1406,
+            -1.6025,
+            4.0639,
+            0.195,
+            -1.5947,
+            4.1321,
+            0.6027,
+            -1.6276,
+            4.1947,
+            1.076,
+            -1.6876,
+            4.2572,
+            1.5146,
+            -1.7283,
+            4.3369,
+            2.4657,
+            -2.2567,
+            5.6928,
+            2.4721,
+            -1.821,
+            4.6678,
+            2.6606,
+            -1.726,
+            4.2638,
+            2.6971,
+            -1.4726,
+            3.7544,
+            -1.4916,
+            -0.5832,
+            2.1387,
+            -1.3329,
+            -0.6184,
+            2.2336,
+            -1.621,
+            -0.9024,
+            3.1869,
+            -1.4319,
+            -0.9498,
+            3.4568,
+            -1.0874,
+            -0.9331,
+            3.422,
+            -0.7698,
+            -0.901,
+            3.3826,
+            -0.511,
+            -1.1618,
+            4.1648,
+            -0.191,
+            -1.1461,
+            4.2358,
+            0.2027,
+            -1.1621,
+            4.2951,
+            0.6809,
+            -1.2064,
+            4.3574,
+            1.095,
+            -1.2208,
+            4.4432,
+            1.5673,
+            -1.2577,
+            4.5426,
+            2.5631,
+            -1.6227,
+            5.861,
+            2.4746,
+            -1.2204,
+            4.6177,
+            2.2005,
+            -0.9919,
+            3.5029,
+            2.403,
+            -0.9299,
+            3.3845,
+            -1.4751,
+            -0.3426,
+            2.1215,
+            -1.3757,
+            -0.3326,
+            2.2657,
+            -1.2807,
+            -0.3908,
+            2.518,
+            -1.5058,
+            -0.5689,
+            3.6166,
+            -1.1804,
+            -0.5696,
+            3.5732,
+            -0.7797,
+            -0.5173,
+            3.5236,
+            -0.5041,
+            -0.5969,
+            3.8454,
+            -0.1336,
+            -0.6294,
+            4.1107,
+            0.2388,
+            -0.6426,
+            4.1402,
+            0.6171,
+            -0.6299,
+            4.0583,
+            1.0077,
+            -0.657,
+            4.2329,
+            1.3738,
+            -0.6455,
+            4.1586,
+            2.6264,
+            -0.924,
+            6.0346,
+            2.5696,
+            -0.7514,
+            4.7763,
+            2.1578,
+            -0.5477,
+            3.4814,
+            2.3451,
+            -0.535,
+            3.3129,
+            -1.4136,
+            -0.1148,
+            2.0269,
+            -1.0933,
+            -0.1084,
+            1.8451,
+            -1.0823,
+            -0.1294,
+            2.128,
+            -1.0789,
+            -0.1584,
+            2.6044,
+            -1.0401,
+            -0.1978,
+            3.2517,
+            -0.6484,
+            -0.1671,
+            2.748,
+            -0.6183,
+            -0.2199,
+            4.3675,
+            -0.1256,
+            -0.2359,
+            3.6283,
+            0.2418,
+            -0.2379,
+            3.6596,
+            0.5937,
+            -0.2202,
+            3.7493,
+            0.8896,
+            -0.2214,
+            3.7701,
+            1.3162,
+            -0.24,
+            3.8147,
+            2.2487,
+            -0.3143,
+            5.1669,
+            2.3062,
+            -0.2649,
+            4.3546,
+            2.2154,
+            -0.2417,
+            3.4916,
+            2.4315,
+            -0.2272,
+            3.3847,
+            -0.9968,
+            0.0902,
+            1.4336,
+            -0.9757,
+            0.1128,
+            1.6294,
+            -0.9992,
+            0.1154,
+            1.9645,
+            -1.011,
+            0.1433,
+            2.4406,
+            -0.8029,
+            0.1465,
+            2.4938,
+            -0.5447,
+            0.146,
+            2.4853,
+            -0.4899,
+            0.223,
+            3.7976,
+            -0.1779,
+            0.2214,
+            3.7696,
+            0.2256,
+            0.2217,
+            3.7747,
+            0.5975,
+            0.2216,
+            3.773,
+            0.9098,
+            0.2225,
+            3.7882,
+            1.3233,
+            0.2225,
+            3.7894,
+            1.652,
+            0.2229,
+            3.7958,
+            2.0159,
+            0.2227,
+            3.7914,
+            2.2016,
+            0.2286,
+            3.5165,
+            2.4306,
+            0.1987,
+            3.3835,
+            -0.9325,
+            0.2539,
+            1.3452,
+            -0.9415,
+            0.2605,
+            1.5723,
+            -0.9284,
+            0.3216,
+            1.8254,
+            -0.8047,
+            0.3512,
+            1.9931,
+            -0.6134,
+            0.3493,
+            1.9826,
+            -0.463,
+            0.3488,
+            1.98,
+            -0.4223,
+            0.5255,
+            2.9829,
+            -0.0779,
+            0.5233,
+            2.9704,
+            0.1648,
+            0.5222,
+            2.9641,
+            0.4817,
+            0.5221,
+            2.9633,
+            0.7542,
+            0.5214,
+            2.9594,
+            0.9907,
+            0.525,
+            2.98,
+            1.317,
+            0.5256,
+            2.983,
+            1.5504,
+            0.5262,
+            2.9866,
+            1.8397,
+            0.5265,
+            2.9884,
+            2.1883,
+            0.529,
+            3.0023,
+            -0.8984,
+            0.3632,
+            1.2921,
+            -0.8964,
+            0.4192,
+            1.4917,
+            -0.8664,
+            0.4664,
+            1.7105,
+            -0.7078,
+            0.4659,
+            1.7087,
+            -0.5458,
+            0.4652,
+            1.7062,
+            -0.3898,
+            0.4671,
+            1.713,
+            -0.347,
+            0.6994,
+            2.5649,
+            -0.0932,
+            0.6924,
+            2.5395,
+            0.1676,
+            0.6915,
+            2.5361,
+            0.3961,
+            0.6912,
+            2.5351,
+            0.6026,
+            0.6902,
+            2.5312,
+            0.8618,
+            0.6894,
+            2.5285,
+            0.5553,
+            0.3267,
+            1.246,
+            0.8857,
+            0.456,
+            1.6724,
+            0.8591,
+            0.378,
+            1.3862,
+            1.8258,
+            0.7069,
+            2.5342,
+            -0.8682,
+            0.4764,
+            1.2412,
+            -0.8731,
+            0.5749,
+            1.458,
+            -0.7282,
+            0.5703,
+            1.4619,
+            -0.5902,
+            0.5674,
+            1.4543,
+            -0.4483,
+            0.5653,
+            1.4491,
+            -0.3423,
+            0.566,
+            1.4508,
+            -0.2629,
+            0.8506,
+            2.1802,
+            -0.1018,
+            0.8419,
+            2.1579,
+            0.1424,
+            0.8408,
+            2.1552,
+            0.1797,
+            0.451,
+            1.1498,
+            0.272,
+            0.4498,
+            1.1529,
+            0.3842,
+            0.4509,
+            1.1557,
+            0.5115,
+            0.4498,
+            1.153,
+            0.6162,
+            0.4468,
+            1.1453,
+            0.7038,
+            0.4461,
+            1.1434,
+            0.8171,
+            0.4464,
+            1.1442,
+            -0.8317,
+            0.5936,
+            1.1891,
+            -0.7475,
+            0.6236,
+            1.2184,
+            -0.5425,
+            0.5437,
+            1.0667,
+            -0.443,
+            0.5423,
+            1.064,
+            -0.3323,
+            0.5402,
+            1.0598,
+            -0.2367,
+            0.5357,
+            1.0597,
+            -0.1315,
+            0.5112,
+            1.003,
+            -0.0367,
+            0.5102,
+            1.0011,
+            0.0577,
+            0.5096,
+            0.9998,
+            0.1559,
+            0.5085,
+            0.9977,
+            0.257,
+            0.5099,
+            1.0004,
+            0.3497,
+            0.5104,
+            1.0014,
+            0.447,
+            0.5112,
+            1.0029,
+            0.5227,
+            0.5091,
+            0.9989,
+            0.623,
+            0.5089,
+            0.9984,
+            0.7177,
+            0.5092,
+            0.9991,
+            -0.6701,
+            0.5839,
+            0.9666,
+            -0.5776,
+            0.5867,
+            0.9713,
+            -0.3344,
+            0.4005,
+            0.663,
+            -0.4605,
+            0.6738,
+            1.1116,
+            -0.3529,
+            0.6623,
+            1.0889,
+            -0.2597,
+            0.6832,
+            1.1309,
+            -0.1131,
+            0.5473,
+            0.906,
+            -0.0409,
+            0.5482,
+            0.9075,
+            0.0617,
+            0.5471,
+            0.9057,
+            0.1467,
+            0.5453,
+            0.9028,
+            0.2194,
+            0.547,
+            0.9055,
+            0.3059,
+            0.5489,
+            0.9086,
+            0.3902,
+            0.5495,
+            0.9097,
+            0.4711,
+            0.5482,
+            0.9076,
+            0.5705,
+            0.5468,
+            0.9052,
+            0.6411,
+            0.5471,
+            0.9057
+          ],
+          "resampled_from": [
+            64,
+            56
+          ]
+        }
+      },
+      "analysis": {
+        "room_type": "cabin living room",
+        "setting": "indoor",
+        "camera_view": "eye-level",
+        "time_of_day": "afternoon",
+        "mood": "cozy, rustic, warm, inviting",
+        "lighting": {
+          "key_direction": "left, window light",
+          "key_direction_code": "left",
+          "key_azimuth_deg": 270,
+          "key_elevation_deg": 40,
+          "key_description": "window",
+          "color_temperature_k": 5450,
+          "sources": [
+            "window on left"
+          ],
+          "brightness": "medium",
+          "shadows": "soft",
+          "color_temperature_model_k": 5500,
+          "measured": {
+            "mean_luminance": 0.191,
+            "color_temperature_k": 5450,
+            "neutral_fraction": 0.066
+          }
+        },
+        "materials": {
+          "floor": "wooden planks",
+          "floor_visible": true,
+          "walls": "log cabin",
+          "other": [
+            "green fabric",
+            "wooden frame",
+            "beige rug",
+            "wooden table"
+          ]
+        },
+        "palette": [
+          "#454535",
+          "#c6945a",
+          "#726954",
+          "#231911",
+          "#af7136",
+          "#764e2b"
+        ],
+        "objects": [
+          {
+            "name": "green sofa",
+            "box": [
+              0,
+              235,
+              289,
+              579
+            ],
+            "salient": true
+          },
+          {
+            "name": "bottom wooden table",
+            "box": [
+              253,
+              457,
+              720,
+              634
+            ],
+            "salient": true
+          },
+          {
+            "name": "rug",
+            "box": [
+              312,
+              376,
+              553,
+              519
+            ],
+            "salient": true
+          },
+          {
+            "name": "curtains",
+            "box": [
+              0,
+              0,
+              108,
+              316
+            ],
+            "salient": true
+          },
+          {
+            "name": "wooden chair",
+            "box": [
+              0,
+              513,
+              268,
+              635
+            ],
+            "salient": true
+          },
+          {
+            "name": "wooden chair 2",
+            "box": [
+              315,
+              196,
+              459,
+              345
+            ],
+            "salient": true
+          },
+          {
+            "name": "wooden chair 3",
+            "box": [
+              433,
+              198,
+              556,
+              337
+            ],
+            "salient": true
+          },
+          {
+            "name": "wooden cabinet",
+            "box": [
+              606,
+              221,
+              714,
+              357
+            ],
+            "salient": true
+          },
+          {
+            "name": "wooden chair 4",
+            "box": [
+              549,
+              403,
+              704,
+              483
+            ],
+            "salient": true
+          },
+          {
+            "name": "top wooden table",
+            "box": [
+              253,
+              221,
+              323,
+              329
+            ],
+            "salient": true
+          },
+          {
+            "name": "microwave oven",
+            "box": [
+              626,
+              178,
+              719,
+              238
+            ],
+            "salient": true
+          },
+          {
+            "name": "left framed picture",
+            "box": [
+              243,
+              38,
+              300,
+              97
+            ],
+            "salient": true
+          },
+          {
+            "name": "right framed picture",
+            "box": [
+              433,
+              52,
+              490,
+              107
+            ],
+            "salient": true
+          },
+          {
+            "name": "left window",
+            "box": [
+              0,
+              0,
+              72,
+              312
+            ],
+            "salient": false
+          },
+          {
+            "name": "right window",
+            "box": [
+              78,
+              0,
+              139,
+              239
+            ],
+            "salient": false
+          },
+          {
+            "name": "remote control",
+            "box": [
+              270,
+              226,
+              307,
+              235
+            ],
+            "salient": false
+          }
+        ],
+        "search_terms": {
+          "hdri": [
+            "cabin interior",
+            "warm indoor",
+            "wooden floor",
+            "rustic cabin"
+          ],
+          "sounds": [
+            "wooden floor creak",
+            "soft ambient room tone"
+          ],
+          "images": [
+            "log cabin wall art",
+            "cabin interior decor"
+          ]
+        },
+        "caption": "A cozy log cabin living room with green furniture and wooden floors.",
+        "image_size": [
+          720,
+          635
+        ],
+        "model": "Qwen3-VL-4B-Instruct"
+      },
+      "asset_ids": [
+        "18f220397cbc4d6c80911ac23e886df3"
+      ],
+      "cut_asset_ids": [
+        "18f220397cbc4d6c80911ac23e886df3"
+      ],
+      "cut": {
+        "before": 600000,
+        "after": 565966,
+        "removed": {
+          "18f220397cbc4d6c80911ac23e886df3": 92703
+        },
+        "below_support_pruned": 3421,
+        "filled": {
+          "18f220397cbc4d6c80911ac23e886df3": 62090
+        },
+        "photo_check": {
+          "18f220397cbc4d6c80911ac23e886df3": {
+            "pixels": 37220,
+            "coverage": 0.9009,
+            "depth_factor": 0.939,
+            "colour_gain": [
+              1.6,
+              1.6,
+              1.6
+            ],
+            "gap_m_before": 0.1065,
+            "gap_m_after": -0.0
+          }
+        }
+      }
+    },
+    {
+      "scene_id": "d343eb56f640459fbed2e067af52c48e",
+      "project_id": "867f9d0c74844b7f88828d9bd85d327e",
+      "photo": "uploads/867f9d0c74844b7f88828d9bd85d327e/d343eb56f640459fbed2e067af52c48e/source.jpg",
+      "unity_path": "Assets/SketchScape/Scenes/d343eb56/scene.ply",
+      "scene": {
+        "version": 1,
+        "upload_id": "d343eb56f640459fbed2e067af52c48e",
+        "photo": "uploads/867f9d0c74844b7f88828d9bd85d327e/d343eb56f640459fbed2e067af52c48e/source.jpg",
+        "frame": "opencv",
+        "image_size": [
+          720,
+          476
+        ],
+        "intrinsics": {
+          "fx": 381.8394,
+          "fy": 381.8394,
+          "cx": 360.0,
+          "cy": 238.0
+        },
+        "gravity_up_cam": [
+          0.052514,
+          -0.938858,
+          -0.340277
+        ],
+        "support_plane": {
+          "normal_cam": [
+            0.052514,
+            -0.938858,
+            -0.340277
+          ],
+          "offset": 1.4739,
+          "camera_height": 1.4739,
+          "kind": "floor",
+          "method": "floor-plane",
+          "plane_fit_deg": 1.466,
+          "plane_inlier_frac": 0.9621,
+          "kind_reason": "camera height in floor range",
+          "area_m2": 5.425,
+          "candidates": [
+            {
+              "height_m": 1.55,
+              "area_m2": 5.425
+            }
+          ]
+        },
+        "depth_range_m": [
+          0.8867,
+          5.8406
+        ],
+        "splat": {
+          "file": "scene.ply",
+          "count": 600000,
+          "source": "apple-sharp",
+          "aligned_scale": 1.0,
+          "align_log_mad": 0.01365,
+          "metric_scale": {
+            "source": "sharp",
+            "moge_over_sharp": 0.97268,
+            "moge_factor": 1.02808,
+            "align_log_mad": 0.01365,
+            "align_pixels": 333177
+          },
+          "align_pixels": 333177,
+          "prune": {
+            "input": 1179648,
+            "nonfinite": 0,
+            "after_filter": 1169910,
+            "output": 600000
+          },
+          "sh_degree": 0,
+          "color_space": "sRGB"
+        },
+        "models": {
+          "depth": "moge-2 Ruicheng/moge-2-vitl-normal",
+          "gravity": "geocalib (pinhole, focal prior from moge-2) + moge-2 normals mean-shift + floor-plane snap",
+          "splat": "sharp sharp_2572gikvuh.pt (apple/ml-sharp)"
+        },
+        "gravity": {
+          "source": "geocalib",
+          "method": "prior+normals",
+          "support_fraction": 0.2461,
+          "refine_deg": 1.58,
+          "prior_up": [
+            0.063097,
+            -0.938396,
+            -0.339752
+          ],
+          "final_minus_prior_deg": 0.61
+        },
+        "timings_s": {
+          "geometry": 0.0,
+          "geometry_cached": true,
+          "sharp": 0.04,
+          "sharp_inference": 4.03,
+          "total": 0.4
+        },
+        "vram_peak_gb": 8.23,
+        "depth_grid": {
+          "w": 192,
+          "h": 1,
+          "points_cam": [
+            -1.7107,
+            -1.1126,
+            1.9354,
+            -2.1155,
+            -1.5967,
+            2.7902,
+            -1.915,
+            -1.7278,
+            2.9785,
+            -1.5398,
+            -1.7088,
+            2.9325,
+            -1.4672,
+            -2.071,
+            3.6027,
+            -1.0336,
+            -2.1594,
+            3.7058,
+            -0.6118,
+            -2.2035,
+            3.7985,
+            -0.2296,
+            -2.2396,
+            3.896,
+            0.34,
+            -2.3383,
+            3.9949,
+            0.7635,
+            -2.3325,
+            4.021,
+            1.0867,
+            -2.0143,
+            3.4724,
+            1.4301,
+            -1.9647,
+            3.4023,
+            1.813,
+            -1.8825,
+            3.3202,
+            1.7254,
+            -1.4804,
+            2.5989,
+            1.7992,
+            -1.3683,
+            2.317,
+            1.8811,
+            -1.2385,
+            2.0971,
+            -1.7301,
+            -0.9083,
+            1.9989,
+            -2.1028,
+            -1.291,
+            2.7929,
+            -1.9977,
+            -1.4408,
+            3.082,
+            -1.5898,
+            -1.4136,
+            3.0582,
+            -1.4924,
+            -1.7063,
+            3.7124,
+            -1.058,
+            -1.7801,
+            3.8294,
+            -0.5956,
+            -1.8697,
+            3.9552,
+            -0.1869,
+            -1.8855,
+            4.0791,
+            0.3595,
+            -2.0076,
+            4.2236,
+            1.0614,
+            -2.5108,
+            5.5902,
+            1.3886,
+            -2.08,
+            4.4746,
+            1.6618,
+            -1.7436,
+            3.9048,
+            1.6062,
+            -1.3417,
+            2.97,
+            1.731,
+            -1.2374,
+            2.6177,
+            1.8247,
+            -1.0764,
+            2.342,
+            1.9008,
+            -0.9601,
+            2.113,
+            -1.7572,
+            -0.7766,
+            2.0241,
+            -1.9867,
+            -0.964,
+            2.6386,
+            -1.9716,
+            -1.1664,
+            3.1699,
+            -1.6468,
+            -1.1763,
+            3.1519,
+            -1.4713,
+            -1.4513,
+            3.8088,
+            -1.0549,
+            -1.5077,
+            3.9298,
+            -0.6115,
+            -1.5579,
+            4.0605,
+            -0.1375,
+            -1.6117,
+            4.2007,
+            0.2908,
+            -1.6022,
+            4.3544,
+            1.0898,
+            -2.142,
+            5.7396,
+            1.4297,
+            -1.7555,
+            4.607,
+            1.6663,
+            -1.4304,
+            3.9154,
+            1.593,
+            -1.0863,
+            2.9313,
+            1.7311,
+            -0.9358,
+            2.6178,
+            1.8228,
+            -0.9006,
+            2.3474,
+            1.8789,
+            -0.8092,
+            2.0947,
+            -1.8012,
+            -0.5173,
+            2.0685,
+            -1.9481,
+            -0.6539,
+            2.5873,
+            -2.0796,
+            -0.8258,
+            3.3018,
+            -1.7093,
+            -0.8097,
+            3.2716,
+            -1.5776,
+            -0.9983,
+            3.9502,
+            -1.2026,
+            -0.9888,
+            4.0816,
+            -0.7462,
+            -1.0115,
+            4.2211,
+            -0.2121,
+            -1.0947,
+            4.3768,
+            0.3402,
+            -1.1638,
+            4.5576,
+            1.1025,
+            -1.4675,
+            5.8068,
+            1.2476,
+            -0.9821,
+            4.0542,
+            1.4427,
+            -0.8567,
+            3.39,
+            1.6094,
+            -0.764,
+            2.9617,
+            1.7333,
+            -0.6428,
+            2.5702,
+            1.6692,
+            -0.5639,
+            2.1642,
+            1.7273,
+            -0.5098,
+            1.937,
+            -1.8239,
+            -0.3428,
+            2.0945,
+            -1.7148,
+            -0.3728,
+            2.2775,
+            -2.1519,
+            -0.5837,
+            3.4025,
+            -1.7282,
+            -0.5436,
+            3.3753,
+            -1.4412,
+            -0.6025,
+            3.6811,
+            -1.1017,
+            -0.6405,
+            3.9131,
+            -0.6218,
+            -0.7054,
+            3.9901,
+            -0.2118,
+            -0.6461,
+            4.1465,
+            0.3851,
+            -0.703,
+            4.6683,
+            1.1203,
+            -0.9967,
+            5.9003,
+            1.1638,
+            -0.6629,
+            3.7501,
+            1.474,
+            -0.5655,
+            3.4008,
+            1.6346,
+            -0.4924,
+            3.008,
+            1.7403,
+            -0.4308,
+            2.6317,
+            1.817,
+            -0.4123,
+            2.3321,
+            1.8948,
+            -0.3301,
+            2.1186,
+            -1.6402,
+            -0.0863,
+            1.8836,
+            -1.3825,
+            -0.0748,
+            1.8426,
+            -1.5022,
+            -0.1084,
+            2.3653,
+            -1.3563,
+            -0.0932,
+            2.6355,
+            -1.1295,
+            -0.104,
+            2.7382,
+            -0.9983,
+            -0.1518,
+            3.5132,
+            -0.5692,
+            -0.174,
+            3.5924,
+            -0.1619,
+            -0.1619,
+            3.747,
+            0.2279,
+            -0.1469,
+            3.8683,
+            0.9696,
+            -0.234,
+            5.1068,
+            1.1748,
+            -0.175,
+            3.8177,
+            1.5303,
+            -0.2106,
+            3.5738,
+            1.6092,
+            -0.1435,
+            2.9612,
+            1.7762,
+            -0.1286,
+            2.6545,
+            1.8357,
+            -0.108,
+            2.3561,
+            1.9111,
+            -0.1032,
+            2.1307,
+            -1.273,
+            0.0515,
+            1.4575,
+            -1.3088,
+            0.0751,
+            1.7383,
+            -1.4253,
+            0.097,
+            2.2443,
+            -1.2715,
+            0.1062,
+            2.4584,
+            -1.0156,
+            0.1025,
+            2.5263,
+            -1.0034,
+            0.1759,
+            3.6316,
+            -0.6184,
+            0.1633,
+            3.7781,
+            -0.1759,
+            0.1658,
+            3.8376,
+            0.2817,
+            0.169,
+            3.9113,
+            0.7593,
+            0.1728,
+            3.9992,
+            1.1799,
+            0.157,
+            3.8673,
+            1.5071,
+            0.1623,
+            3.5413,
+            1.6194,
+            0.1288,
+            2.9801,
+            1.6972,
+            0.084,
+            2.5666,
+            1.8062,
+            0.1188,
+            2.3261,
+            1.8869,
+            0.1028,
+            2.1222,
+            -1.1868,
+            0.2345,
+            1.367,
+            -1.2183,
+            0.2785,
+            1.6237,
+            -1.2518,
+            0.3123,
+            1.9391,
+            -1.0344,
+            0.3142,
+            1.9505,
+            -0.8389,
+            0.3063,
+            2.0339,
+            -0.7817,
+            0.469,
+            2.9121,
+            -0.5182,
+            0.4721,
+            2.9313,
+            -0.1748,
+            0.4779,
+            2.9672,
+            0.1778,
+            0.4859,
+            3.0169,
+            0.5409,
+            0.4928,
+            3.0595,
+            0.9151,
+            0.5002,
+            3.1058,
+            1.3355,
+            0.5301,
+            3.1382,
+            1.5887,
+            0.4909,
+            2.952,
+            1.817,
+            0.48,
+            2.7155,
+            1.8597,
+            0.3556,
+            2.4031,
+            1.9166,
+            0.3766,
+            2.1306,
+            -1.1449,
+            0.3436,
+            1.3187,
+            -1.2059,
+            0.4243,
+            1.5961,
+            -1.0911,
+            0.421,
+            1.6833,
+            -0.9017,
+            0.4252,
+            1.7002,
+            -0.7314,
+            0.4203,
+            1.7732,
+            -0.7351,
+            0.6241,
+            2.4952,
+            -0.4453,
+            0.63,
+            2.519,
+            -0.1502,
+            0.6374,
+            2.5484,
+            0.1515,
+            0.6432,
+            2.5718,
+            0.469,
+            0.6752,
+            2.5402,
+            0.5361,
+            0.4179,
+            1.671,
+            0.5762,
+            0.3581,
+            1.388,
+            1.4346,
+            0.6732,
+            2.6918,
+            0.9914,
+            0.3715,
+            1.4702,
+            1.1804,
+            0.3648,
+            1.49,
+            1.9174,
+            0.5346,
+            2.1377,
+            -1.1014,
+            0.4541,
+            1.261,
+            -1.0723,
+            0.5278,
+            1.4242,
+            -0.891,
+            0.5309,
+            1.4325,
+            -0.7326,
+            0.5329,
+            1.4382,
+            -0.6009,
+            0.5536,
+            1.5047,
+            -0.5858,
+            0.7783,
+            2.1001,
+            -0.3741,
+            0.7786,
+            2.116,
+            -0.0498,
+            0.4268,
+            1.1516,
+            0.084,
+            0.432,
+            1.1657,
+            0.2241,
+            0.4374,
+            1.1804,
+            0.3634,
+            0.4414,
+            1.1911,
+            0.5111,
+            0.4451,
+            1.201,
+            0.6592,
+            0.4495,
+            1.213,
+            0.8099,
+            0.4539,
+            1.2248,
+            0.9685,
+            0.4607,
+            1.2431,
+            1.1453,
+            0.4696,
+            1.2584,
+            -1.069,
+            0.5642,
+            1.2276,
+            -0.9861,
+            0.5883,
+            1.2873,
+            -0.7111,
+            0.5104,
+            1.1105,
+            -0.5676,
+            0.5096,
+            1.1087,
+            -0.3874,
+            0.4609,
+            1.0028,
+            -0.2848,
+            0.4649,
+            1.0115,
+            -0.1618,
+            0.4694,
+            1.0212,
+            -0.0472,
+            0.4736,
+            1.0304,
+            0.0752,
+            0.4799,
+            1.0442,
+            0.2005,
+            0.4854,
+            1.0561,
+            0.3255,
+            0.4903,
+            1.0667,
+            0.4579,
+            0.4945,
+            1.076,
+            0.5892,
+            0.4983,
+            1.0842,
+            0.723,
+            0.5025,
+            1.0933,
+            0.8611,
+            0.508,
+            1.1053,
+            1.0189,
+            0.5175,
+            1.1196,
+            -0.8361,
+            0.5722,
+            0.9689,
+            -0.7682,
+            0.5963,
+            1.0097,
+            -0.6947,
+            0.6566,
+            1.1168,
+            -0.6041,
+            0.6867,
+            1.1679,
+            -0.3546,
+            0.5094,
+            0.8822,
+            -0.2516,
+            0.516,
+            0.8936,
+            -0.1499,
+            0.5204,
+            0.9012,
+            -0.0416,
+            0.5236,
+            0.9068,
+            0.0663,
+            0.5313,
+            0.92,
+            0.1739,
+            0.5362,
+            0.9285,
+            0.2879,
+            0.5403,
+            0.9357,
+            0.4097,
+            0.5458,
+            0.9451,
+            0.5115,
+            0.5462,
+            0.9459,
+            0.637,
+            0.5476,
+            0.9483,
+            0.7525,
+            0.5577,
+            0.9658,
+            0.8749,
+            0.5633,
+            0.9754
+          ],
+          "resampled_from": [
+            64,
+            42
+          ]
+        }
+      },
+      "analysis": {
+        "room_type": "cabin living room",
+        "setting": "indoor",
+        "camera_view": "eye-level",
+        "time_of_day": "afternoon",
+        "mood": "cozy, rustic, warm, inviting",
+        "lighting": {
+          "key_direction": "left, window light",
+          "key_direction_code": "left",
+          "key_azimuth_deg": 270,
+          "key_elevation_deg": 40,
+          "key_description": "window",
+          "color_temperature_k": 5500,
+          "sources": [
+            "window on left"
+          ],
+          "brightness": "medium",
+          "shadows": "soft",
+          "color_temperature_model_k": 5500,
+          "measured": {
+            "mean_luminance": 0.177,
+            "color_temperature_k": 5500,
+            "neutral_fraction": 0.06
+          }
+        },
+        "materials": {
+          "floor": "light oak hardwood",
+          "floor_visible": true,
+          "walls": "log cabin wood",
+          "other": [
+            "green fabric sofa",
+            "stone fireplace",
+            "wooden table",
+            "white microwave"
+          ]
+        },
+        "palette": [
+          "#494737",
+          "#76694f",
+          "#a96d2e",
+          "#b48a56",
+          "#231911",
+          "#dcb77f"
+        ],
+        "objects": [
+          {
+            "name": "bottom wooden table",
+            "box": [
+              186,
+              322,
+              720,
+              476
+            ],
+            "salient": true
+          },
+          {
+            "name": "green sofa",
+            "box": [
+              0,
+              176,
+              216,
+              444
+            ],
+            "salient": true
+          },
+          {
+            "name": "stone fireplace",
+            "box": [
+              546,
+              212,
+              720,
+              356
+            ],
+            "salient": true
+          },
+          {
+            "name": "rug",
+            "box": [
+              233,
+              281,
+              414,
+              388
+            ],
+            "salient": true
+          },
+          {
+            "name": "wooden chair",
+            "box": [
+              0,
+              383,
+              204,
+              476
+            ],
+            "salient": true
+          },
+          {
+            "name": "curtains",
+            "box": [
+              0,
+              0,
+              81,
+              232
+            ],
+            "salient": true
+          },
+          {
+            "name": "wooden chair 2",
+            "box": [
+              243,
+              149,
+              326,
+              255
+            ],
+            "salient": true
+          },
+          {
+            "name": "middle wooden table",
+            "box": [
+              454,
+              164,
+              535,
+              270
+            ],
+            "salient": true
+          },
+          {
+            "name": "wooden chair 3",
+            "box": [
+              326,
+              149,
+              407,
+              255
+            ],
+            "salient": true
+          },
+          {
+            "name": "wooden chair 4",
+            "box": [
+              407,
+              307,
+              528,
+              357
+            ],
+            "salient": true
+          },
+          {
+            "name": "top wooden table",
+            "box": [
+              192,
+              167,
+              243,
+              255
+            ],
+            "salient": true
+          },
+          {
+            "name": "plate",
+            "box": [
+              552,
+              432,
+              648,
+              476
+            ],
+            "salient": true
+          },
+          {
+            "name": "microwave oven",
+            "box": [
+              470,
+              132,
+              544,
+              176
+            ],
+            "salient": true
+          },
+          {
+            "name": "left framed picture",
+            "box": [
+              180,
+              27,
+              223,
+              73
+            ],
+            "salient": true
+          },
+          {
+            "name": "door",
+            "box": [
+              416,
+              62,
+              457,
+              198
+            ],
+            "salient": false
+          },
+          {
+            "name": "right framed picture",
+            "box": [
+              328,
+              42,
+              366,
+              79
+            ],
+            "salient": false
+          }
+        ],
+        "search_terms": {
+          "hdri": [
+            "cabin interior",
+            "warm indoor",
+            "log cabin",
+            "rustic living room"
+          ],
+          "sounds": [
+            "fireplace crackling",
+            "wooden floor creaking",
+            "birds outside",
+            "soft ambient room tone"
+          ],
+          "images": [
+            "log cabin wall art",
+            "forest cabin decor",
+            "rustic fireplace pictures",
+            "wooden furniture style"
+          ]
+        },
+        "caption": "A cozy log cabin living room with green furniture and a stone fireplace.",
+        "image_size": [
+          720,
+          476
+        ],
+        "model": "Qwen3-VL-4B-Instruct"
+      },
+      "asset_ids": [
+        "ed938f220b5542d3a91dbfa7a3b58e90"
+      ],
+      "cut_asset_ids": [
+        "ed938f220b5542d3a91dbfa7a3b58e90"
+      ],
+      "cut": {
+        "before": 600000,
+        "after": 551496,
+        "removed": {
+          "ed938f220b5542d3a91dbfa7a3b58e90": 77936
+        },
+        "below_support_pruned": 4152,
+        "filled": {
+          "ed938f220b5542d3a91dbfa7a3b58e90": 33584
+        },
+        "photo_check": {
+          "ed938f220b5542d3a91dbfa7a3b58e90": {
+            "pixels": 27120,
+            "coverage": 0.8239,
+            "depth_factor": 1.0,
+            "colour_gain": [
+              1.6,
+              1.6,
+              1.6
+            ],
+            "gap_m_before": -0.0183
           }
         }
       }

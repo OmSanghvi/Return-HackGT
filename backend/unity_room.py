@@ -68,6 +68,7 @@ __all__ = [
     "find_scene",
     "list_scenes",
     "kelvin_to_rgb",
+    "shared_block",
 ]
 
 AGENT_ROOMS_FOLDER = "Assets/SketchScape/AgentRooms"
@@ -85,6 +86,12 @@ _HOTSPOT_STANDOFF = 0.9
 _MAX_HOTSPOTS = 8
 _MAX_IMAGES = 6
 _MAX_SOUNDS = 5
+
+# Shared layer (docs/WEB_TO_QUEST_PIPELINE.md section 3): the headset reads the project's
+# /v1/rooms/{p}/shared view through the web app's HTTPS proxy (Android blocks cleartext).
+DEFAULT_PUBLIC_API_BASE = "https://returnweb-hazel.vercel.app/api"
+_DEFAULT_DEMO_USERS = ("demo-alice", "demo-bob")
+_PROJECT_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 # ---------------------------------------------------------------------------
@@ -511,6 +518,42 @@ def _check_jsonutility(value: Any, path: str = "spec") -> None:
 
 
 # ---------------------------------------------------------------------------
+# Shared layer block (contract docs/WEB_TO_QUEST_PIPELINE.md section 3)
+# ---------------------------------------------------------------------------
+
+
+def _demo_users() -> list[str]:
+    """The two demo accounts, as ``backend/auth.py`` reads them (exactly two, else the defaults)."""
+    raw = os.environ.get("SKETCHSCAPE_DEMO_USERS", "")
+    users = [u.strip() for u in raw.split(",") if u.strip()]
+    return users if len(users) == 2 and len(set(users)) == 2 else list(_DEFAULT_DEMO_USERS)
+
+
+def shared_block(project_id: Any) -> dict:
+    """The room spec's ``shared`` block: on for a project, ``enabled: false`` with empty values otherwise."""
+    pid = str(project_id or "").strip()
+    if not _PROJECT_ID_PATTERN.match(pid):
+        return {"enabled": False, "project_id": "", "api_base": "", "accounts": [], "labels": [],
+                "default_account": "", "snapshot_resource": ""}
+    base = (os.environ.get("SKETCHSCAPE_PUBLIC_API_BASE") or "").strip().rstrip("/") or DEFAULT_PUBLIC_API_BASE
+    users = _demo_users()
+    return {"enabled": True, "project_id": pid, "api_base": base, "accounts": users,
+            "labels": [f"Account {i + 1}" for i in range(len(users))], "default_account": users[0],
+            "snapshot_resource": f"SharedSnapshots/{pid}"}
+
+
+def _room_project_id(request: Mapping[str, Any], scene: Optional[Mapping[str, Any]], matches: Sequence[Optional[Mapping[str, Any]]]) -> str:
+    """The project a room belongs to: its photo scene's, else the one project all its matched scans share."""
+    flag = request.get("shared")
+    if flag is False or (isinstance(flag, str) and flag.strip().lower() in ("off", "none", "false", "no")):
+        return ""
+    if scene and scene.get("project_id"):
+        return str(scene["project_id"])
+    projects = {str(m.get("project_id")) for m in matches if m and m.get("project_id")}
+    return projects.pop() if len(projects) == 1 else ""
+
+
+# ---------------------------------------------------------------------------
 # compose_room
 # ---------------------------------------------------------------------------
 
@@ -653,7 +696,10 @@ def compose_room(request: Mapping[str, Any], *, catalog: Optional[Mapping[str, A
     "environment"? {"hdri"|"hdri_url", "floor_texture", "wall_texture", "fog", "shell"},
     "images"? [{"url", "title", "attribution", "placement"?}],
     "sounds"? [{"url", "title", "attribution", "kind": "ambient"|"object", "attach_to"?}],
-    "lights"? [...], "particles"? "auto"|"none"|kind|[kinds]}``.
+    "lights"? [...], "particles"? "auto"|"none"|kind|[kinds], "shared"? false}``.
+
+    A room whose photo scene (or whose scans) belong to a project gets the spec's ``shared`` block
+    (account switcher, personal notes, letters, object tags in VR); ``"shared": false`` leaves it off.
 
     Returns ``{"spec", "plan", "build_code", "finalize_code"}``.
     """
@@ -1192,6 +1238,7 @@ def compose_room(request: Mapping[str, Any], *, catalog: Optional[Mapping[str, A
         "images": images, "audio": audio, "particles": particles, "staging": staging,
         "teleport": {"floor_collider": True, "hotspots": [c for h in hotspots for c in h]},
         "credits": credits,
+        "shared": shared_block(_room_project_id(request, scene, matches)),
     }
     _check_jsonutility(spec)
 
@@ -1220,6 +1267,8 @@ def compose_room(request: Mapping[str, Any], *, catalog: Optional[Mapping[str, A
         + (f", {len(in_photo)} inside the photo scene" if in_photo else "")
         + f"; sky '{hdri.get('name')}', {len(lights)} lights, {len(audio)} sound(s), {len(images)} image(s), "
         + f"particles {', '.join(kinds) or 'none'}, {len(hotspots)} hotspots. Scene file {_scene_path(slug)} (new; other scenes untouched)."
+        + (f" Shared layer on (project {spec['shared']['project_id'][:8]}): account switcher, personal notes, letters, object tags."
+           if spec["shared"]["enabled"] else "")
     )
     plan = {
         "summary": summary,
@@ -1238,6 +1287,7 @@ def compose_room(request: Mapping[str, Any], *, catalog: Optional[Mapping[str, A
         "staging": {"lighting_preset": staged["lighting_preset"], "reveal_order": staging["reveal_order"], "narration": staging["narration"]},
         "credits": len(credits),
         "unity_steps": steps,
+        "shared": {"enabled": spec["shared"]["enabled"], "project_id": spec["shared"]["project_id"]},
         "notes": notes[:8],
     }
     return {"spec": spec, "plan": plan, "build_code": room_build_command(spec), "build_parts": build_parts,

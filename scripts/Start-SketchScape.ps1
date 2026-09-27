@@ -20,6 +20,9 @@
      (NemoClaw's own "Inference: unhealthy" status line is not used: its
      probe misreads Muse Spark responses even when the route works.)
   6. Deploys the OpenClaw skills if the sandbox doesn't have them.
+  7. Optional (-Runner): starts scripts/room_build_runner.py in its own
+     window, so the web app's "Build room in VR" requests are built here
+     (docs/WEB_TO_QUEST_PIPELINE.md section 2). Skipped if one is running.
 
   Never wraps wsl.exe in a Windows-side timeout (that once orphaned a
   NemoClaw lifecycle lock); long WSL commands carry their own `timeout`.
@@ -30,6 +33,12 @@
 .EXAMPLE
   # Re-enter the Meta key even if the route looks fine (e.g. after rotating it):
   .\scripts\Start-SketchScape.ps1 -ForceKey
+
+.EXAMPLE
+  # Bring the stack up and start the room-build runner in its own window:
+  .\scripts\Start-SketchScape.ps1 -Runner
+  # ...with extra runner flags (e.g. a dry run that skips the agent):
+  .\scripts\Start-SketchScape.ps1 -Runner -RunnerArgs "--no-agent"
 #>
 [CmdletBinding()]
 param(
@@ -39,7 +48,10 @@ param(
   [string]$UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.6.3f1\Editor\Unity.exe",
   [string]$DockerExe = (Join-Path $env:LOCALAPPDATA "Programs\DockerDesktop\Docker Desktop.exe"),
   [switch]$ForceKey,
-  [switch]$SkipUnity
+  [switch]$SkipUnity,
+  [switch]$Runner,
+  [string]$RunnerArgs = "",
+  [string]$RunnerPython = "C:\msys64\ucrt64\bin\python.exe"
 )
 
 $ErrorActionPreference = "Continue"  # native stderr must not become terminating errors (PS 5.1)
@@ -162,6 +174,32 @@ if (@($wanted | Where-Object { $have -notcontains $_ }).Count -eq 0) {
   $r = Invoke-Wsl "cd '$(ConvertTo-WslPath $Repo)' && timeout 600 bash scripts/nemoclaw-deploy-skills.sh $Sandbox"
   if ($r.Code -ne 0) { $r.Output | Select-Object -Last 10 | ForEach-Object { Info $_ }; Fail "skill deploy failed." }
   Ok "deployed"
+}
+
+# --- 7. Room build runner (optional) ----------------------------------------
+if ($Runner) {
+  Step "Room build runner (web 'Build room in VR' -> NemoClaw -> HackGTUnity)"
+  $runnerScript = Join-Path $PSScriptRoot "room_build_runner.py"
+  $tokenFile = Join-Path $env:USERPROFILE ".config\sketchscape\room-runner-token"
+  $running = @(Get-CimInstance Win32_Process -Filter "Name LIKE 'python%'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*room_build_runner.py*" })
+  if ($running.Count -gt 0) {
+    Ok "already running (pid $($running[0].ProcessId)); log: $StateDir\room-runner.log"
+  } else {
+    if (-not (Test-Path $RunnerPython)) { Fail "Python not found at $RunnerPython (pass -RunnerPython)." }
+    if (-not $env:SKETCHSCAPE_ROOM_RUNNER_TOKEN -and -not (Test-Path $tokenFile)) {
+      Fail "no runner token at $tokenFile (one line: the API host's SKETCHSCAPE_NEMOCLAW_TOKEN)."
+    }
+    # Through -EncodedCommand: PowerShell 5.1 mangles quotes in native args.
+    $q = { param($s) "'" + ($s -replace "'", "''") + "'" }
+    $cmd = "`$host.UI.RawUI.WindowTitle = 'SketchScape room runner'; `$env:PYTHONUTF8 = '1'; " +
+      "Set-Location $(& $q $Repo); & $(& $q $RunnerPython) -u $(& $q $runnerScript) $RunnerArgs; " +
+      "Write-Host `"Room runner exited (code `$LASTEXITCODE). Log: $StateDir\room-runner.log`""
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd))
+    Start-Process -FilePath "powershell.exe" -WorkingDirectory $Repo `
+      -ArgumentList @("-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $encoded) | Out-Null
+    Ok "started in its own window; log: $StateDir\room-runner.log"
+  }
 }
 
 Write-Host "`nSketchScape agent stack is up." -ForegroundColor Green

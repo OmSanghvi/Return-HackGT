@@ -24,7 +24,7 @@ namespace SketchScape
     {
         public const string AgentRoomsFolder = "Assets/SketchScape/AgentRooms";
         /// <summary>Bumped on every RoomKit change; check it to know the installed kit is current.</summary>
-        public static string Version() { return "1.0.14"; }
+        public static string Version() { return "1.0.15"; }
         const int MaxReport = 1900;
 
         // ------------------------------------------------------------------
@@ -33,6 +33,9 @@ namespace SketchScape
 
         public static string Build(string json)
         {
+            // Freshly synced scans / snapshots (written outside Unity) must be imported before anything loads them.
+            try { AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport); }
+            catch (Exception e) { Debug.LogWarning("RoomKit: AssetDatabase.Refresh failed: " + e.Message); }
             var failures = new List<string>();
             var notes = new List<string>();
             RoomSpec spec;
@@ -203,6 +206,9 @@ namespace SketchScape
             // 7. Objects.
             var objectNotes = new List<string>();
             var byId = new Dictionary<string, Transform>();
+            var mapAssets = new List<string>();
+            var mapIds = new List<string>();
+            var mapObjects = new List<Transform>();
             foreach (var o in spec.objects)
             {
                 string id = string.IsNullOrEmpty(o.id) ? (string.IsNullOrEmpty(o.label) ? "object" : o.label) : o.id;
@@ -210,6 +216,7 @@ namespace SketchScape
                 string kind;
                 var obj = BuildObject(root.transform, o, id, genFolder, failures, out kind);
                 byId[id] = obj.transform;
+                if (!string.IsNullOrEmpty(o.asset_id)) { mapAssets.Add(o.asset_id); mapIds.Add(id); mapObjects.Add(obj.transform); }
                 if (o.light.enabled)
                 {
                     var ol = NewLight(obj.transform, "Light", ParseLightType(o.light.type), Col(o.light.color), o.light.intensity);
@@ -353,7 +360,8 @@ namespace SketchScape
                 }
             }
 
-            // 14. Credits.
+            // 14. Shared layer (account switcher, notes, letters, tags), then credits.
+            string sharedNote = RoomKitShared.Build(spec, root, mapAssets, mapIds, mapObjects, genFolder, failures, notes);
             string creditsPath = WriteCredits(spec);
 
             // 15. Save, bake environment lighting + reflection probe, save again.
@@ -374,6 +382,7 @@ namespace SketchScape
               .Append(" particles=").Append(spec.particles.Length)
               .Append(" hotspots=").Append(hotspots)
               .Append(" staging=").Append(spec.staging.enabled ? "on(reveal " + order.Count + ")" : "off")
+              .Append(" shared=").Append(sharedNote)
               .Append(" lighting=").Append(bakeNote).Append('\n');
             if (creditsPath != null) sb.Append("credits: ").Append(creditsPath).Append('\n');
             if (notes.Count > 0) sb.Append("notes: ").Append(string.Join("; ", notes)).Append('\n');
@@ -931,7 +940,7 @@ namespace SketchScape
         }
 
         /// <summary>A white 64x64 texture whose alpha falls off radially; cached in WebCache.</summary>
-        static Texture2D RadialTexture(string name, float power, float core = 0f)
+        internal static Texture2D RadialTexture(string name, float power, float core = 0f)
         {
             string texPath = RoomKitWeb.CacheFolder + "/" + name + ".png";
             var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
@@ -988,7 +997,7 @@ namespace SketchScape
             return AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
         }
 
-        static Material GlowMaterial(string genFolder, string name, bool additive, Texture2D tex)
+        internal static Material GlowMaterial(string genFolder, string name, bool additive, Texture2D tex)
         {
             var shader = Shader.Find("SketchScape/Glow");
             Material mat;
@@ -1003,7 +1012,7 @@ namespace SketchScape
             return mat;
         }
 
-        static Bounds TransformBounds(Matrix4x4 m, Bounds b)
+        internal static Bounds TransformBounds(Matrix4x4 m, Bounds b)
         {
             var min = b.min; var max = b.max;
             var result = new Bounds(m.MultiplyPoint3x4(min), Vector3.zero);
@@ -1365,6 +1374,13 @@ namespace SketchScape
             if (s.staging == null) s.staging = new RoomStaging();
             if (s.teleport == null) s.teleport = new RoomTeleport();
             if (s.credits == null) s.credits = new string[0];
+            if (s.shared == null) s.shared = new RoomShared();
+            if (s.shared.project_id == null) s.shared.project_id = "";
+            if (s.shared.api_base == null) s.shared.api_base = "";
+            if (s.shared.accounts == null) s.shared.accounts = new string[0];
+            if (s.shared.labels == null) s.shared.labels = new string[0];
+            if (s.shared.default_account == null) s.shared.default_account = "";
+            if (s.shared.snapshot_resource == null) s.shared.snapshot_resource = "";
             foreach (var o in s.objects) if (o != null && o.light == null) o.light = new RoomObjectLight();
             var list = new List<RoomObject>();
             foreach (var o in s.objects) if (o != null) list.Add(o);
@@ -1451,7 +1467,7 @@ namespace SketchScape
             return Quaternion.LookRotation(f.normalized, Vector3.up);
         }
 
-        static Vector3 V3(float[] a, float fallback = 0f)
+        internal static Vector3 V3(float[] a, float fallback = 0f)
         {
             if (a == null) return new Vector3(fallback, fallback, fallback);
             return new Vector3(a.Length > 0 ? a[0] : fallback, a.Length > 1 ? a[1] : fallback, a.Length > 2 ? a[2] : fallback);

@@ -67,6 +67,9 @@ Never stop to ask permission.
      `fireflies`, `snow`, `rain`, `embers`.
    - `player_eye_height`: metres (default 1.6).
 
+   Rooms from a project's photos get the shared layer automatically (Account 1 / Account 2
+   switcher, personal notes, sealed letters, object tags; `plan.shared`); don't build it yourself.
+
    It prints a compact plan. `room.slug` names the room, and `unity_steps`
    is the exact, ordered list of Unity tool calls to make next.
 

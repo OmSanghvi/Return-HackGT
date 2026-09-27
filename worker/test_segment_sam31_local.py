@@ -195,6 +195,159 @@ class SegmentSelectionsTests(unittest.TestCase):
             self.assertEqual(sam31.segment_selections(StubPredictor({}), path, []), {})
 
 
+def _rect_mask(height: int, width: int, x0: int, y0: int, x1: int, y1: int) -> np.ndarray:
+    mask = np.zeros((height, width), dtype=bool)
+    mask[y0:y1, x0:x1] = True
+    return mask
+
+
+class BoxAwareSelectionTests(unittest.TestCase):
+    """docs/WEB_TO_QUEST_PIPELINE.md 7: a selection's VLM box picks the SAM
+    3.1 instance whose mask best overlaps it, so same-kind objects in one
+    photo (two green armchairs, several wooden chairs) get distinct masks."""
+
+    H, W = 60, 100
+
+    def test_two_same_name_selections_get_the_two_different_instances(self) -> None:
+        with _TempImage(self.W, self.H) as path:
+            left = _rect_mask(self.H, self.W, 5, 10, 35, 50)
+            right = _rect_mask(self.H, self.W, 60, 12, 90, 48)
+            # The right chair scores higher: without boxes both selections
+            # would pick it and one would be failed as a duplicate.
+            predictor = StubPredictor({"green armchair": _fake_result([left, right], [0.70, 0.95])})
+            outcomes = sam31.segment_selections(
+                predictor,
+                path,
+                [
+                    ("s-left", "green armchair", [4, 9, 36, 51]),
+                    ("s-right", "green armchair", [59, 11, 91, 49]),
+                ],
+            )
+            self.assertEqual(outcomes["s-left"]["status"], "segmented")
+            self.assertEqual(outcomes["s-right"]["status"], "segmented")
+            np.testing.assert_array_equal(outcomes["s-left"]["mask"], left)
+            np.testing.assert_array_equal(outcomes["s-right"]["mask"], right)
+            self.assertEqual(outcomes["s-left"]["box_match"], "box")
+            self.assertGreater(outcomes["s-left"]["box_iou"], 0.8)
+            self.assertAlmostEqual(outcomes["s-left"]["score"], 0.70)
+            # One text prompt for both selections (same name, sent once).
+            self.assertEqual(predictor.calls, [["green armchair"]])
+
+    def test_without_boxes_the_old_highest_score_behaviour_is_kept(self) -> None:
+        with _TempImage(self.W, self.H) as path:
+            left = _rect_mask(self.H, self.W, 5, 10, 35, 50)
+            right = _rect_mask(self.H, self.W, 60, 12, 90, 48)
+            predictor = StubPredictor({"green armchair": _fake_result([left, right], [0.70, 0.95])})
+            outcomes = sam31.segment_selections(predictor, path, [("s1", "green armchair")])
+            np.testing.assert_array_equal(outcomes["s1"]["mask"], right)
+            self.assertNotIn("box_iou", outcomes["s1"])
+
+    def test_box_overlap_beats_a_higher_score_and_near_ties_go_to_the_score(self) -> None:
+        with _TempImage(self.W, self.H) as path:
+            target = _rect_mask(self.H, self.W, 10, 5, 60, 55)
+            nearly_same = _rect_mask(self.H, self.W, 10, 5, 60, 56)  # box IoU 0.980: inside the tie band
+            elsewhere = _rect_mask(self.H, self.W, 65, 10, 95, 40)
+            predictor = StubPredictor(
+                {"chair": _fake_result([elsewhere, target, nearly_same], [0.99, 0.60, 0.80])}
+            )
+            outcomes = sam31.segment_selections(predictor, path, [("s1", "chair", [10, 5, 60, 55])])
+            # `elsewhere` scores best but doesn't overlap the box; of the two
+            # overlapping near-ties, the higher-score one wins.
+            np.testing.assert_array_equal(outcomes["s1"]["mask"], nearly_same)
+            self.assertAlmostEqual(outcomes["s1"]["score"], 0.80)
+
+    def test_box_selections_never_share_an_instance(self) -> None:
+        with _TempImage(self.W, self.H) as path:
+            a = _rect_mask(self.H, self.W, 20, 10, 50, 50)
+            b = _rect_mask(self.H, self.W, 52, 10, 80, 50)
+            predictor = StubPredictor({"wooden chair": _fake_result([a, b], [0.9, 0.9])})
+            # Both boxes overlap `a` best, but the second also overlaps `b`.
+            outcomes = sam31.segment_selections(
+                predictor,
+                path,
+                [("s1", "wooden chair", [20, 10, 50, 50]), ("s2", "wooden chair", [35, 10, 75, 50])],
+            )
+            np.testing.assert_array_equal(outcomes["s1"]["mask"], a)
+            np.testing.assert_array_equal(outcomes["s2"]["mask"], b)
+            self.assertEqual(outcomes["s2"]["status"], "segmented")
+
+    def test_a_box_that_overlaps_nothing_falls_back_to_the_best_free_instance(self) -> None:
+        with _TempImage(self.W, self.H) as path:
+            left = _rect_mask(self.H, self.W, 5, 10, 35, 50)
+            right = _rect_mask(self.H, self.W, 60, 12, 90, 48)
+            predictor = StubPredictor({"armchair": _fake_result([left, right], [0.9, 0.8])})
+            outcomes = sam31.segment_selections(
+                predictor,
+                path,
+                [("s1", "armchair", [4, 9, 36, 51]), ("s2", "armchair", [40, 52, 58, 59])],
+            )
+            np.testing.assert_array_equal(outcomes["s1"]["mask"], left)
+            np.testing.assert_array_equal(outcomes["s2"]["mask"], right)  # the one s1 didn't take
+            self.assertEqual(outcomes["s2"]["box_match"], "fallback")
+
+    def test_only_one_instance_for_two_boxes_keeps_the_better_overlap(self) -> None:
+        with _TempImage(self.W, self.H) as path:
+            only = _rect_mask(self.H, self.W, 60, 12, 90, 48)
+            predictor = StubPredictor({"armchair": _fake_result([only], [0.9])})
+            outcomes = sam31.segment_selections(
+                predictor,
+                path,
+                [("s-left", "armchair", [5, 10, 35, 50]), ("s-right", "armchair", [59, 11, 91, 49])],
+            )
+            self.assertEqual(outcomes["s-right"]["status"], "segmented")
+            self.assertEqual(outcomes["s-left"]["status"], "failed")
+            self.assertIn("duplicate", outcomes["s-left"]["reason"])
+
+    def test_combined_result_by_prompt_class_with_boxes(self) -> None:
+        # The real predictor's shape: ONE Results, prompt index in boxes.cls.
+        with _TempImage(self.W, self.H) as path:
+            chair_l = _rect_mask(self.H, self.W, 0, 30, 30, 58)
+            chair_r = _rect_mask(self.H, self.W, 70, 30, 99, 58)
+            lamp = _rect_mask(self.H, self.W, 40, 2, 55, 25)
+            combined = _fake_result([chair_r, lamp, chair_l], [0.9, 0.8, 0.7])
+            combined.boxes.cls = np.asarray([0.0, 1.0, 0.0])
+            calls: list[list[str]] = []
+
+            def predictor(text):
+                calls.append(list(text))
+                return [combined]
+
+            outcomes = sam31.segment_selections(
+                predictor,
+                path,
+                [
+                    {"selection_id": "c1", "text": "wooden chair", "box": [0, 30, 30, 58]},
+                    {"selection_id": "l1", "text": "lamp", "box": None},
+                    {"selection_id": "c2", "text": "Wooden chair ", "box": [70, 30, 99, 58]},
+                ],
+            )
+            self.assertEqual(calls, [["wooden chair", "lamp"]])  # case/space-insensitive dedupe
+            np.testing.assert_array_equal(outcomes["c1"]["mask"], chair_l)
+            np.testing.assert_array_equal(outcomes["c2"]["mask"], chair_r)
+            np.testing.assert_array_equal(outcomes["l1"]["mask"], lamp)
+
+    def test_a_clearly_better_overlap_wins_over_a_higher_score(self) -> None:
+        with _TempImage(self.W, self.H) as path:
+            target = _rect_mask(self.H, self.W, 10, 10, 40, 40)
+            looser = _rect_mask(self.H, self.W, 10, 10, 48, 50)  # box IoU 0.59
+            predictor = StubPredictor({"chair": _fake_result([looser, target], [0.95, 0.50])})
+            outcomes = sam31.segment_selections(predictor, path, [("s1", "chair", [10, 10, 40, 40])])
+            np.testing.assert_array_equal(outcomes["s1"]["mask"], target)
+            self.assertEqual(len(outcomes["s1"]["alternatives"]), 1)
+
+    def test_invalid_boxes_are_ignored(self) -> None:
+        for raw in ([1, 2, 3], [10, 10, 5, 20], ["a", 1, 2, 3], "0,0,1,1", [0, 0, float("nan"), 4]):
+            self.assertIsNone(sam31.parse_box(raw), raw)
+        self.assertEqual(sam31.parse_box([1, 2, 3.5, 4]), [1.0, 2.0, 3.5, 4.0])
+
+    def test_box_iou_and_mask_bbox(self) -> None:
+        self.assertAlmostEqual(sam31.box_iou([0, 0, 10, 10], [0, 0, 10, 10]), 1.0)
+        self.assertAlmostEqual(sam31.box_iou([0, 0, 10, 10], [5, 0, 15, 10]), 50 / 150)
+        self.assertEqual(sam31.box_iou([0, 0, 1, 1], [2, 2, 3, 3]), 0.0)
+        self.assertEqual(sam31.mask_bbox(_rect_mask(20, 20, 3, 4, 8, 9)), (3.0, 4.0, 8.0, 9.0))
+        self.assertIsNone(sam31.mask_bbox(np.zeros((5, 5), dtype=bool)))
+
+
 class SegmentManyAutoDetectTests(unittest.TestCase):
     """Skill's required scenarios for the optional auto-detect helper."""
 

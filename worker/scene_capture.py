@@ -58,11 +58,15 @@ import sys
 import threading
 import time
 import traceback
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import disk_hygiene  # noqa: E402 - sibling module (stdlib only)
 
 log = logging.getLogger("scene_capture")
 
@@ -70,6 +74,9 @@ SCENE_ROOT = Path(os.environ.get("SKETCHSCAPE_SCENE_ROOT", "/opt/sketchscape/run
 SHARP_CHECKPOINT = Path(os.environ.get("SKETCHSCAPE_SHARP_CHECKPOINT", str(SCENE_ROOT / "models" / "sharp_2572gikvuh.pt")))
 MOGE_MODEL = os.environ.get("SKETCHSCAPE_MOGE_MODEL", "Ruicheng/moge-2-vitl-normal")
 CACHE_DIR = Path(os.environ.get("SKETCHSCAPE_SCENE_CACHE", "/opt/sketchscape/data/scene-cache"))
+# The geometry cache is LRU-evicted (by entry mtime, touched on every hit)
+# down to this size after each request; entries in use are never evicted.
+CACHE_MAX_GB = float(os.environ.get("SKETCHSCAPE_SCENE_CACHE_MAX_GB", "3"))
 VRAM_BUDGET_GB = float(os.environ.get("SKETCHSCAPE_SCENE_VRAM_GB", "12"))
 KEEP_RESIDENT = os.environ.get("SKETCHSCAPE_SCENE_RESIDENT", "1") not in ("0", "false", "no")
 USE_GEOCALIB = os.environ.get("SKETCHSCAPE_SCENE_GEOCALIB", "1") not in ("0", "false", "no")
@@ -825,6 +832,7 @@ class SceneCapture:
             if (meta.get("geometry_version") == GEOMETRY_VERSION and Path(meta["pointmap_npy"]).is_file()
                     and Path(meta.get("sharp_npz", "")).is_file()):
                 meta["cached"] = True
+                disk_hygiene.touch(cdir)  # LRU: most recently used survives eviction
                 return meta
         with self.lock:
             meta = self._compute_geometry(image_path, cdir)
@@ -1054,6 +1062,43 @@ def _geometry_public(geo: Mapping[str, Any]) -> dict:
 _capture: Optional[SceneCapture] = None
 
 
+_cache_users: dict[str, int] = {}
+_cache_users_lock = threading.Lock()
+
+
+def evict_scene_cache(max_gb: Optional[float] = None) -> dict:
+    """LRU-evict CACHE_DIR/<sha>/ entries down to ``max_gb`` (default
+    SKETCHSCAPE_SCENE_CACHE_MAX_GB), never an entry a request is using."""
+    with _cache_users_lock:
+        in_use = {sha for sha, count in _cache_users.items() if count > 0}
+    limit = CACHE_MAX_GB if max_gb is None else max_gb
+    try:
+        return disk_hygiene.evict_lru(CACHE_DIR, limit * 2**30, in_use=in_use)
+    except Exception:
+        log.exception("scene-cache eviction failed")
+        return {"removed": 0, "freed_bytes": 0, "kept_bytes": 0}
+
+
+@contextmanager
+def cache_entry_in_use(image_path: Path):
+    """Pin the image's cache entry for one request, then evict the LRU
+    entries beyond the cap (outside the GPU lock)."""
+    try:
+        sha = sha256_file(Path(image_path))
+    except OSError:
+        sha = ""
+    with _cache_users_lock:
+        _cache_users[sha] = _cache_users.get(sha, 0) + 1
+    try:
+        yield sha
+    finally:
+        with _cache_users_lock:
+            _cache_users[sha] -= 1
+            if _cache_users[sha] <= 0:
+                del _cache_users[sha]
+        evict_scene_cache()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "SketchScapeScene/1"
 
@@ -1095,14 +1140,16 @@ class Handler(BaseHTTPRequestHandler):
             image = Path(str(body.get("image_path") or ""))
             if not image.is_file():
                 return self._send(400, {"error": f"image_path not found: {image}"})
-            if route == "/v1/geometry":
-                return self._send(200, _geometry_public(_capture.geometry(image)))
-            if route == "/v1/placement":
-                mask = Path(str(body.get("mask_path") or ""))
-                if not mask.is_file():
-                    return self._send(400, {"error": f"mask_path not found: {mask}"})
-                return self._send(200, _capture.placement(image, mask))
-            if route == "/v1/scene":
+            if route not in ("/v1/geometry", "/v1/placement", "/v1/scene"):
+                return self._send(404, {"error": "not found"})
+            with cache_entry_in_use(image):
+                if route == "/v1/geometry":
+                    return self._send(200, _geometry_public(_capture.geometry(image)))
+                if route == "/v1/placement":
+                    mask = Path(str(body.get("mask_path") or ""))
+                    if not mask.is_file():
+                        return self._send(400, {"error": f"mask_path not found: {mask}"})
+                    return self._send(200, _capture.placement(image, mask))
                 out_dir = body.get("out_dir")
                 if not out_dir:
                     return self._send(400, {"error": "out_dir required"})
@@ -1110,7 +1157,6 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"scene_json": doc, "scene_ply": str(Path(out_dir) / "scene.ply"),
                                         "scene_json_path": str(Path(out_dir) / "scene.json"),
                                         "timings_s": doc.get("timings_s")})
-            return self._send(404, {"error": "not found"})
         except ValueError as exc:
             return self._send(422, {"error": str(exc)})
         except Exception as exc:  # keep the server alive
@@ -1125,6 +1171,9 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(host: str, port: int, warm: bool = True) -> None:
     global _capture
+    evicted = evict_scene_cache()
+    log.info("scene cache %s: evicted %d entr(ies), %.1f MB freed, %.1f MB kept (cap %.1f GB)", CACHE_DIR,
+             evicted["removed"], evicted["freed_bytes"] / 2**20, evicted["kept_bytes"] / 2**20, CACHE_MAX_GB)
     _capture = SceneCapture()
     if warm:
         _capture.warm()

@@ -46,8 +46,23 @@ instead -- see `src/config.ts`, which is the single switch (`REAL_MODE`) that
 - **todo** Notability sketches: only the flat-card path is wired (PNG/JPEG
   upload straight to `/sketch-assets`); no PDF-page-to-PNG conversion in the
   browser yet, and no 3D memory-plaque option from the web UI.
-- **todo** Letters (step 28) -- not built here on purpose, per
-  `web-uploads-and-linking`.
+- **done** Letters (studio page, `src/real/LetterSection.tsx`): type a letter
+  (drawn onto a paper page in the browser, text also sent as `note_text`) or
+  attach a Notability page image. Sealed until a recipient opens it: the
+  recipient sees only the envelope and an "Open letter" button, the author
+  always sees their own page. Polls every 8 s and refetches on account switch.
+- **done** Personal notes: the upload note rides on `POST /uploads` as the
+  `note` form field (typed names and image-only alike) and is shown/edited
+  per photo on the studio page (`PATCH /uploads/{id}`, uploader only).
+- **done** "Build room in VR" (`src/real/VrBuildPanel.tsx`, contract
+  `docs/WEB_TO_QUEST_PIPELINE.md` §1) on the Ready page and the studio page:
+  optional prompt -> `POST /room-builds`; live status (build polled every
+  4 s while active, the list every 12 s otherwise so the other account's build
+  shows up); ready shows the room name (slug) and scene path; failed shows the
+  message with "Try again"; 409 (no stored scene / build already running) is
+  an inline hint; "Stop this build" uses the cancel route. **Mock mode** runs a
+  timed stand-in (`src/real/vrBuild.ts`, ~18 s) that ends on "Ready in VR";
+  `/?reset` clears it.
 - **known gap (not fixed here, see AGENT.md Hard Rule 9 / task notes):** the
   backend's CORS middleware hard-codes `allow_methods=["GET", "POST"]` in
   every auth mode (`backend/main.py`, where `app.add_middleware(CORSMiddleware,
@@ -63,7 +78,12 @@ instead -- see `src/config.ts`, which is the single switch (`REAL_MODE`) that
   perspective, so no preflight is sent at all), and it was left alone here
   because another agent is editing `backend/main.py` -- the fix is adding
   `"PATCH"` and `"DELETE"` to that `allow_methods` list.
-- Local dev: run the backend with `SKETCHSCAPE_AUTH_MODE=demo`,
+- Local dev against the live API: `VITE_SKETCHSCAPE_API_URL=/api npm run dev`
+  -- the Vite dev server proxies `/api/*` to the EC2 API like vercel.json does
+  (`SKETCHSCAPE_DEV_API_PROXY` points it elsewhere). From Git Bash, set
+  `MSYS_NO_PATHCONV=1` first (or use PowerShell): MSYS rewrites `/api` to
+  `C:/Program Files/Git/api`.
+- Local dev with a local backend: run the backend with `SKETCHSCAPE_AUTH_MODE=demo`,
   `SKETCHSCAPE_WEB_ORIGINS=http://localhost:5173`, `PIPELINE_MODE=mock`, then
   `VITE_SKETCHSCAPE_API_URL=http://localhost:8000 npm run dev` (or put that
   line in `web-app/.env.development`, which is git-ignored). See the repo's
@@ -109,7 +129,7 @@ instead -- see `src/config.ts`, which is the single switch (`REAL_MODE`) that
 
 ## 8. Ready
 - **done** Portal shows the room's cover photo or its painted scene with a depth map. It is not the real splat.
-- **done** Headset steps are two ("Open return on your Quest", "Sign in with this same account").
+- **done** The headset panel is now "Build it in VR" (simulated build in mock mode; see section 0).
 - **done** "Built from N photos by M people" is summed from member counts.
 - **todo** Map the seeded `lake-house` room (and any room created during the demo) to one precomputed, known-good scene in Unity, so the room you open on the Quest is always the same beautiful one. `NEXT_STEPS.md` step 2.
 - **todo** Hardcode one AI connection theme per seeded room for the headset (e.g. lake house: "the place everyone came back to"). It lives in the VR scene as lighting, motif and narration, never as a text card on the web or in VR (`features.txt` feature 2).

@@ -17,6 +17,8 @@ import type {
   ProjectRecord,
   ProjectUpdateRequest,
   ReconstructionJob,
+  RoomBuild,
+  RoomBuildCreateRequest,
   SelectionsRequestItem,
   UploadCreateResponse,
   UploadRecord,
@@ -204,12 +206,22 @@ export function listProjectAssets(projectId: string): Promise<ProjectAsset[]> {
 // Uploads -> selections -> refine -> generate (step 20/26)
 // ---------------------------------------------------------------------------
 
+/**
+ * `note` is the uploader's personal note for this photo (≤ 1000 chars). It
+ * rides along as a `note` form field so it survives an image-only upload
+ * (no typed names, so no selection carries it as memory text); a backend
+ * that doesn't read the field yet simply ignores it.
+ */
 export function createUpload(
   projectId: string,
   file: File,
   onProgress?: (fraction: number) => void,
+  note?: string,
 ): Promise<UploadCreateResponse> {
-  return uploadFileWithProgress(`/v1/projects/${projectId}/uploads`, 'image', file, file.name, {}, onProgress);
+  const extra: Record<string, string> = {};
+  const trimmed = note?.trim().slice(0, 1000);
+  if (trimmed) extra.note = trimmed;
+  return uploadFileWithProgress(`/v1/projects/${projectId}/uploads`, 'image', file, file.name, extra, onProgress);
 }
 
 export function listUploads(projectId: string): Promise<UploadRecord[]> {
@@ -218,6 +230,11 @@ export function listUploads(projectId: string): Promise<UploadRecord[]> {
 
 export function getUpload(projectId: string, uploadId: string): Promise<UploadRecord> {
   return getJson(`/v1/projects/${projectId}/uploads/${uploadId}`);
+}
+
+/** The uploader sets or edits their photo's personal note (≤ 1000 chars; uploader only, 403 otherwise). */
+export function updateUploadNote(projectId: string, uploadId: string, note: string): Promise<UploadRecord> {
+  return patchJson(`/v1/projects/${projectId}/uploads/${uploadId}`, { note: note.trim().slice(0, 1000) });
 }
 
 export function createSelections(
@@ -320,6 +337,29 @@ export function listLetters(projectId: string): Promise<LetterView[]> {
 
 export function openLetter(projectId: string, letterId: string): Promise<LetterOpenResponse> {
   return postJson(`/v1/rooms/${projectId}/letters/${letterId}/open`);
+}
+
+// ---------------------------------------------------------------------------
+// Room builds (docs/WEB_TO_QUEST_PIPELINE.md §1) -- "Build room in VR".
+// 409 on create: no stored scene yet, or a build is already running.
+// ---------------------------------------------------------------------------
+
+export function createRoomBuild(projectId: string, body: RoomBuildCreateRequest = {}): Promise<RoomBuild> {
+  return postJson(`/v1/projects/${projectId}/room-builds`, body);
+}
+
+/** Newest first, at most 20. */
+export function listRoomBuilds(projectId: string): Promise<RoomBuild[]> {
+  return getJson(`/v1/projects/${projectId}/room-builds`);
+}
+
+export function getRoomBuild(projectId: string, buildId: string): Promise<RoomBuild> {
+  return getJson(`/v1/projects/${projectId}/room-builds/${buildId}`);
+}
+
+/** A member gives up on an active build (it becomes `failed`, "Cancelled by ..."); 409 once it's already finished. */
+export function cancelRoomBuild(projectId: string, buildId: string): Promise<RoomBuild> {
+  return postJson(`/v1/projects/${projectId}/room-builds/${buildId}/cancel`);
 }
 
 export async function listProjectJobs(

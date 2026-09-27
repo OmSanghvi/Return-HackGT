@@ -75,6 +75,8 @@ export interface UploadRecord {
   created_at: string;
   original_filename: string;
   selections: UploadSelection[];
+  /** The uploader's personal note, when the backend stores it (sent as the upload's `note` form field). */
+  note?: string | null;
 }
 
 export interface UploadCreateResponse {
@@ -207,4 +209,33 @@ export interface LetterOpenResponse {
   opened: boolean;
   opened_by: string;
   opened_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Room builds (docs/WEB_TO_QUEST_PIPELINE.md §1) -- "Build room in VR". Every
+// field is a string, "" when unknown. `apk_path` stays "" (no APK, §6) and
+// `packaging` is unused, but both are still typed so an older build reads.
+// ---------------------------------------------------------------------------
+
+export type RoomBuildStatus = 'requested' | 'claimed' | 'syncing' | 'building' | 'packaging' | 'ready' | 'failed';
+
+export interface RoomBuild {
+  build_id: string;
+  project_id: string;
+  requested_by: string;
+  prompt: string;
+  scene_id: string;
+  status: RoomBuildStatus;
+  message: string;
+  slug: string;
+  scene_path: string;
+  apk_path: string;
+  runner_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RoomBuildCreateRequest {
+  prompt?: string;
+  scene_id?: string;
 }

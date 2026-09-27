@@ -27,6 +27,21 @@ namespace SketchScape
         public RoomStaging staging = new RoomStaging();
         public RoomTeleport teleport = new RoomTeleport();
         public string[] credits = new string[0];
+        public RoomShared shared = new RoomShared();
+    }
+
+    /// <summary>Shared layer (Return-HackGT docs/WEB_TO_QUEST_PIPELINE.md section 3): account switcher,
+    /// personal notes, letters and object tags, read from the project's /v1/rooms/{p}/shared view.</summary>
+    [Serializable]
+    public class RoomShared
+    {
+        public bool enabled = false;
+        public string project_id = "";
+        public string api_base = "";
+        public string[] accounts = new string[0];
+        public string[] labels = new string[0];
+        public string default_account = "";
+        public string snapshot_resource = "";
     }
 
     [Serializable]

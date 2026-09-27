@@ -1,0 +1,34 @@
+/* "Build room in VR" panel (VrBuildPanel.tsx). Sits inside a glass panel on the
+   Ready page (side) or as its own glass section on the project page (wide). */
+.vr-build { display: flex; flex-direction: column; gap: var(--space-3); }
+.vr-build-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.vr-form, .vr-progress, .vr-ready, .vr-failed { display: flex; flex-direction: column; gap: var(--space-3); }
+.vr-form .rt-field { margin: 0; }
+.vr-form textarea { resize: vertical; min-height: 64px; }
+.vr-actions { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.vr-quiet { margin: 0; }
+.vr-line { margin: 0; }
+.vr-quote { margin: 0; font-family: var(--font-accent); font-style: italic; font-size: 17px; line-height: 1.35; color: var(--ink-muted); }
+
+.vr-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); font-size: 14px; }
+.vr-steps li { display: flex; align-items: center; gap: var(--space-3); color: var(--ink-faint); transition: color var(--duration-base) var(--ease-out); }
+.vr-steps li[data-state="done"] { color: var(--ink-muted); }
+.vr-steps li[data-state="now"] { color: var(--ink); font-weight: 600; }
+.vr-step-dot { width: 24px; height: 24px; flex: none; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--line-strong); background: transparent; }
+.vr-steps li[data-state="done"] .vr-step-dot { background: var(--success-soft); color: var(--success); border-color: transparent; }
+.vr-steps li[data-state="now"] .vr-step-dot { background: var(--sun-soft); color: var(--sun); border-color: transparent; }
+
+.vr-slug { align-self: flex-start; font-size: 15px; font-weight: 600; padding: 6px 12px; border-radius: var(--radius-pill); background: var(--success-soft); color: var(--ink); word-break: break-all; }
+.vr-path { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; }
+
+.vr-hint { display: flex; gap: var(--space-2); align-items: flex-start; font-size: 13px; line-height: 18px; color: var(--ink); padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md); background: var(--sun-soft); }
+.vr-hint .rt-icon { flex: none; margin-top: 1px; color: var(--sun); }
+.vr-hint-detail { display: block; color: var(--ink-muted); margin-top: 2px; }
+
+/* The Ready page's side panel is 320px; give the build panel a little more room there. */
+.app-headset.vr-host { width: 340px; }
+.vr-build-wide { max-width: 720px; }
+.vr-build-wide .vr-progress, .vr-build-wide .vr-ready, .vr-build-wide .vr-failed { max-width: 640px; }
+@media (max-width: 960px) { .app-headset.vr-host { width: 100%; max-width: 480px; } }

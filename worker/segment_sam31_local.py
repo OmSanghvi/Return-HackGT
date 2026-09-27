@@ -157,6 +157,60 @@ def mask_iou(a: np.ndarray, b: np.ndarray) -> float:
 
 _NO_MATCH_REASON = "nothing found matching that name; try being more specific"
 
+# A VLM box and a SAM 3.1 instance "match" when their boxes overlap at least
+# this much (IoU); below it the box is treated as unmatched and the
+# selection falls back to the plain highest-score instance.
+MIN_BOX_IOU = float(os.environ.get("SAM31_MIN_BOX_IOU", "0.1"))
+# Box IoUs this close count as a tie, broken by SAM 3.1's confidence.
+BOX_IOU_TIE = 0.02
+
+
+def parse_box(raw: Any) -> list[float] | None:
+    """A selection's optional VLM box ``[x0, y0, x1, y1]`` (stored-photo
+    pixels) as four finite floats with x1 > x0 and y1 > y0, else None."""
+    if raw is None or isinstance(raw, (str, bytes)):
+        return None
+    try:
+        values = [float(value) for value in raw]
+    except (TypeError, ValueError):
+        return None
+    if len(values) != 4 or not all(np.isfinite(values)):
+        return None
+    x0, y0, x1, y1 = values
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return values
+
+
+def mask_bbox(mask: np.ndarray) -> tuple[float, float, float, float] | None:
+    """Tight pixel box ``(x0, y0, x1, y1)`` of a boolean mask (x1/y1
+    exclusive, matching how a detector's box spans whole pixels)."""
+    ys, xs = np.nonzero(np.asarray(mask, dtype=bool))
+    if not len(xs):
+        return None
+    return float(xs.min()), float(ys.min()), float(xs.max()) + 1.0, float(ys.max()) + 1.0
+
+
+def box_iou(a: Any, b: Any) -> float:
+    """Intersection-over-union of two ``[x0, y0, x1, y1]`` boxes."""
+    ax0, ay0, ax1, ay1 = (float(v) for v in a)
+    bx0, by0, bx1, by1 = (float(v) for v in b)
+    iw = max(0.0, min(ax1, bx1) - max(ax0, bx0))
+    ih = max(0.0, min(ay1, by1) - max(ay0, by0))
+    intersection = iw * ih
+    union = max(0.0, ax1 - ax0) * max(0.0, ay1 - ay0) + max(0.0, bx1 - bx0) * max(0.0, by1 - by0) - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+def _normalize_selection(item: Any) -> tuple[str, str, list[float] | None]:
+    """``(selection_id, text)``, ``(selection_id, text, box)`` or a
+    ``{"selection_id", "text", "box"}`` dict -> ``(id, text, box|None)``."""
+    if isinstance(item, dict):
+        return str(item["selection_id"]), str(item["text"]), parse_box(item.get("box"))
+    selection_id, text, *rest = item
+    return str(selection_id), str(text), parse_box(rest[0]) if rest else None
+
+
 # ---------------------------------------------------------------------------
 # Build Plan step 27: person-chosen, text-only multi-object segmentation.
 # ---------------------------------------------------------------------------
@@ -165,71 +219,168 @@ _NO_MATCH_REASON = "nothing found matching that name; try being more specific"
 def segment_selections(
     predictor: Any,
     image_path: Path,
-    selections: list[tuple[str, str]],
+    selections: list[Any],
     *,
     min_area_ratio: float = 0.005,
     max_area_ratio: float = 0.90,
     duplicate_iou: float = 0.85,
+    min_box_iou: float | None = None,
 ) -> dict[str, dict[str, Any]]:
     """One SAM 3.1 pass over every selection's typed name for one photo.
 
-    ``selections`` is ``[(selection_id, text), ...]`` -- every pending
-    selection for the upload's `segment` job (skill item 1: SAM loads the
-    image once, and every selection is a text prompt batched into one
-    ``predictor(text=[...])`` call). ``predictor`` is any callable that
-    accepts ``text=`` and returns either one results-like object per prompt
+    ``selections`` is ``[(selection_id, text), ...]`` or
+    ``[(selection_id, text, box), ...]`` (or the dispatcher's dicts) --
+    every pending selection for the upload's `segment` job (skill item 1:
+    SAM loads the image once, and every distinct name is a text prompt
+    batched into one ``predictor(text=[...])`` call; selections sharing a
+    name share its instances). ``predictor`` is any callable that accepts
+    ``text=`` and returns either one results-like object per prompt
     (positionally aligned) or, like the real `SAM3SemanticPredictor`, one
     combined result with each instance's prompt index in ``boxes.cls`` (see
     ``candidates_per_prompt``) -- a real predictor on the GPU, or a stub.
 
+    Choosing the instance (docs/WEB_TO_QUEST_PIPELINE.md 7):
+
+    * with a ``box`` (where the vision labeler saw *this* object, stored
+      photo pixels): the instance whose mask's box best overlaps it (IoU;
+      near-ties broken by score). Box selections are matched greedily
+      best-IoU-first and never share an instance, so two "green armchair"
+      selections with different boxes get the two different chairs. A box
+      nothing overlaps (IoU < ``min_box_iou``) falls back to the best-score
+      instance not already taken.
+    * without a box: the highest-score instance (unchanged).
+
     Returns ``{selection_id: {"status", "score", "mask", "alternatives",
-    "reason"}}``. A selection with no usable mask -- nothing above the area
-    filter, or flagged as a near-duplicate of a higher-scoring selection --
-    is ``"failed"`` with a reason (Hard Rule 7: it never blocks the others).
+    "reason", ...}}`` (box selections also carry ``box_iou`` and
+    ``box_match``). A selection with no usable mask -- nothing above the
+    area filter, or flagged as a near-duplicate of a better selection -- is
+    ``"failed"`` with a reason (Hard Rule 7: it never blocks the others).
     """
     if not selections:
         return {}
+    threshold = MIN_BOX_IOU if min_box_iou is None else min_box_iou
 
     image = Image.open(image_path).convert("RGB")
     width, height = image.size
 
-    texts = [text.strip() for _selection_id, text in selections]
-    raw_results = predictor(text=texts)
-    per_prompt_candidates = candidates_per_prompt(list(raw_results), len(selections), height, width)
+    parsed = [_normalize_selection(item) for item in selections]
+    prompts: list[str] = []
+    prompt_index: dict[str, int] = {}
+    selection_prompt: list[int] = []
+    for _selection_id, text, _box in parsed:
+        key = text.strip().casefold()
+        if key not in prompt_index:
+            prompt_index[key] = len(prompts)
+            prompts.append(text.strip())
+        selection_prompt.append(prompt_index[key])
+
+    raw_results = predictor(text=prompts)
+    per_prompt_candidates = [
+        [
+            (score, mask)
+            for score, mask in candidates
+            if min_area_ratio < float(mask.mean()) < max_area_ratio
+        ]
+        for candidates in candidates_per_prompt(list(raw_results), len(prompts), height, width)
+    ]
+    candidate_boxes = [[mask_bbox(mask) for _score, mask in candidates] for candidates in per_prompt_candidates]
 
     def failed(reason: str) -> dict[str, Any]:
         return {"status": "failed", "score": None, "mask": None, "alternatives": [], "reason": reason}
 
+    def alternatives_for(prompt: int, chosen: int) -> list[dict[str, float]]:
+        others = [item for index, item in enumerate(per_prompt_candidates[prompt]) if index != chosen]
+        others.sort(key=lambda item: item[0], reverse=True)
+        return [
+            {"score": round(float(score), 4), "area_ratio": round(float(mask.mean()), 4)}
+            for score, mask in others
+        ]
+
+    # Box selections first: greedy best-IoU-first assignment, one instance
+    # per selection, never shared between two box selections of one name.
+    chosen: dict[int, tuple[int, float | None, str]] = {}  # selection -> (candidate, box IoU, match)
+    taken: set[tuple[int, int]] = set()
+    options: dict[int, list[tuple[float, float, int]]] = {}  # selection -> [(IoU, score, candidate)]
+    for sel_index, (_selection_id, _text, box) in enumerate(parsed):
+        if box is None:
+            continue
+        prompt = selection_prompt[sel_index]
+        for cand_index, (score, _mask) in enumerate(per_prompt_candidates[prompt]):
+            cand_box = candidate_boxes[prompt][cand_index]
+            iou = box_iou(cand_box, box) if cand_box is not None else 0.0
+            if iou >= threshold:
+                options.setdefault(sel_index, []).append((iou, float(score), cand_index))
+    while True:
+        # The selection with the best still-available overlap goes next...
+        best: tuple[float, int, list[tuple[float, float, int]]] | None = None
+        for sel_index, opts in options.items():
+            if sel_index in chosen:
+                continue
+            prompt = selection_prompt[sel_index]
+            available = [opt for opt in opts if (prompt, opt[2]) not in taken]
+            if available:
+                top = max(opt[0] for opt in available)
+                if best is None or top > best[0]:
+                    best = (top, sel_index, available)
+        if best is None:
+            break
+        top, sel_index, available = best
+        # ...and takes, of its near-tied best overlaps, the highest score.
+        near = [opt for opt in available if opt[0] >= top - BOX_IOU_TIE]
+        iou, _score, cand_index = max(near, key=lambda opt: (opt[1], opt[0]))
+        chosen[sel_index] = (cand_index, iou, "box")
+        taken.add((selection_prompt[sel_index], cand_index))
+
+    for sel_index, (_selection_id, _text, box) in enumerate(parsed):
+        if sel_index in chosen:
+            continue
+        prompt = selection_prompt[sel_index]
+        candidates = per_prompt_candidates[prompt]
+        if not candidates:
+            continue
+        order = sorted(range(len(candidates)), key=lambda index: candidates[index][0], reverse=True)
+        if box is None:
+            chosen[sel_index] = (order[0], None, "score")
+            continue
+        # A box nothing overlaps: best-score instance nobody else took.
+        free = [index for index in order if (prompt, index) not in taken] or order
+        cand_box = candidate_boxes[prompt][free[0]]
+        chosen[sel_index] = (free[0], box_iou(cand_box, box) if cand_box is not None else 0.0, "fallback")
+        taken.add((prompt, free[0]))
+
     outcomes: dict[str, dict[str, Any]] = {}
     chosen_masks: dict[str, np.ndarray] = {}
-    for index, (selection_id, _text) in enumerate(selections):
-        candidates = [
-            (score, mask)
-            for score, mask in per_prompt_candidates[index]
-            if min_area_ratio < float(mask.mean()) < max_area_ratio
-        ]
-        if not candidates:
+    rank: dict[str, tuple[float, float]] = {}
+    for sel_index, (selection_id, _text, box) in enumerate(parsed):
+        if sel_index not in chosen:
             outcomes[selection_id] = failed(_NO_MATCH_REASON)
             continue
-        candidates.sort(key=lambda item: item[0], reverse=True)
-        best_score, best_mask = candidates[0]
-        alternatives = [
-            {"score": round(float(score), 4), "area_ratio": round(float(mask.mean()), 4)}
-            for score, mask in candidates[1:]
-        ]
-        outcomes[selection_id] = {
+        prompt = selection_prompt[sel_index]
+        cand_index, iou, match = chosen[sel_index]
+        score, mask = per_prompt_candidates[prompt][cand_index]
+        outcome: dict[str, Any] = {
             "status": "segmented",
-            "score": float(best_score),
-            "mask": best_mask,
-            "alternatives": alternatives,
+            "score": float(score),
+            "mask": mask,
+            "alternatives": alternatives_for(prompt, cand_index),
             "reason": None,
         }
-        chosen_masks[selection_id] = best_mask
+        if box is not None:
+            outcome["box_iou"] = round(float(iou or 0.0), 4)
+            outcome["box_match"] = match
+        outcomes[selection_id] = outcome
+        chosen_masks[selection_id] = mask
+        # Duplicate tie-break: a box-matched pick beats a fallback, then the
+        # better box overlap, then SAM's score.
+        rank[selection_id] = (
+            (2.0 if match == "box" else 1.0 if match == "score" else 0.0) + float(iou or 0.0),
+            float(score),
+        )
 
     # Cross-selection duplicate flagging (skill item 1): two selections
     # whose chosen masks overlap heavily are almost certainly the same real
-    # object picked twice. Keep the higher score, fail the other with a
-    # reason instead of reconstructing the same object twice.
+    # object picked twice. Keep the better one, fail the other with a reason
+    # instead of reconstructing the same object twice.
     ids = sorted(chosen_masks.keys())
     for i in range(len(ids)):
         id_a = ids[i]
@@ -242,8 +393,10 @@ def segment_selections(
             overlap = mask_iou(chosen_masks[id_a], chosen_masks[id_b])
             if overlap <= duplicate_iou:
                 continue
-            loser = id_a if outcomes[id_a]["score"] <= outcomes[id_b]["score"] else id_b
+            loser = id_a if rank[id_a] <= rank[id_b] else id_b
             outcomes[loser] = failed(f"duplicate of another selection (IoU {overlap:.2f})")
+            if loser == id_a:
+                break
     return outcomes
 
 
@@ -334,7 +487,7 @@ def build_predictor(checkpoint: Path, confidence: float) -> Any:
 
 
 def _segment_selections_to_disk(
-    predictor: Any, image_path: Path, output_dir: Path, selections: list[tuple[str, str]]
+    predictor: Any, image_path: Path, output_dir: Path, selections: list[Any]
 ) -> dict[str, dict[str, Any]]:
     """``segment_selections`` plus writing one mask PNG per segmented
     selection to ``output_dir/{selection_id}.png`` -- the on-disk contract
@@ -352,6 +505,19 @@ def _segment_selections_to_disk(
             Image.fromarray((np.asarray(mask, dtype=bool) * 255).astype(np.uint8), mode="L").save(mask_path)
             outcome["mask_path"] = str(mask_path)
         report[selection_id] = outcome
+    print(
+        "segment_many %s: %s"
+        % (
+            image_path.name,
+            json.dumps(
+                {
+                    sid: [o.get("status"), o.get("score") and round(o["score"], 3), o.get("box_iou"), o.get("box_match")]
+                    for sid, o in report.items()
+                }
+            ),
+        ),
+        flush=True,
+    )
     return report
 
 
@@ -429,8 +595,12 @@ def serve(predictor: Any, port: int) -> None:
                 body = self._read_json()
                 image_path = Path(body["image"])
                 output_dir = Path(body["output_dir"])
-                selections = [(str(item["selection_id"]), str(item["text"])) for item in body["selections"]]
-            except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+                # Each selection may carry its VLM box (stored-photo pixels);
+                # segment_selections uses it to pick that instance.
+                selections = [
+                    (str(item["selection_id"]), str(item["text"]), item.get("box")) for item in body["selections"]
+                ]
+            except (ValueError, KeyError, TypeError, AttributeError, json.JSONDecodeError):
                 self._respond(400, {"error": "invalid request"})
                 return
             try:
