@@ -6,7 +6,8 @@ using UnityEngine;
 namespace Return.UI
 {
     /// <summary>
-    /// The doorway into a room for the VR hub: a real equirect sky seen through a frameless opening whose glowing edge
+    /// The doorway into a room for the VR hub: the room's photo (its cover, from Resources/ReturnUI/Photos) or else a real
+    /// equirect sky, seen through a frameless opening whose glowing edge
     /// wavers and bleeds light into the air, with motes riding the edge and drifting out toward the viewer and a warm light pool on the floor in
     /// front of it. Grounded (no bob): callers place it so its bottom rests on the floor. Pinch or click it to step in.
     /// Rig-agnostic: an XR interactor calls Enter(), or a mouse/PhysicsRaycaster click on the collider does.
@@ -17,7 +18,8 @@ namespace Return.UI
         static readonly int SkyTex = Shader.PropertyToID("_SkyTex"), Window = Shader.PropertyToID("_Window"), Size = Shader.PropertyToID("_Size"),
             Arch = Shader.PropertyToID("_Arch"), Radius = Shader.PropertyToID("_Radius"), Fog = Shader.PropertyToID("_Fog"), Light = Shader.PropertyToID("_Light"),
             TouchUV = Shader.PropertyToID("_TouchUV"), TouchTime = Shader.PropertyToID("_TouchTime"), HoverUV = Shader.PropertyToID("_HoverUV"),
-            HorizonTint = Shader.PropertyToID("_HorizonTint"), ColorProp = Shader.PropertyToID("_Color");
+            HorizonTint = Shader.PropertyToID("_HorizonTint"), ColorProp = Shader.PropertyToID("_Color"),
+            Photo = Shader.PropertyToID("_Photo"), PhotoTex = Shader.PropertyToID("_PhotoTex"), PhotoAsp = Shader.PropertyToID("_PhotoAsp");
 
         public string roomId;
         /// <summary>Raised when the portal is pinched, poked, ray-clicked or mouse-clicked. The hub decides what that means for the room's state.</summary>
@@ -71,6 +73,8 @@ namespace Return.UI
             var r = go.AddComponent<MeshRenderer>();
             p._m = ReturnShaders.Create(ReturnShaders.SkyParallax);
             p._m.SetTexture(SkyTex, Skyboxes.For(room.scene));
+            var photo = string.IsNullOrEmpty(room.cover) ? null : Resources.Load<Texture2D>("ReturnUI/Photos/" + room.cover);
+            if (photo != null) { p._m.SetTexture(PhotoTex, photo); p._m.SetFloat(PhotoAsp, photo.width / (float)photo.height); p._m.SetFloat(Photo, 1f); } // the room's own photo instead of its sky
             p._m.SetFloat(Window, 1f); p._m.SetFloat(Arch, 0f); p._m.SetFloat(Radius, 0.2f);
             p._m.SetVector(Size, new Vector4(ReturnSpatial.PortalWidth, ReturnSpatial.PortalHeight, 0, 0));
             var horizon = Skyboxes.Horizon(room.scene);

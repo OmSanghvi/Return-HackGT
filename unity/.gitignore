@@ -58,3 +58,6 @@ crashlytics-build.properties
 
 .DS_Store
 .vscode/
+
+# PoseScreenshots output (Tools > Return > Screenshots), regenerated in a minute
+/Screenshots/

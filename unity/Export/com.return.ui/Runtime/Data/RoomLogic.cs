@@ -58,20 +58,24 @@ namespace Return.Data
         static Member MayaMember(long now, MemberStatus status, int count = 0, bool owner = false, string note = null, long? invitedAt = null)
             => new Member { id = MayaId, name = "Maya Chen", email = "maya.chen@gmail.com", status = status, count = count, isOwner = owner, note = note, invitedAt = invitedAt ?? now - 28 * Hour };
 
-        /// <summary>Dylan's 4 ready, joined worlds (distinct skies) plus the two demo accounts' rooms overlap by 3; grandma's porch, last
-        /// summer and Ava's graduation stay not-ready so both the VR hub's ring filter and the flat app's collecting/building flow have
-        /// something to exercise.</summary>
+        /// <summary>Two ready worlds from the team's HackGT photos, both shared by the two demo accounts so either one sees the same
+        /// two portals (each shows its room's cover photo, Resources/ReturnUI/Photos/{id}); grandma's porch, last summer and Ava's
+        /// graduation stay not-ready so both the VR hub's ring filter and the flat app's collecting/building flow have something to
+        /// exercise.</summary>
         public static List<Room> Seed(long now)
         {
             Room R(string id, string title, string place, string date, SceneKey scene, Phase phase, float progress, long age, string invitedBy, params Member[] members)
                 => new Room { id = id, title = title, place = place, date = date, scene = scene, phase = phase, progress = progress, createdAt = now - age, invitedBy = invitedBy, members = members.ToList() };
+            Room Photo(Room r) { r.cover = r.id; return r; }
 
             return new List<Room>
             {
-                R("lake-house", "The lake house", "Lake Norman", "July 14, 2019", SceneKey.Meadow, Phase.Ready, 1, 72 * Hour, null,
+                Photo(R("hackathon-situation", "Hackathon situation", "Atlanta", "September 27, 2026", SceneKey.Home, Phase.Ready, 1, 20 * Hour, null,
                     MeMember(now, MemberStatus.Done, 4, true),
-                    MayaMember(now, MemberStatus.Done, 3),
-                    NewMember("maria.houle@gmail.com", now, MemberStatus.Done, 5, Notes[0])),
+                    MayaMember(now, MemberStatus.Done, 3))),
+                Photo(R("working-situation", "Working situation", "Georgia Tech", "September 26, 2026", SceneKey.Meadow, Phase.Ready, 1, 30 * Hour, null,
+                    MeMember(now, MemberStatus.Done, 5, true),
+                    MayaMember(now, MemberStatus.Done, 4))),
                 R("grandmas-porch", "Grandma's porch", "Asheville", null, SceneKey.Home, Phase.Collecting, 0, 26 * Hour, null,
                     MeMember(now, MemberStatus.Done, 4, true, Notes[1]),
                     NewMember("maria.houle@gmail.com", now, MemberStatus.Done, 5),
@@ -79,16 +83,6 @@ namespace Return.Data
                 R("last-summer", "Last day of summer", "Tybee Island", null, SceneKey.Beach, Phase.Building, 0.35f, 5 * Hour, null,
                     MeMember(now, MemberStatus.Done, 6, true),
                     NewMember("jordan@reyes.me", now, MemberStatus.Done, 5)),
-                R("cabin-weekend", "The cabin weekend", "Blue Ridge", "January 8, 2023", SceneKey.Painted, Phase.Ready, 1, 40 * Hour, null,
-                    MayaMember(now, MemberStatus.Done, 6, true),
-                    MeMember(now, MemberStatus.Done, 4),
-                    NewMember("sam.park@gatech.edu", now, MemberStatus.Done, 3)),
-                R("beach-day", "Beach day", "Tybee Island", "June 3, 2023", SceneKey.Plain, Phase.Ready, 1, 15 * Hour, null,
-                    MeMember(now, MemberStatus.Done, 5, true),
-                    MayaMember(now, MemberStatus.Done, 4)),
-                R("night-hike", "The night hike", "Blood Mountain", "October 21, 2023", SceneKey.Night, Phase.Ready, 1, 60 * Hour, null,
-                    MeMember(now, MemberStatus.Done, 3, true),
-                    NewMember("jordan@reyes.me", now, MemberStatus.Done, 4)),
                 R("ava-graduation", "Ava's graduation", "Athens", null, SceneKey.Clouds, Phase.Collecting, 0, 3 * Hour, "Ava Lin",
                     NewMember("ava@lin.dev", now, MemberStatus.Done, 7, owner: true),
                     MeMember(now, MemberStatus.Invited, invitedAt: now - 3 * Hour)),

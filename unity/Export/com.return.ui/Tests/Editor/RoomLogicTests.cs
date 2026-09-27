@@ -46,11 +46,11 @@ namespace Return.UI.Tests
         {
             var rooms = RoomLogic.Seed(1_000_000);
             var mine = RoomLogic.ReadyRoomsFor(rooms, RoomLogic.MeId);
-            Assert.AreEqual(4, mine.Count);
+            Assert.AreEqual(2, mine.Count);
             CollectionAssert.DoesNotContain(mine.Select(r => r.id).ToList(), "ava-graduation"); // still just invited
 
             var maya = RoomLogic.ReadyRoomsFor(rooms, RoomLogic.MayaId);
-            Assert.GreaterOrEqual(maya.Count, 3);
+            Assert.AreEqual(2, maya.Count);
             CollectionAssert.IsSubsetOf(maya.Select(r => r.id), mine.Select(r => r.id)); // overlaps with Dylan's ready rooms
         }
 

@@ -36,7 +36,7 @@ namespace Return.UI.PlayTests
             dylanCard.onClick();
             yield return Until(() => hub.RingVisible);
             Assert.IsFalse(hub.WorkVisible);
-            Assert.AreEqual(4, hub.Cards.Count); // Dylan's 4 ready, joined worlds; the invited ava-graduation room is excluded
+            Assert.AreEqual(2, hub.Cards.Count); // Dylan's 2 ready, joined worlds; the invited ava-graduation room is excluded
             Assert.AreEqual("Dylan Houle", signedInAs);
             Assert.AreEqual(ReturnTheme.Day, ThemeManager.Current);
         }
@@ -47,8 +47,8 @@ namespace Return.UI.PlayTests
             yield return null;
             _app.Store.SignIn(RoomLogic.MayaId); _app.Hub.ShowRing();
             yield return Until(() => _app.Hub.RingVisible);
-            Assert.AreEqual(3, _app.Hub.Cards.Count);
-            CollectionAssert.Contains(_app.Hub.Cards.Select(c => c.roomId).ToList(), "lake-house"); // overlaps with Dylan's rooms
+            Assert.AreEqual(2, _app.Hub.Cards.Count);
+            CollectionAssert.Contains(_app.Hub.Cards.Select(c => c.roomId).ToList(), "hackathon-situation"); // overlaps with Dylan's rooms
         }
 
         [UnityTest]
@@ -59,12 +59,12 @@ namespace Return.UI.PlayTests
             yield return Until(() => _app.Hub.RingVisible);
             Room entering = null; RoomPortal enteringPortal = null;
             _app.Hub.EnteringRoom += (r, p) => { entering = r; enteringPortal = p; };
-            var lake = _app.Hub.Cards.First(c => c.roomId == "lake-house");
-            lake.portal.Activate();
-            Assert.AreEqual("lake-house", entering?.id);
-            Assert.AreSame(lake.portal, enteringPortal);
+            var card = _app.Hub.Cards.First(c => c.roomId == "hackathon-situation");
+            card.portal.Activate();
+            Assert.AreEqual("hackathon-situation", entering?.id);
+            Assert.AreSame(card.portal, enteringPortal);
             yield return Until(() => _app.Hub.Session.State == SessionState.InWorld, 8f);
-            Assert.IsNotNull(GameObject.Find("World:The lake house"));
+            Assert.IsNotNull(GameObject.Find("World:Hackathon situation"));
             Assert.IsNull(GameObject.Find("ReturnHub"), "hub is hidden inside a world");
 
             _head.position = new Vector3(3f, 1.6f, -2f); // simulate having walked around the world
@@ -73,7 +73,7 @@ namespace Return.UI.PlayTests
             _app.Hub.ExitWorld();
             yield return Until(() => _app.Hub.Session.State == SessionState.Hub, 8f);
             yield return null;
-            Assert.IsNull(GameObject.Find("World:The lake house"));
+            Assert.IsNull(GameObject.Find("World:Hackathon situation"));
             Assert.IsTrue(_app.Hub.RingVisible);
             Assert.AreEqual(ReturnTheme.Day, ThemeManager.Current);
             // spawn back at the hub center, not wherever the walk-in-world left the rig
@@ -99,7 +99,7 @@ namespace Return.UI.PlayTests
             var dylanCard = hub.Work.GetComponentsInChildren<Pressable>().First(p => p.name == "Account:" + RoomLogic.MeId);
             dylanCard.onClick(); // fires SignedIn, which starts HubIntro's welcome sequence
             yield return Until(() => hub.RingVisible);
-            Assert.AreEqual(4, hub.Cards.Count);
+            Assert.AreEqual(2, hub.Cards.Count);
             yield return null;
             Assert.IsTrue(hub.Cards.All(c => c.portal.transform.localScale == Vector3.zero), "portals stay hidden during the greeting, then bloom");
 

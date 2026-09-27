@@ -26,13 +26,14 @@ namespace Return.UI.Editor
                 t.maxTextureSize = 1024;
                 t.textureCompression = TextureImporterCompression.Compressed;
             }
-            else if (assetPath.Contains("/Skies/"))
+            else if (assetPath.Contains("/Skies/") || assetPath.Contains("/Photos/")) // room photos in portal windows: same needs as the paintings
             {
                 t.maxTextureSize = 2048;
                 t.wrapMode = UnityEngine.TextureWrapMode.Clamp;
                 t.textureCompression = TextureImporterCompression.Compressed;
                 t.mipmapEnabled = true; // sky paintings: seen at grazing angles and huge scale, mips + trilinear keep them from shimmering
                 t.filterMode = UnityEngine.FilterMode.Trilinear;
+                if (assetPath.Contains("/Photos/")) t.npotScale = TextureImporterNPOTScale.None; // RoomPortal reads the photo's aspect from its size
             }
             else if (assetPath.Contains("/Skyboxes/"))
             {
