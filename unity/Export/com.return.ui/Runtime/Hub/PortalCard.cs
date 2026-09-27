@@ -44,10 +44,10 @@ namespace Return.UI
             foreach (Transform t in label.rect) Destroy(t.gameObject);
             var col = UI.V(label.rect, "Col", 6, new RectOffset(18, 18, 14, 14), TextAnchor.MiddleCenter); UI.Stretch(col);
             UI.Bg(col, ColorRole.Glass, 32); UI.Border(col, ColorRole.GlassEdge, 32, 2);
-            var title = UI.Text(col, room.title, TextStyle.H1, ColorRole.OnGlass, TextAlignmentOptions.Center); // Hanken SemiBold: less crowded than the display face
-            title.fontSize = 44; title.characterSpacing = 2; title.overflowMode = TextOverflowModes.Ellipsis; title.maxVisibleLines = 1;
+            var title = UI.Text(col, room.title, TextStyle.H1, ColorRole.OnGlass, TextAlignmentOptions.Center); // Cormorant italic serif: the web's accent face, softer than the caps display font
+            title.font = UIAssets.Font(FontFace.Accent); title.fontSize = 56; title.characterSpacing = 1; title.overflowMode = TextOverflowModes.Ellipsis; title.maxVisibleLines = 1;
             var names = string.Join(", ", room.members.Select(m => m.name.Split(' ')[0]));
-            var who = UI.Text(col, names, TextStyle.Caption, ColorRole.OnGlass, TextAlignmentOptions.Center); who.fontSize = 24; who.characterSpacing = 1;
+            var who = UI.Text(col, names, TextStyle.Caption, ColorRole.OnGlass, TextAlignmentOptions.Center); who.font = UIAssets.Font(FontFace.Accent); who.fontSize = 30; who.characterSpacing = 1;
         }
     }
 }

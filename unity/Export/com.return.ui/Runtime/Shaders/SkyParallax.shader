@@ -1,6 +1,7 @@
 // Painted sky window with depth-map parallax, mist and optional arch mask; or, with _Window on, a real 3D doorway
 // that samples an equirect skybox by view direction so it reads as an opening onto that world's sky rather than
-// a flat picture. Port of web-app/src/world/shader.ts. Unlit, URP, cheap enough for Quest.
+// a flat picture; with _Photo on too, the room's own photo seen through that doorway. Port of web-app/src/world/shader.ts.
+// Unlit, URP, cheap enough for Quest.
 Shader "Return/SkyParallax"
 {
     Properties
@@ -28,6 +29,9 @@ Shader "Return/SkyParallax"
         _Window ("Window mode (0 painted parallax, 1 real equirect doorway)", Float) = 0
         _SkyTex ("Sky (equirect, window mode)", 2D) = "grey" {}
         _HoverUV ("Hover point (uv, 0..1; unclamped, unlike _Pointer)", Vector) = (-1, -1, 0, 0)
+        _Photo ("Photo mode (window mode only: the room's photo instead of its sky)", Float) = 0
+        _PhotoTex ("Photo", 2D) = "grey" {}
+        _PhotoAsp ("Photo aspect (w/h)", Float) = 1
     }
     SubShader
     {
@@ -50,10 +54,11 @@ Shader "Return/SkyParallax"
             TEXTURE2D(_TexB); SAMPLER(sampler_TexB);
             TEXTURE2D(_DepthB); SAMPLER(sampler_DepthB);
             TEXTURE2D(_SkyTex); SAMPLER(sampler_SkyTex);
+            TEXTURE2D(_PhotoTex); SAMPLER(sampler_PhotoTex);
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _Size, _Pointer, _Fog, _TouchUV, _HorizonTint, _HoverUV;
-                float _AspA, _AspB, _Mix, _Mist, _Zoom, _Arch, _Radius, _Alpha, _Light, _Edge, _TouchTime, _Window;
+                float _AspA, _AspB, _Mix, _Mist, _Zoom, _Arch, _Radius, _Alpha, _Light, _Edge, _TouchTime, _Window, _Photo, _PhotoAsp;
             CBUFFER_END
 
             struct A { float4 pos : POSITION; float2 uv : TEXCOORD0; UNITY_VERTEX_INPUT_INSTANCE_ID };
@@ -105,6 +110,7 @@ Shader "Return/SkyParallax"
 
             half4 frag(V i) : SV_Target
             {
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i); // per-eye camera position, so the photo's parallax gives real stereo depth
                 float2 size = _Size.xy;
                 float2 luv = i.uv;
                 float2 c = (luv - 0.5) * size;
@@ -127,7 +133,21 @@ Shader "Return/SkyParallax"
 
                 float3 col;
                 float mist = 0.0;
-                if (_Window > 0.5)
+                if (_Window > 0.5 && _Photo > 0.5)
+                {
+                    // the room's own photo seen through the doorway: cover-fit to the opening and set a little way behind it,
+                    // so it shifts with the viewer (and between the eyes) like a room beyond a door, not a poster in the air
+                    float2 open = size - 0.28; // the inset opening above (0.14 margin per side)
+                    float4x4 m = GetObjectToWorldMatrix();
+                    float3 v = normalize(i.worldPos - _WorldSpaceCameraPos);
+                    float2 lean = float2(dot(v, normalize(m._m00_m10_m20)), dot(v, normalize(m._m01_m11_m21))) / max(abs(dot(v, normalize(m._m02_m12_m22))), 0.3);
+                    float2 shift = 0.07 * tanh(lean * 0.25 / open / 0.07); // photo plane 25 cm back; eases out before the edge could show
+                    float oAsp = open.x / open.y;
+                    float2 fit = oAsp > _PhotoAsp ? float2(1.0, _PhotoAsp / oAsp) : float2(oAsp / _PhotoAsp, 1.0);
+                    col = SAMPLE_TEXTURE2D(_PhotoTex, sampler_PhotoTex, (c / open + shift) * fit * 0.86 + 0.5).rgb;
+                    col *= lerp(0.7, 1.0, smoothstep(0.0, 0.22, -sd)); // shaded in from the edge so it reads as an opening
+                }
+                else if (_Window > 0.5)
                 {
                     // real 3D doorway: sample the world's own equirect skybox by view direction, same convention as
                     // Return/SkyboxEquirect (u wraps atan2(x,z), v = 1 straight up), so the opening shifts with the

@@ -48,7 +48,7 @@ namespace Return.Data
             if (_s == null || _s.rooms == null) _s = new Saved { rooms = RoomLogic.Seed(Clock()), signedIn = false };
         }
 
-        public static string DefaultPath => Path.Combine(Application.persistentDataPath, "return-demo-v2.json");
+        public static string DefaultPath => Path.Combine(Application.persistentDataPath, "return-demo-v3.json"); // v3: the seed's ready rooms changed, older saves would hide them
 
         float _lastSave;
 
