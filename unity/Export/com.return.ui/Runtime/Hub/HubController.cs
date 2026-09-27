@@ -157,7 +157,7 @@ namespace Return.UI
         void LayoutRing()
         {
             int n = _cards.Count;
-            float span = Mathf.Min(150f, 38f * (n - 1));
+            float span = Mathf.Min(200f, 48f * (n - 1));
             for (int i = 0; i < n; i++)
             {
                 float t = n == 1 ? 0.5f : i / (float)(n - 1);

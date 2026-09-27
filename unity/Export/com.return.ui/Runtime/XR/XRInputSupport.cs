@@ -43,7 +43,7 @@ namespace Return.UI.XR
             if (col != null && !it.colliders.Contains(col)) it.colliders.Add(col); // AddComponent already gathered it in Awake; adding it twice double-registers the collider
             it.hoverEntered.AddListener(a =>
             {
-                portal.Touch(TouchPoint(a.interactorObject, it));
+                portal.Touch(HitPoint(a.interactorObject, it));
                 Haptic(a.interactorObject, 0.1f, 0.03f);
             });
             it.selectEntered.AddListener(a =>
@@ -51,6 +51,8 @@ namespace Return.UI.XR
                 portal.Activate();
                 Haptic(a.interactorObject, 0.5f, 0.1f);
             });
+            var tracker = portal.gameObject.AddComponent<PortalHoverTracker>();
+            tracker.portal = portal; tracker.interactable = it;
         }
 
         static Vector3 TouchPoint(IXRInteractor interactor, XRSimpleInteractable interactable)
@@ -58,6 +60,31 @@ namespace Return.UI.XR
             var attach = interactor?.GetAttachTransform(interactable);
             if (attach != null) return attach.position;
             return interactor != null ? interactor.transform.position : interactable.transform.position;
+        }
+
+        /// <summary>The actual ray/curve hit point where possible, so the hover glow lands where the beam does instead
+        /// of at the attach point (which XRRayInteractor keeps at a fixed offset from the controller).</summary>
+        static Vector3 HitPoint(IXRInteractor interactor, XRSimpleInteractable interactable)
+        {
+            if (interactor is UnityEngine.XR.Interaction.Toolkit.Interactors.XRRayInteractor ray && ray.TryGetCurrent3DRaycastHit(out RaycastHit hit)) return hit.point;
+            if (interactor is UnityEngine.XR.Interaction.Toolkit.Interactors.NearFarInteractor nf &&
+                nf.TryGetCurveEndPoint(out Vector3 end) != UnityEngine.XR.Interaction.Toolkit.Interactors.Visuals.EndPointType.None) return end;
+            return TouchPoint(interactor, interactable);
+        }
+
+        /// <summary>While the portal is hovered, feeds the actual per-frame hit point into RoomPortal.HoverAt so the
+        /// window's hover glow tracks the ray instead of staying pinned to wherever hoverEntered first fired.</summary>
+        class PortalHoverTracker : MonoBehaviour
+        {
+            public RoomPortal portal;
+            public XRSimpleInteractable interactable;
+            void Update()
+            {
+                if (portal == null || interactable == null) return;
+                var hovering = interactable.interactorsHovering;
+                if (hovering.Count == 0) return;
+                portal.HoverAt(HitPoint(hovering[0], interactable));
+            }
         }
 
         /// <summary>Not every interactor drives a physical controller (gaze, mock devices in tests), so this is best-effort.</summary>
