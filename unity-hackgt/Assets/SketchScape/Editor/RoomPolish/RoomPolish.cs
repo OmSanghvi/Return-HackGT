@@ -71,28 +71,162 @@ namespace SketchScape
 
         static readonly string[] BuildScenes =
         {
+            HubBuilder.HubScenePath,
             AgentRooms + "/hackgt_workspace.unity",
             AgentRooms + "/bed.unity",
             AgentRooms + "/hackathon_spot.unity",
         };
 
-        [MenuItem("SketchScape/Polish/Build APK (all three rooms)")]
+        [MenuItem("SketchScape/Polish/Build APK (hub + three rooms)")]
         static void MenuBuild() { BuildApk(false); }
 
         /// <summary>Batch-mode entry: -buildTarget Android -executeMethod SketchScape.RoomPolish.BuildApkBatch</summary>
         public static void BuildApkBatch() { BuildApk(true); }
 
+        /// <summary>Batch-mode entry: polish the three rooms, build the hub, set the Build Settings scene list. No APK.</summary>
+        public static void PrepareBatch()
+        {
+            try
+            {
+                PolishAll();
+                HubBuilder.BuildHub();
+                SetBuildScenes();
+                Debug.Log("Polish: rooms + hub done, build list set (hub first)");
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+                Debug.LogError("Polish: FAILED: " + e.Message);
+                EditorApplication.Exit(1);
+            }
+        }
+
+        /// <summary>Batch-mode entry that does everything: polish the three rooms, build the hub, build the APK.</summary>
+        public static void ShipBatch()
+        {
+            try
+            {
+                PolishAll();
+                HubBuilder.BuildHub();
+                Debug.Log("Polish: rooms + hub done, building APK");
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+                Debug.LogError("Polish: FAILED before build: " + e.Message);
+                EditorApplication.Exit(1);
+                return;
+            }
+            BuildApk(true);
+        }
+
+        [MenuItem("SketchScape/Polish/Set Build Settings (hub + three rooms)")]
+        static void SetBuildScenes()
+        {
+            var list = new List<EditorBuildSettingsScene>();
+            foreach (var s in BuildScenes)
+            {
+                if (!File.Exists(s)) throw new FileNotFoundException("scene missing: " + s);
+                list.Add(new EditorBuildSettingsScene(s, true));
+            }
+            EditorBuildSettings.scenes = list.ToArray();
+            AssetDatabase.SaveAssets();
+        }
+
+        // ------------------------------------------------------------------
+        // Per-room staging for the hub link-up: return doorway, the pinch-to-read letter, notes board nudges
+        // ------------------------------------------------------------------
+
+        struct Staging
+        {
+            public Vector3 portalPos; public float portalYaw;
+            public Vector3 letterPos; public float letterYaw;
+            public string heading, body;
+            public Vector3? notesBoardPos; public float notesBoardYaw;
+        }
+
+        static Staging StagingFor(string slug)
+        {
+            switch (slug)
+            {
+                case "bed":
+                    return new Staging
+                    {
+                        portalPos = new Vector3(0f, 0f, -1.55f), portalYaw = 180f,
+                        letterPos = new Vector3(0.5f, -0.02f, 0.45f), letterYaw = 48f,
+                        heading = "For Alice, from Bob",
+                        body = "Alice,\n\nThis is the bench where we waited for the results that night. You said the blinds looked like a spreadsheet and I couldn't stop laughing.\n\nI kept the seat by the extinguisher for you.\n\n- Bob",
+                    };
+                case "hackgt_workspace":
+                    return new Staging
+                    {
+                        portalPos = new Vector3(-0.5f, 0f, -1.05f), portalYaw = 180f,
+                        letterPos = new Vector3(0.5f, -0.02f, 0.45f), letterYaw = 48f,
+                        heading = "For Alice, from Bob",
+                        body = "Alice,\n\nThe whiteboard still has our first diagram on it: boxes, arrows, and the word 'portal' circled three times.\n\nI left my backpack by the door so you'd know I'm coming back.\n\n- Bob",
+                    };
+                case "hackathon_spot":
+                    return new Staging
+                    {
+                        portalPos = new Vector3(0.4f, 0f, -1.6f), portalYaw = 180f,
+                        letterPos = new Vector3(0.62f, -0.02f, 0.12f), letterYaw = 79f,
+                        heading = "For Bob, from Alice",
+                        body = "Bob,\n\nThirty-six hours at this table. Two laptops, one working charger, and the little whiteboard that finally made the plan make sense.\n\nWe built Return here. Come sit back down.\n\n- Alice",
+                        notesBoardPos = new Vector3(-1.9f, -0.02f, -1.2f), notesBoardYaw = 150f,
+                    };
+            }
+            return new Staging();
+        }
+
+        /// <summary>The hub link-up applied to every polished room after its own staging.</summary>
+        static void StageForHub(Ctx c)
+        {
+            var st = StagingFor(c.slug);
+            DisableChild(c, "Shared Room/Account Switcher");
+            if (st.notesBoardPos.HasValue)
+            {
+                foreach (var path in new[] { "Shared Room/Notes Board Anchor", "Shared Room/Shared Content/Notes Board" })
+                {
+                    var nb = c.root.Find(path);
+                    if (nb == null) continue;
+                    nb.position = new Vector3(st.notesBoardPos.Value.x, nb.position.y, st.notesBoardPos.Value.z);
+                    nb.rotation = Quaternion.Euler(0f, st.notesBoardYaw, 0f);
+                    EditorUtility.SetDirty(nb);
+                }
+                c.log.Add("notes board moved aside");
+            }
+            PortalKit.Build(c.polish, "Return Portal", st.portalPos, st.portalYaw, "Worlds Hub", HubBuilder.HubSky(),
+                            new Color(0.55f, 0.80f, 1f), HubBuilder.HubSceneName, c.genFolder);
+            c.log.Add("return portal at " + st.portalPos);
+            FakeLetterKit.Build(c.polish, c.genFolder, st.letterPos, st.letterYaw, st.heading, st.body);
+            c.log.Add("fake letter at " + st.letterPos);
+            AddScreenFade(c.root.gameObject.scene);
+        }
+
+        /// <summary>OVRScreenFade on the rig's centre eye: fades in on load, and PortalTrigger fades out before loading.</summary>
+        internal static void AddScreenFade(Scene scene)
+        {
+            OVRCameraRig rig = null;
+            foreach (var go in scene.GetRootGameObjects())
+            {
+                rig = go.GetComponentInChildren<OVRCameraRig>(true);
+                if (rig != null) break;
+            }
+            if (rig == null || rig.centerEyeAnchor == null) { Debug.LogWarning("Polish: no OVRCameraRig centre eye for the screen fade in " + scene.name); return; }
+            var eye = rig.centerEyeAnchor.gameObject;
+            var fade = eye.GetComponent<OVRScreenFade>();
+            if (fade == null) fade = eye.AddComponent<OVRScreenFade>();
+            fade.fadeOnStart = true;
+            fade.fadeTime = 0.5f;
+            fade.fadeColor = new Color(0.01f, 0.01f, 0.01f, 1f);
+            EditorUtility.SetDirty(fade);
+        }
+
         static void BuildApk(bool batch)
         {
             try
             {
-                var list = new List<EditorBuildSettingsScene>();
-                foreach (var s in BuildScenes)
-                {
-                    if (!File.Exists(s)) throw new FileNotFoundException("scene missing: " + s);
-                    list.Add(new EditorBuildSettingsScene(s, true));
-                }
-                EditorBuildSettings.scenes = list.ToArray();
+                SetBuildScenes();
                 EditorUserBuildSettings.androidBuildSubtarget = MobileTextureSubtarget.ASTC;
                 EditorUserBuildSettings.buildAppBundle = false;
                 EditorUserBuildSettings.exportAsGoogleAndroidProject = false;
@@ -142,6 +276,8 @@ namespace SketchScape
                 case "hackathon_spot": PolishHackathonSpot(c); break;
                 default: throw new Exception("no polish for " + slug);
             }
+
+            StageForHub(c);
 
             // Common polish.
             MarkReflective(c.root.Find("Environment/Floor"));
