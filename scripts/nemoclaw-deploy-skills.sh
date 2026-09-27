@@ -17,7 +17,7 @@ trap 'rm -rf "$STAGE"' EXIT
 # Each skill gets its own copy of the tools, so a skill directory stays
 # self-contained. unity_room needs scene_tools; scene_tools needs the schema
 # at ../shared relative to backend/.
-BACKEND_FILES=(scene_tools.py scene_tools_cli.py unity_room.py unity_room_cli.py blueprint_to_unity.py blueprint_to_unity_cli.py nemoclaw_vision.py room_tools.py room_tools_cli.py)
+BACKEND_FILES=(scene_tools.py scene_tools_cli.py unity_room.py unity_room_cli.py web_media.py scene_layout.py blueprint_to_unity.py blueprint_to_unity_cli.py nemoclaw_vision.py room_tools.py room_tools_cli.py)
 
 for skill in sketchscape-scene-tools sketchscape-unity-room sketchscape-subject-labeler sketchscape-room-tools; do
   dir="$STAGE/$skill"
@@ -34,11 +34,21 @@ for skill in sketchscape-scene-tools sketchscape-unity-room sketchscape-subject-
   nemoclaw "$SANDBOX" skill install "$dir"
 done
 
+# Read-only Openverse / Poly Haven search for the room tools (web_media.py).
+# Without it the tools fall back to their curated offline catalog.
+if ! timeout 120 nemoclaw "$SANDBOX" policy list 2>/dev/null | grep -q "sketchscape-web-media"; then
+  echo "== adding sandbox policy sketchscape-web-media"
+  timeout 180 nemoclaw "$SANDBOX" policy add --from-file "$REPO/config/nemoclaw/policies/sketchscape-web-media.yaml" --yes \
+    || echo "WARN: could not add the sketchscape-web-media policy; web searches will use the curated fallback"
+fi
+
 echo "== ensuring jsonschema in the sandbox"
 nemoclaw "$SANDBOX" exec -- sh -c 'python3 -c "import jsonschema" 2>/dev/null || pip install --user --break-system-packages --quiet jsonschema'
 
 echo "== smoke test inside the sandbox"
 nemoclaw "$SANDBOX" exec -- python3 "$SKILLS_ROOT/sketchscape-unity-room/backend/unity_room_cli.py" compose_room \
-  '{"objects":[{"asset_id":"a1","label":"lamp"},{"asset_id":"a2","label":"chair"}],"room_name":"Deploy_Check"}' \
-  | head -3
+  '{"objects":[{"asset_id":"a1","label":"lamp"},{"asset_id":"a2","label":"chair"}],"room_name":"Deploy_Check","scene_id":"none"}' \
+  | head -c 400; echo
+nemoclaw "$SANDBOX" exec -- python3 "$SKILLS_ROOT/sketchscape-unity-room/backend/unity_room_cli.py" search_environment \
+  '{"kind":"hdri","query":"cozy living room","count":1}' | head -c 400; echo
 nemoclaw "$SANDBOX" skill list

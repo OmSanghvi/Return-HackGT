@@ -228,19 +228,29 @@ public static class SketchScapeOfflineExperienceBuilder
             // stays on the object: its origin is the scan's floor contact point
             // (base centred on the origin), and a uniform scale is the scan's
             // largest side in metres (scans are normalized to about 1 m).
-            var upright = Quaternion.Euler(90f, 0f, 0f);
             Bounds bounds = splatAsset.Bounds;
-            Vector3 size = new Vector3(bounds.size.x, bounds.size.z, bounds.size.y);
-            Vector3 center = upright * bounds.center;
             var splat = new GameObject("Splat");
             splat.transform.SetParent(instance.transform, false);
-            splat.transform.localRotation = upright;
-            splat.transform.localPosition = new Vector3(-center.x, size.y / 2f - center.y, -center.z);
+            var collider = instance.AddComponent<BoxCollider>();
+            if (item.placement == "pose")
+            {
+                // The object transform reproduces the scan's pose in its photo
+                // (backend scene_layout.py); apply it to the scan as imported.
+                collider.center = bounds.center;
+                collider.size = bounds.size;
+            }
+            else
+            {
+                var upright = Quaternion.Euler(90f, 0f, 0f);
+                Vector3 size = new Vector3(bounds.size.x, bounds.size.z, bounds.size.y);
+                Vector3 center = upright * bounds.center;
+                splat.transform.localRotation = upright;
+                splat.transform.localPosition = new Vector3(-center.x, size.y / 2f - center.y, -center.z);
+                collider.center = new Vector3(0f, size.y / 2f, 0f);
+                collider.size = size;
+            }
             var renderer = splat.AddComponent<GsplatRenderer>();
             renderer.GsplatAsset = splatAsset;
-            var collider = instance.AddComponent<BoxCollider>();
-            collider.center = new Vector3(0f, size.y / 2f, 0f);
-            collider.size = size;
         }
         else
         {

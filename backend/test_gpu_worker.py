@@ -401,6 +401,368 @@ class SeveralUploadsInFlightTests(unittest.TestCase):
                 for selection in upload["selections"]:
                     self.assertEqual(selection["status"], "segmented")
 
+def _ready_objects(client: "TestClient", names: list[str]) -> dict:
+    """A project with one photo whose objects are segmented and reconstructed
+    (mock pipeline): returns ids for the internal pose/scene routes."""
+    _drain_queue(client)
+    project_id = client.post("/v1/projects", json={"name": "scene", "description": ""}).json()["project_id"]
+    upload_id = client.post(
+        f"/v1/projects/{project_id}/uploads",
+        files={"image": ("room.png", io.BytesIO(_png_bytes()), "image/png")},
+    ).json()["upload_id"]
+    client.post(
+        f"/v1/projects/{project_id}/uploads/{upload_id}/selections",
+        json={"selections": [{"selection_id": f"s{i}", "prompt": {"text": n}} for i, n in enumerate(names)]},
+    )
+    generated = client.post(
+        f"/v1/projects/{project_id}/uploads/{upload_id}/generate",
+        json={"selection_ids": [f"s{i}" for i in range(len(names))]},
+    ).json()
+    return {
+        "project_id": project_id,
+        "upload_id": upload_id,
+        "job_ids": [job["job_id"] for job in generated["jobs"]],
+        "asset_ids": [asset["asset_id"] for asset in generated["assets"]],
+    }
+
+
+def _pose_v2() -> dict:
+    return {
+        "version": 2,
+        "frame": "opencv",
+        "image_size": [40, 30],
+        "intrinsics": {"fx": 30.0, "fy": 30.0, "cx": 20.0, "cy": 15.0},
+        "gravity_up_cam": [0, -1, 0],
+        "object": {"centroid_cam": [0.1, 0.2, 2.0], "yaw_deg": None, "reprojection_iou": 0.81},
+        "raw": {"version": 1, "rotation": [1, 0, 0, 0]},
+    }
+
+
+def _post_complete(client: "TestClient", job_id: str, pose: bytes | None, **data):
+    files = {
+        "ply": ("reconstruction.ply", io.BytesIO(b"ply\nformat binary_little_endian 1.0\nend_header\n"), "application/octet-stream"),
+        "mask": ("mask.png", io.BytesIO(_mask_bytes()), "image/png"),
+    }
+    if pose is not None:
+        files["pose"] = ("pose.json", io.BytesIO(pose), "application/json")
+    return client.post(
+        f"/v1/internal/reconstructions/{job_id}/result",
+        data={"result": json.dumps({"status": "complete", "object_label": "cat"}), **data},
+        files=files,
+    )
+
+
+class WorkerPoseTests(unittest.TestCase):
+    """Contract 1a/2: the result callback accepts `pose` and carries it onto
+    the job, the asset and the asset view; bad poses never fail a scan."""
+
+    def test_pose_is_stored_as_a_file_and_inlined_on_job_asset_and_view(self) -> None:
+        with TestClient(app) as client:
+            ctx = _ready_objects(client, ["cat"])
+            job_id, asset_id = ctx["job_ids"][0], ctx["asset_ids"][0]
+            response = _post_complete(client, job_id, json.dumps(_pose_v2()).encode())
+            self.assertEqual(response.status_code, 200, response.text)
+            job = response.json()
+            self.assertEqual(job["pose"]["version"], 2)
+            self.assertEqual(job["pose_url"], f"/v1/artifacts/{job_id}/pose.json")
+            stored = json.loads((main.ARTIFACT_ROOT / job_id / "pose.json").read_text())
+            self.assertEqual(stored["object"]["reprojection_iou"], 0.81)
+            asset = client.get(f"/v1/projects/{ctx['project_id']}/assets/{asset_id}").json()
+            self.assertEqual(asset["pose"]["intrinsics"]["fx"], 30.0)
+            self.assertEqual(asset["views"][0]["pose"]["frame"], "opencv")
+            self.assertEqual(asset["views"][0]["upload_id"], ctx["upload_id"])
+            served = client.get(job["pose_url"])
+            self.assertEqual(served.status_code, 200)
+
+    def test_non_finite_numbers_become_null(self) -> None:
+        with TestClient(app) as client:
+            job_id = _ready_objects(client, ["cat"])["job_ids"][0]
+            raw = b'{"version": 2, "object": {"yaw_deg": NaN, "centroid_cam": [1, Infinity, 2]}}'
+            job = _post_complete(client, job_id, raw).json()
+            self.assertIsNone(job["pose"]["object"]["yaw_deg"])
+            self.assertEqual(job["pose"]["object"]["centroid_cam"], [1, None, 2])
+            json.loads((main.ARTIFACT_ROOT / job_id / "pose.json").read_text(), parse_constant=self.fail)
+
+    def test_bad_or_oversized_pose_is_ignored_and_the_scan_still_completes(self) -> None:
+        with TestClient(app) as client:
+            job_id = _ready_objects(client, ["cat"])["job_ids"][0]
+            for bad in (b"not json", b"[1, 2]", b'{"no_version": true}', b"{" + b" " * (300 * 1024) + b"}"):
+                response = _post_complete(client, job_id, bad)
+                self.assertEqual(response.status_code, 200, bad[:20])
+                self.assertEqual(response.json()["status"], "complete")
+                self.assertIsNone(response.json()["pose"])
+                self.assertIsNone(response.json()["pose_url"])
+
+    def test_a_pose_too_big_to_inline_keeps_the_file_and_drops_raw_inline(self) -> None:
+        with TestClient(app) as client:
+            job_id = _ready_objects(client, ["cat"])["job_ids"][0]
+            pose = _pose_v2()
+            pose["raw"] = {"points": [0.123456789] * 12000}  # ~150 KB: under the 256 KB cap
+            job = _post_complete(client, job_id, json.dumps(pose).encode()).json()
+            self.assertNotIn("raw", job["pose"])
+            self.assertEqual(job["pose"]["object"]["reprojection_iou"], 0.81)
+            stored = json.loads((main.ARTIFACT_ROOT / job_id / "pose.json").read_text())
+            self.assertEqual(len(stored["raw"]["points"]), 12000)
+
+
+def _scene_doc(upload_id: str | None = None) -> dict:
+    doc = {
+        "version": 1,
+        "frame": "opencv",
+        "image_size": [40, 30],
+        "intrinsics": {"fx": 30.0, "fy": 30.0, "cx": 20.0, "cy": 15.0},
+        "gravity_up_cam": [0, -1, 0],
+        "splat": {"file": "scene.ply", "count": 3, "source": "apple-sharp", "aligned_scale": 1.0},
+    }
+    if upload_id:
+        doc["upload_id"] = upload_id
+    return doc
+
+
+_SCENE_PLY = b"ply\nformat binary_little_endian 1.0\nelement vertex 0\nend_header\n"
+
+
+def _post_scene(client: "TestClient", job_id: str, doc=None, ply: bytes | None = _SCENE_PLY,
+                analysis: bytes | None = None, raw_json: bytes | None = None, **data):
+    body = raw_json if raw_json is not None else json.dumps(doc).encode()
+    files = {"scene_json": ("scene.json", io.BytesIO(body), "application/json")}
+    if ply is not None:
+        files["scene_ply"] = ("scene.ply", io.BytesIO(ply), "application/octet-stream")
+    if analysis is not None:
+        files["analysis_json"] = ("analysis.json", io.BytesIO(analysis), "application/json")
+    return client.post(f"/v1/internal/reconstructions/{job_id}/scene", data=data, files=files)
+
+
+class WorkerSceneRouteTests(unittest.TestCase):
+    """Contract 2: GET/POST /v1/internal/reconstructions/{job_id}/scene."""
+
+    def test_capture_round_trip_records_scene_key_on_upload_and_every_view(self) -> None:
+        with TestClient(app) as client:
+            ctx = _ready_objects(client, ["cat", "blanket"])
+            upload_id, job_id = ctx["upload_id"], ctx["job_ids"][0]
+
+            before = client.get(f"/v1/internal/reconstructions/{job_id}/scene")
+            self.assertEqual(before.status_code, 200)
+            self.assertEqual(before.json()["upload_id"], upload_id)
+            self.assertFalse(before.json()["exists"])
+            self.assertTrue(before.json()["image_key"].startswith(f"uploads/{ctx['project_id']}/{upload_id}/"))
+
+            analysis = json.dumps({"room_type": "living room", "caption": "Two cats."}).encode()
+            stored = _post_scene(client, job_id, _scene_doc(upload_id), analysis=analysis)
+            self.assertEqual(stored.status_code, 200, stored.text)
+            key = f"artifacts/scenes/{upload_id}/scene.json"
+            self.assertEqual(stored.json()["scene_key"], key)
+            self.assertEqual(stored.json()["scene_ply_key"], f"artifacts/scenes/{upload_id}/scene.ply")
+            self.assertEqual(stored.json()["analysis_key"], f"artifacts/scenes/{upload_id}/analysis.json")
+            self.assertEqual(stored.json()["assets_updated"], 2)
+            scene_dir = main.ARTIFACT_ROOT / "scenes" / upload_id
+            self.assertEqual(json.loads((scene_dir / "scene.json").read_text())["version"], 1)
+            self.assertEqual((scene_dir / "scene.ply").read_bytes(), _SCENE_PLY)
+            self.assertTrue((scene_dir / "analysis.json").is_file())
+
+            after = client.get(f"/v1/internal/reconstructions/{ctx['job_ids'][1]}/scene").json()
+            self.assertTrue(after["exists"])
+            self.assertEqual(after["scene_key"], key)
+
+            upload = client.get(f"/v1/projects/{ctx['project_id']}/uploads/{upload_id}").json()
+            self.assertEqual(upload["scene_key"], key)
+            assets = client.get(f"/v1/projects/{ctx['project_id']}/assets").json()
+            self.assertEqual({view["scene_key"] for asset in assets for view in asset["views"]}, {key})
+            for asset_id in ctx["asset_ids"]:  # persisted, not only filled at read time
+                self.assertEqual(main.store.get_asset(asset_id).views[0].scene_key, key)
+
+            served = client.get(f"/v1/projects/{ctx['project_id']}/uploads/{upload_id}/scene/scene.json")
+            self.assertEqual(served.status_code, 200)
+            self.assertEqual(served.json()["splat"]["count"], 3)
+            self.assertEqual(
+                client.get(f"/v1/projects/{ctx['project_id']}/uploads/{upload_id}/scene/secret.txt").status_code, 404
+            )
+
+            # Idempotent overwrite, now without a splat: the old one is kept.
+            again = _post_scene(client, job_id, _scene_doc(), ply=None)
+            self.assertEqual(again.status_code, 200, again.text)
+            self.assertEqual(again.json()["scene_ply_key"], f"artifacts/scenes/{upload_id}/scene.ply")
+
+    def test_objects_generated_after_the_capture_get_the_scene_key(self) -> None:
+        with TestClient(app) as client:
+            ctx = _ready_objects(client, ["cat"])
+            _post_scene(client, ctx["job_ids"][0], _scene_doc())
+            client.post(
+                f"/v1/projects/{ctx['project_id']}/uploads/{ctx['upload_id']}/selections",
+                json={"selections": [{"selection_id": "late", "prompt": {"text": "lamp"}}]},
+            )
+            late = client.post(
+                f"/v1/projects/{ctx['project_id']}/uploads/{ctx['upload_id']}/generate",
+                json={"selection_ids": ["late"]},
+            ).json()
+            asset = main.store.get_asset(late["assets"][0]["asset_id"])
+            self.assertEqual(asset.views[0].scene_key, f"artifacts/scenes/{ctx['upload_id']}/scene.json")
+
+    def test_scene_routes_require_the_worker_token(self) -> None:
+        with TestClient(app) as client:
+            job_id = _ready_objects(client, ["cat"])["job_ids"][0]
+            previous = os.environ.get("SKETCHSCAPE_WORKER_TOKEN")
+            os.environ["SKETCHSCAPE_WORKER_TOKEN"] = "right-token"
+            try:
+                self.assertEqual(client.get(f"/v1/internal/reconstructions/{job_id}/scene").status_code, 401)
+                self.assertEqual(_post_scene(client, job_id, _scene_doc(), worker_token="wrong").status_code, 401)
+                ok = client.get(
+                    f"/v1/internal/reconstructions/{job_id}/scene",
+                    headers={"X-SketchScape-Worker-Token": "right-token"},
+                )
+                self.assertEqual(ok.status_code, 200)
+                self.assertEqual(_post_scene(client, job_id, _scene_doc(), worker_token="right-token").status_code, 200)
+            finally:
+                if previous is None:
+                    os.environ.pop("SKETCHSCAPE_WORKER_TOKEN", None)
+                else:
+                    os.environ["SKETCHSCAPE_WORKER_TOKEN"] = previous
+
+    def test_a_job_leased_to_another_worker_is_refused(self) -> None:
+        with TestClient(app) as client:
+            job_id = _ready_objects(client, ["cat"])["job_ids"][0]
+            job = main.store.get_job(job_id)
+            job.lease_owner = "gpu-1"
+            main.store.save_job(job)
+            self.assertEqual(_post_scene(client, job_id, _scene_doc(), worker_id="gpu-2").status_code, 401)
+            self.assertEqual(_post_scene(client, job_id, _scene_doc(), worker_id="gpu-1").status_code, 200)
+
+    def test_invalid_scene_uploads_are_rejected(self) -> None:
+        with TestClient(app) as client:
+            ctx = _ready_objects(client, ["cat"])
+            job_id = ctx["job_ids"][0]
+            cases = {
+                "not json": (b"{nope", _SCENE_PLY, None),
+                "non-finite": (b'{"version": 1, "depth_range_m": [0.5, NaN]}', _SCENE_PLY, None),
+                "array": (b"[1]", _SCENE_PLY, None),
+                "no version": (b'{"frame": "opencv"}', _SCENE_PLY, None),
+                "other upload": (json.dumps(_scene_doc("someone-else")).encode(), _SCENE_PLY, None),
+                "not a ply": (json.dumps(_scene_doc()).encode(), b"GIF89a....", None),
+                "bad analysis": (json.dumps(_scene_doc()).encode(), _SCENE_PLY, b"[]"),
+            }
+            for name, (raw, ply, analysis) in cases.items():
+                response = _post_scene(client, job_id, raw_json=raw, ply=ply, analysis=analysis)
+                self.assertEqual(response.status_code, 422, name)
+            too_big = b'{"version": 1, "pad": "' + b"x" * (2 * 1024 * 1024) + b'"}'
+            self.assertEqual(_post_scene(client, job_id, raw_json=too_big).status_code, 413)
+            big_analysis = b'{"pad": "' + b"x" * (256 * 1024) + b'"}'
+            self.assertEqual(
+                _post_scene(client, job_id, _scene_doc(), analysis=big_analysis).status_code, 413
+            )
+            from unittest.mock import patch
+
+            with patch.object(main, "MAX_SCENE_PLY_BYTES", 64):
+                oversized = _SCENE_PLY + b"\0" * 100
+                self.assertEqual(_post_scene(client, job_id, _scene_doc(), ply=oversized).status_code, 413)
+            # Nothing was stored by the rejected attempts.
+            self.assertFalse(client.get(f"/v1/internal/reconstructions/{job_id}/scene").json()["exists"])
+            upload = client.get(f"/v1/projects/{ctx['project_id']}/uploads/{ctx['upload_id']}").json()
+            self.assertIsNone(upload["scene_key"])
+
+    def test_a_scene_stored_straight_into_storage_shows_on_the_assets(self) -> None:
+        import asyncio
+
+        with TestClient(app) as client:
+            ctx = _ready_objects(client, ["cat"])
+            upload_id = ctx["upload_id"]
+            assets = client.get(f"/v1/projects/{ctx['project_id']}/assets").json()
+            self.assertIsNone(assets[0]["views"][0]["scene_key"])
+            # worker/backfill_scenes.py writes the files without the callback.
+            asyncio.run(main.artifact_store.put(
+                f"scenes/{upload_id}", "scene.json",
+                main._bytes_upload_file(json.dumps(_scene_doc(upload_id)).encode(), "scene.json"),
+                size_limit=1 << 20,
+            ))
+            assets = client.get(f"/v1/projects/{ctx['project_id']}/assets").json()
+            self.assertEqual(assets[0]["views"][0]["scene_key"], f"artifacts/scenes/{upload_id}/scene.json")
+            self.assertEqual(assets[0]["views"][0]["upload_id"], upload_id)
+            one = client.get(f"/v1/projects/{ctx['project_id']}/assets/{assets[0]['asset_id']}").json()
+            self.assertEqual(one["views"][0]["scene_key"], f"artifacts/scenes/{upload_id}/scene.json")
+
+    def test_standalone_job_uses_its_own_id_as_the_scene_id(self) -> None:
+        with TestClient(app) as client:
+            job_id = client.post(
+                "/v1/reconstructions",
+                data={"subject_hint": "mug"},
+                files={"image": ("mug.png", io.BytesIO(_png_bytes()), "image/png")},
+            ).json()["job_id"]
+            info = client.get(f"/v1/internal/reconstructions/{job_id}/scene").json()
+            self.assertEqual(info["upload_id"], job_id)
+            stored = _post_scene(client, job_id, _scene_doc())
+            self.assertEqual(stored.status_code, 200, stored.text)
+            self.assertTrue((main.ARTIFACT_ROOT / "scenes" / job_id / "scene.json").is_file())
+
+    def test_unknown_job_is_404(self) -> None:
+        with TestClient(app) as client:
+            self.assertEqual(client.get("/v1/internal/reconstructions/nope/scene").status_code, 404)
+            self.assertEqual(_post_scene(client, "nope", _scene_doc()).status_code, 404)
+
+
+class AutoGenerateAfterSegmentationTests(unittest.TestCase):
+    """An upload that asked for its objects (`detect`/`objects`) gets its
+    reconstruct jobs queued by the backend once the GPU segment pass ends."""
+
+    def test_detected_objects_are_segmented_then_queued_for_reconstruction(self) -> None:
+        from unittest.mock import patch
+
+        import subject_labeler as sl
+
+        label = sl.SubjectLabel(
+            label="sofa", backend="gpu:test-vlm", alternatives=["floor lamp", "Sofa", "rug"],
+            # 40x30 photo: the lamp's box is clamped, the rug's is degenerate.
+            boxes={"sofa": [1, 2, 30, 20], "floor lamp": [-4, 0, 99, 25], "rug": [5, 5, 5.5, 9]},
+        )
+        with TestClient(app) as client, patch.object(main.subject_labeler, "identify_subject", return_value=label):
+            _drain_queue(client)
+            project_id = client.post("/v1/projects", json={"name": "auto", "description": ""}).json()["project_id"]
+            with _AwsLocalMode():
+                created = client.post(
+                    f"/v1/projects/{project_id}/uploads",
+                    data={"detect": "true"},
+                    files={"image": ("room.png", io.BytesIO(_png_bytes()), "image/png")},
+                )
+                self.assertEqual(created.status_code, 201, created.text)
+                body = created.json()
+                self.assertEqual(body["objects_mode"], "detected")
+                self.assertEqual([s["label"] for s in body["selections"]], ["sofa", "floor lamp", "rug"])
+                segment_job = main.store.get_job(body["job_id"])
+                self.assertEqual(segment_job.kind, "segment")
+                self.assertTrue(segment_job.auto_generate)
+                self.assertEqual(segment_job.subject_label_backend, "gpu:test-vlm")
+
+                claim = client.post(
+                    "/v1/internal/jobs/claim", json={"worker_id": "gpu-1", "kinds": ["segment"]}
+                ).json()
+                self.assertEqual(claim["job_id"], body["job_id"])
+                # The segmenter gets each object's box to pick that instance.
+                task = client.get(f"/v1/internal/reconstructions/{body['job_id']}/selections").json()
+                self.assertEqual(
+                    [s["box"] for s in task["selections"]], [[1.0, 2.0, 30.0, 20.0], [0.0, 0.0, 40.0, 25.0], None]
+                )
+                for index, selection in enumerate(body["selections"]):
+                    status = "failed" if index == 2 else "segmented"
+                    client.post(
+                        f"/v1/internal/reconstructions/{body['job_id']}/selections/{selection['selection_id']}/result",
+                        data={"worker_id": "gpu-1", "result": json.dumps({"status": status, "score": 0.8, "reason": "none"})},
+                        files={"mask": ("mask.png", io.BytesIO(_mask_bytes()), "image/png")},
+                    )
+                # Two reconstruct jobs are queued for the dispatcher; the failed rug is not.
+                jobs = [job for job in main.store.list_project_jobs(project_id) if job.kind == "reconstruct"]
+                self.assertEqual(len(jobs), 2)
+                self.assertEqual({job.status for job in jobs}, {"queued"})
+                self.assertEqual({job.subject_hint for job in jobs}, {"sofa", "floor lamp"})
+                upload = client.get(f"/v1/projects/{project_id}/uploads/{body['upload_id']}").json()
+                self.assertEqual(
+                    sorted(s["status"] for s in upload["selections"]), ["failed", "generated", "generated"]
+                )
+                # A late /generate for the same objects is refused, not doubled.
+                again = client.post(
+                    f"/v1/projects/{project_id}/uploads/{body['upload_id']}/generate",
+                    json={"selection_ids": [body["selections"][0]["selection_id"]]},
+                )
+                self.assertEqual(again.status_code, 409)
+            _drain_queue(client)
+
 
 if __name__ == "__main__":
     unittest.main()

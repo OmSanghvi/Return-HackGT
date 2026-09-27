@@ -18,29 +18,576 @@
       "label": "pink blanket",
       "asset_id": "3ffac273fd654746be2de48d5588e10d",
       "project_id": "02b682878bc045d5a5eadc9837f01865",
+      "upload_id": "b0949bf0e9f540229b92411d42843db4",
+      "job_id": "2662e3fff41645889c1309839d999212",
       "unity_path": "Assets/SketchScape/AssetLibrary/pink_blanket_3ffac273.ply",
       "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/2662e3fff41645889c1309839d999212/reconstruction.ply",
-      "vertices": 146656,
+      "vertices": 146688,
       "repaired_opacity": 0,
       "native_extent": [
-        1.003,
-        0.5802,
-        0.0247
-      ]
+        1.0045,
+        0.5806,
+        0.0248
+      ],
+      "bounds_min": [
+        -0.5023,
+        -0.2885,
+        -0.0154
+      ],
+      "bounds_max": [
+        0.5021,
+        0.2921,
+        0.0094
+      ],
+      "photo": "uploads/02b682878bc045d5a5eadc9837f01865/b0949bf0e9f540229b92411d42843db4/source.jpg",
+      "pose": {
+        "version": 2,
+        "frame": "opencv",
+        "image_size": [
+          640,
+          480
+        ],
+        "intrinsics": {
+          "fx": 514.3668,
+          "fy": 514.3668,
+          "cx": 320.0,
+          "cy": 240.0
+        },
+        "gravity_up_cam": [
+          -0.000309,
+          -0.369442,
+          -0.929254
+        ],
+        "support_plane": {
+          "normal_cam": [
+            -0.000309,
+            -0.369442,
+            -0.929254
+          ],
+          "offset": 0.7633,
+          "camera_height": 0.7633,
+          "kind": "surface",
+          "method": "height-histogram",
+          "plane_fit_deg": 3.599,
+          "plane_inlier_frac": 0.6521,
+          "kind_reason": "camera height outside floor range",
+          "area_m2": 0.33,
+          "candidates": [
+            {
+              "height_m": 0.75,
+              "area_m2": 0.33
+            }
+          ]
+        },
+        "metric": true,
+        "object": {
+          "mask_bbox": [
+            0,
+            119,
+            640,
+            480
+          ],
+          "mask_area_frac": 0.439635,
+          "centroid_cam": [
+            0.01687,
+            0.19256,
+            0.74059
+          ],
+          "base_cam": [
+            0.01688,
+            0.20342,
+            0.76791
+          ],
+          "extent_m": {
+            "width": 0.9933,
+            "height": 0.0605,
+            "depth": 0.532
+          },
+          "yaw_deg": -3.48,
+          "points_used": 117998,
+          "splat_to_cam": {
+            "rotation_wxyz": [
+              0.206526,
+              0.978084,
+              -0.023415,
+              -0.012275
+            ],
+            "translation": [
+              0.019981,
+              0.121644,
+              0.769109
+            ],
+            "scale": 1.089675
+          },
+          "reprojection_iou": 0.6043
+        },
+        "raw": {
+          "version": 1,
+          "camera_convention": "sam3d-pointmap",
+          "ss_keys": [
+            "6drotation_normalized",
+            "coords",
+            "coords_original",
+            "downsample_factor",
+            "rotation",
+            "scale",
+            "shape",
+            "translation",
+            "translation_scale"
+          ],
+          "rotation": [
+            0.011397,
+            -0.013829,
+            -0.993227,
+            -0.114801
+          ],
+          "rotation_shape": [
+            1,
+            4
+          ],
+          "translation": [
+            -0.14553,
+            -0.1693,
+            1.513835
+          ],
+          "translation_shape": [
+            1,
+            3
+          ],
+          "scale": [
+            2.39324,
+            2.39324,
+            2.39324
+          ],
+          "scale_shape": [
+            1,
+            3
+          ],
+          "downsample_factor": [
+            1.0
+          ],
+          "downsample_factor_shape": [],
+          "image_size": [
+            640,
+            480
+          ],
+          "pointmap": {
+            "valid_points": 307200,
+            "percentiles": {
+              "x": {
+                "1": -0.980347,
+                "2": -0.935365,
+                "5": -0.845726,
+                "50": -0.000433,
+                "95": 0.816669,
+                "98": 0.906603,
+                "99": 0.949068
+              },
+              "y": {
+                "1": -0.582594,
+                "2": -0.572625,
+                "5": -0.541953,
+                "50": 0.000194,
+                "95": 0.658258,
+                "98": 0.680298,
+                "99": 0.688319
+              },
+              "z": {
+                "1": 1.401165,
+                "2": 1.407965,
+                "5": 1.421811,
+                "50": 1.624154,
+                "95": 1.878113,
+                "98": 1.912469,
+                "99": 1.936911
+              }
+            }
+          }
+        },
+        "verification": {
+          "iou_sam3d_camera": 0.5185,
+          "sam3d_intrinsics": {
+            "fx": 568.686,
+            "fy": 569.409,
+            "cx": 319.951,
+            "cy": 239.978
+          },
+          "sam3d_splat_to_cam": {
+            "rotation_wxyz": [
+              0.114801,
+              0.993227,
+              -0.013829,
+              -0.011397
+            ],
+            "translation": [
+              0.14553,
+              0.1693,
+              1.513835
+            ],
+            "scale": 2.39324
+          },
+          "depth_scale_to_scene": 0.486867,
+          "iou_rebased": 0.5183,
+          "refine": {
+            "targets": 1500,
+            "sources": 2000,
+            "hypotheses": [
+              {
+                "name": "prior",
+                "iou_init": 0.5183,
+                "iou": 0.5832,
+                "depth_residual": 0.0099,
+                "score": 0.5733
+              },
+              {
+                "name": "prior_rot_reseated",
+                "iou_init": 0.5816,
+                "iou": 0.5831,
+                "depth_residual": 0.0082,
+                "score": 0.5749
+              },
+              {
+                "name": "pca+++",
+                "iou_init": 0.5858,
+                "iou": 0.5779,
+                "depth_residual": 0.0088,
+                "score": 0.5691
+              },
+              {
+                "name": "pca+--",
+                "iou_init": 0.587,
+                "iou": 0.5833,
+                "depth_residual": 0.0082,
+                "score": 0.5752
+              },
+              {
+                "name": "pca-+-",
+                "iou_init": 0.5898,
+                "iou": 0.5935,
+                "depth_residual": 0.0076,
+                "score": 0.5859
+              },
+              {
+                "name": "pca--+",
+                "iou_init": 0.5958,
+                "iou": 0.5982,
+                "depth_residual": 0.0087,
+                "score": 0.5895
+              }
+            ],
+            "final_prior": {
+              "name": "prior_rot_reseated",
+              "iou": 0.6043,
+              "scale_factor": 1.2,
+              "depth_residual": 0.0098
+            },
+            "final_pca": {
+              "name": "pca--+",
+              "iou": 0.6122,
+              "scale_factor": 1.0,
+              "depth_residual": 0.0085
+            },
+            "chosen": "prior_rot_reseated",
+            "iou": 0.6043,
+            "depth_residual": 0.0098,
+            "seconds": 4.24
+          }
+        }
+      },
+      "mask_area_frac": 0.43963
     },
     {
       "label": "remote control",
       "asset_id": "fa48cc2de6f5449badfddbfbd333b592",
       "project_id": "02b682878bc045d5a5eadc9837f01865",
+      "upload_id": "b0949bf0e9f540229b92411d42843db4",
+      "job_id": "a04a6bd5fa46407aa05e8d2a524a6812",
       "unity_path": "Assets/SketchScape/AssetLibrary/remote_control_fa48cc2d.ply",
       "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/a04a6bd5fa46407aa05e8d2a524a6812/reconstruction.ply",
-      "vertices": 221792,
-      "repaired_opacity": 90,
+      "vertices": 221856,
+      "repaired_opacity": 0,
       "native_extent": [
-        0.3506,
-        0.999,
-        0.1906
-      ]
+        0.3535,
+        0.9969,
+        0.1848
+      ],
+      "bounds_min": [
+        -0.1781,
+        -0.4974,
+        -0.0946
+      ],
+      "bounds_max": [
+        0.1755,
+        0.4995,
+        0.0901
+      ],
+      "photo": "uploads/02b682878bc045d5a5eadc9837f01865/b0949bf0e9f540229b92411d42843db4/source.jpg",
+      "pose": {
+        "version": 2,
+        "frame": "opencv",
+        "image_size": [
+          640,
+          480
+        ],
+        "intrinsics": {
+          "fx": 514.3668,
+          "fy": 514.3668,
+          "cx": 320.0,
+          "cy": 240.0
+        },
+        "gravity_up_cam": [
+          -0.000309,
+          -0.369442,
+          -0.929254
+        ],
+        "support_plane": {
+          "normal_cam": [
+            -0.000309,
+            -0.369442,
+            -0.929254
+          ],
+          "offset": 0.7633,
+          "camera_height": 0.7633,
+          "kind": "surface",
+          "method": "height-histogram",
+          "plane_fit_deg": 3.599,
+          "plane_inlier_frac": 0.6521,
+          "kind_reason": "camera height outside floor range",
+          "area_m2": 0.33,
+          "candidates": [
+            {
+              "height_m": 0.75,
+              "area_m2": 0.33
+            }
+          ]
+        },
+        "metric": true,
+        "object": {
+          "mask_bbox": [
+            41,
+            74,
+            175,
+            116
+          ],
+          "mask_area_frac": 0.013203,
+          "centroid_cam": [
+            -0.37194,
+            -0.25142,
+            0.87489
+          ],
+          "base_cam": [
+            -0.37194,
+            -0.24429,
+            0.89285
+          ],
+          "extent_m": {
+            "width": 0.2056,
+            "height": 0.0336,
+            "depth": 0.0433
+          },
+          "yaw_deg": -14.33,
+          "points_used": 2684,
+          "splat_to_cam": {
+            "rotation_wxyz": [
+              0.137743,
+              0.752665,
+              0.643249,
+              -0.027441
+            ],
+            "translation": [
+              -0.363767,
+              -0.253231,
+              0.884212
+            ],
+            "scale": 0.199848
+          },
+          "reprojection_iou": 0.8294
+        },
+        "raw": {
+          "version": 1,
+          "camera_convention": "sam3d-pointmap",
+          "ss_keys": [
+            "6drotation_normalized",
+            "coords",
+            "coords_original",
+            "downsample_factor",
+            "rotation",
+            "scale",
+            "shape",
+            "translation",
+            "translation_scale"
+          ],
+          "rotation": [
+            0.064284,
+            0.672425,
+            -0.735835,
+            -0.047538
+          ],
+          "rotation_shape": [
+            1,
+            4
+          ],
+          "translation": [
+            0.663804,
+            0.491554,
+            1.798736
+          ],
+          "translation_shape": [
+            1,
+            3
+          ],
+          "scale": [
+            0.07523,
+            0.07523,
+            0.07523
+          ],
+          "scale_shape": [
+            1,
+            3
+          ],
+          "downsample_factor": [
+            1.0
+          ],
+          "downsample_factor_shape": [],
+          "image_size": [
+            640,
+            480
+          ],
+          "pointmap": {
+            "valid_points": 307200,
+            "percentiles": {
+              "x": {
+                "1": -0.980347,
+                "2": -0.935365,
+                "5": -0.845726,
+                "50": -0.000433,
+                "95": 0.816669,
+                "98": 0.906603,
+                "99": 0.949068
+              },
+              "y": {
+                "1": -0.582594,
+                "2": -0.572625,
+                "5": -0.541953,
+                "50": 0.000194,
+                "95": 0.658258,
+                "98": 0.680298,
+                "99": 0.688319
+              },
+              "z": {
+                "1": 1.401165,
+                "2": 1.407965,
+                "5": 1.421811,
+                "50": 1.624154,
+                "95": 1.878113,
+                "98": 1.912469,
+                "99": 1.936911
+              }
+            }
+          }
+        },
+        "verification": {
+          "iou_sam3d_camera": 0.0508,
+          "sam3d_intrinsics": {
+            "fx": 568.686,
+            "fy": 569.409,
+            "cx": 319.951,
+            "cy": 239.978
+          },
+          "sam3d_splat_to_cam": {
+            "rotation_wxyz": [
+              0.047538,
+              0.735835,
+              0.672425,
+              -0.064284
+            ],
+            "translation": [
+              -0.663804,
+              -0.491554,
+              1.798736
+            ],
+            "scale": 0.07523
+          },
+          "depth_scale_to_scene": 0.48583,
+          "iou_rebased": 0.0508,
+          "refine": {
+            "targets": 846,
+            "sources": 2000,
+            "hypotheses": [
+              {
+                "name": "prior",
+                "iou_init": 0.0508,
+                "iou": 0.4265,
+                "depth_residual": 0.0021,
+                "score": 0.4244
+              },
+              {
+                "name": "prior_rot_reseated",
+                "iou_init": 0.7783,
+                "iou": 0.7526,
+                "depth_residual": 0.0038,
+                "score": 0.7488
+              },
+              {
+                "name": "pca+++",
+                "iou_init": 0.8211,
+                "iou": 0.8077,
+                "depth_residual": 0.0036,
+                "score": 0.8041
+              },
+              {
+                "name": "pca+--",
+                "iou_init": 0.8193,
+                "iou": 0.7835,
+                "depth_residual": 0.0039,
+                "score": 0.7796
+              },
+              {
+                "name": "pca-+-",
+                "iou_init": 0.7794,
+                "iou": 0.764,
+                "depth_residual": 0.0039,
+                "score": 0.7601
+              },
+              {
+                "name": "pca--+",
+                "iou_init": 0.7778,
+                "iou": 0.7665,
+                "depth_residual": 0.0037,
+                "score": 0.7628
+              }
+            ],
+            "final_prior": {
+              "name": "prior_rot_reseated",
+              "iou": 0.8294,
+              "scale_factor": 1.15,
+              "depth_residual": 0.0044
+            },
+            "final_pca": {
+              "name": "pca+++",
+              "iou": 0.8328,
+              "scale_factor": 1.15,
+              "depth_residual": 0.0042
+            },
+            "chosen": "prior_rot_reseated",
+            "iou": 0.8294,
+            "depth_residual": 0.0044,
+            "seconds": 1.42
+          }
+        },
+        "sync_refine": {
+          "pixels": 3271,
+          "coverage": 0.9596,
+          "depth_factor": 1.0,
+          "colour_gain": [
+            0.9529,
+            0.9473,
+            1.0087
+          ],
+          "gap_m_before": -0.0097
+        }
+      },
+      "mask_area_frac": 0.0132
     },
     {
       "label": "tomato",
@@ -55,6 +602,5467 @@
         0.9755,
         0.991
       ]
+    },
+    {
+      "label": "cat",
+      "asset_id": "8cdb9300aacd4bdb8f41ead8414eed2b",
+      "project_id": "02b682878bc045d5a5eadc9837f01865",
+      "upload_id": "b0949bf0e9f540229b92411d42843db4",
+      "job_id": "8d3713f0ea55438989882773f3b22d75",
+      "unity_path": "Assets/SketchScape/AssetLibrary/cat_8cdb9300.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/8d3713f0ea55438989882773f3b22d75/reconstruction.ply",
+      "vertices": 220032,
+      "repaired_opacity": 0,
+      "native_extent": [
+        0.6055,
+        0.9859,
+        0.2897
+      ],
+      "bounds_min": [
+        -0.3041,
+        -0.491,
+        -0.1424
+      ],
+      "bounds_max": [
+        0.3014,
+        0.4949,
+        0.1472
+      ],
+      "photo": "uploads/02b682878bc045d5a5eadc9837f01865/b0949bf0e9f540229b92411d42843db4/source.jpg",
+      "pose": {
+        "version": 2,
+        "frame": "opencv",
+        "image_size": [
+          640,
+          480
+        ],
+        "intrinsics": {
+          "fx": 514.3668,
+          "fy": 514.3668,
+          "cx": 320.0,
+          "cy": 240.0
+        },
+        "gravity_up_cam": [
+          -0.000309,
+          -0.369442,
+          -0.929254
+        ],
+        "support_plane": {
+          "normal_cam": [
+            -0.000309,
+            -0.369442,
+            -0.929254
+          ],
+          "offset": 0.7633,
+          "camera_height": 0.7633,
+          "kind": "surface",
+          "method": "height-histogram",
+          "plane_fit_deg": 3.599,
+          "plane_inlier_frac": 0.6521,
+          "kind_reason": "camera height outside floor range",
+          "area_m2": 0.33,
+          "candidates": [
+            {
+              "height_m": 0.75,
+              "area_m2": 0.33
+            }
+          ]
+        },
+        "metric": true,
+        "object": {
+          "mask_bbox": [
+            13,
+            56,
+            315,
+            473
+          ],
+          "mask_area_frac": 0.164238,
+          "centroid_cam": [
+            -0.29918,
+            -0.04193,
+            0.8329
+          ],
+          "base_cam": [
+            -0.29917,
+            -0.02071,
+            0.88627
+          ],
+          "extent_m": {
+            "width": 0.6815,
+            "height": 0.0951,
+            "depth": 0.3162
+          },
+          "yaw_deg": -63.27,
+          "points_used": 42925,
+          "splat_to_cam": {
+            "rotation_wxyz": [
+              0.070585,
+              0.18761,
+              -0.936863,
+              0.286544
+            ],
+            "translation": [
+              -0.253597,
+              -0.015589,
+              0.831772
+            ],
+            "scale": 0.72974
+          },
+          "reprojection_iou": 0.6997,
+          "splat_to_cam_gpu": {
+            "rotation_wxyz": [
+              0.070585,
+              0.18761,
+              -0.936863,
+              0.286544
+            ],
+            "translation": [
+              -0.26348,
+              -0.016197,
+              0.864186
+            ],
+            "scale": 0.758178
+          }
+        },
+        "raw": {
+          "version": 1,
+          "camera_convention": "sam3d-pointmap",
+          "ss_keys": [
+            "6drotation_normalized",
+            "coords",
+            "coords_original",
+            "downsample_factor",
+            "rotation",
+            "scale",
+            "shape",
+            "translation",
+            "translation_scale"
+          ],
+          "rotation": [
+            0.141552,
+            0.934164,
+            0.316256,
+            -0.085341
+          ],
+          "rotation_shape": [
+            1,
+            4
+          ],
+          "translation": [
+            0.492874,
+            -0.073601,
+            1.625786
+          ],
+          "translation_shape": [
+            1,
+            3
+          ],
+          "scale": [
+            1.74017,
+            1.74017,
+            1.74017
+          ],
+          "scale_shape": [
+            1,
+            3
+          ],
+          "downsample_factor": [
+            1.0
+          ],
+          "downsample_factor_shape": [],
+          "image_size": [
+            640,
+            480
+          ],
+          "pointmap": {
+            "valid_points": 307200,
+            "percentiles": {
+              "x": {
+                "1": -0.980347,
+                "2": -0.935365,
+                "5": -0.845726,
+                "50": -0.000433,
+                "95": 0.816669,
+                "98": 0.906603,
+                "99": 0.949068
+              },
+              "y": {
+                "1": -0.582594,
+                "2": -0.572625,
+                "5": -0.541953,
+                "50": 0.000194,
+                "95": 0.658258,
+                "98": 0.680298,
+                "99": 0.688319
+              },
+              "z": {
+                "1": 1.401165,
+                "2": 1.407965,
+                "5": 1.421811,
+                "50": 1.624154,
+                "95": 1.878113,
+                "98": 1.912469,
+                "99": 1.936911
+              }
+            }
+          }
+        },
+        "verification": {
+          "iou_sam3d_camera": 0.4844,
+          "sam3d_intrinsics": {
+            "fx": 568.686,
+            "fy": 569.409,
+            "cx": 319.951,
+            "cy": 239.978
+          },
+          "sam3d_splat_to_cam": {
+            "rotation_wxyz": [
+              0.085341,
+              -0.316256,
+              0.934164,
+              -0.141552
+            ],
+            "translation": [
+              -0.492874,
+              0.073601,
+              1.625786
+            ],
+            "scale": 1.74017
+          },
+          "depth_scale_to_scene": 0.511282,
+          "iou_rebased": 0.4835,
+          "refine": {
+            "targets": 1500,
+            "sources": 2000,
+            "hypotheses": [
+              {
+                "name": "prior",
+                "iou_init": 0.4835,
+                "iou": 0.6348,
+                "depth_residual": 0.0745,
+                "score": 0.5603
+              },
+              {
+                "name": "prior_rot_reseated",
+                "iou_init": 0.5658,
+                "iou": 0.6422,
+                "depth_residual": 0.0492,
+                "score": 0.593
+              },
+              {
+                "name": "pca++-",
+                "iou_init": 0.4888,
+                "iou": 0.5021,
+                "depth_residual": 0.0569,
+                "score": 0.4453
+              },
+              {
+                "name": "pca+-+",
+                "iou_init": 0.7133,
+                "iou": 0.6935,
+                "depth_residual": 0.0436,
+                "score": 0.6499
+              },
+              {
+                "name": "pca-++",
+                "iou_init": 0.4524,
+                "iou": 0.5105,
+                "depth_residual": 0.0807,
+                "score": 0.4299
+              },
+              {
+                "name": "pca---",
+                "iou_init": 0.6154,
+                "iou": 0.6018,
+                "depth_residual": 0.0527,
+                "score": 0.5491
+              }
+            ],
+            "final_prior": {
+              "name": "prior_rot_reseated",
+              "iou": 0.6997,
+              "scale_factor": 1.05,
+              "depth_residual": 0.045
+            },
+            "final_pca": {
+              "name": "pca+-+",
+              "iou": 0.7068,
+              "scale_factor": 1.05,
+              "depth_residual": 0.0435
+            },
+            "chosen": "prior_rot_reseated",
+            "iou": 0.6997,
+            "depth_residual": 0.045,
+            "seconds": 2.05
+          }
+        },
+        "sync_refine": {
+          "pixels": 31280,
+          "coverage": 0.7971,
+          "depth_factor": 0.9625,
+          "colour_gain": [
+            1.4666,
+            1.5496,
+            1.6
+          ],
+          "gap_m_before": 0.0318,
+          "gap_m_after": -0.0
+        }
+      },
+      "mask_area_frac": 0.16424
+    },
+    {
+      "label": "left green armchair",
+      "asset_id": "ea387cad366448fbb58fda656eecc8c0",
+      "project_id": "674a8bcb39d7442d8d2a381e105c86e5",
+      "upload_id": "3ae525c11c0b4163b2829c9951fbb1fd",
+      "job_id": "2bcdaecebebe499abd02c525883c5bae",
+      "unity_path": "Assets/SketchScape/AssetLibrary/left_green_armchair_ea387cad.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/2bcdaecebebe499abd02c525883c5bae/reconstruction.ply",
+      "vertices": 261856,
+      "repaired_opacity": 0,
+      "native_extent": [
+        0.4202,
+        0.4145,
+        0.4885
+      ],
+      "bounds_min": [
+        -0.212,
+        -0.1558,
+        -0.2443
+      ],
+      "bounds_max": [
+        0.2082,
+        0.2588,
+        0.2441
+      ],
+      "photo": "uploads/674a8bcb39d7442d8d2a381e105c86e5/3ae525c11c0b4163b2829c9951fbb1fd/source.jpg",
+      "pose": {
+        "version": 2,
+        "frame": "opencv",
+        "image_size": [
+          1280,
+          847
+        ],
+        "intrinsics": {
+          "fx": 688.6835,
+          "fy": 688.6835,
+          "cx": 640.0,
+          "cy": 423.5
+        },
+        "gravity_up_cam": [
+          0.052606,
+          -0.937442,
+          -0.344145
+        ],
+        "support_plane": {
+          "normal_cam": [
+            0.052606,
+            -0.937442,
+            -0.344145
+          ],
+          "offset": 1.4807,
+          "camera_height": 1.4807,
+          "kind": "floor",
+          "method": "floor-plane",
+          "plane_fit_deg": 1.382,
+          "plane_inlier_frac": 0.9782,
+          "kind_reason": "camera height in floor range",
+          "area_m2": 5.473,
+          "candidates": [
+            {
+              "height_m": 1.55,
+              "area_m2": 5.473
+            }
+          ]
+        },
+        "metric": true,
+        "object": {
+          "mask_bbox": [
+            429,
+            265,
+            593,
+            458
+          ],
+          "mask_area_frac": 0.021798,
+          "centroid_cam": [
+            -0.7368,
+            -0.34953,
+            3.74035
+          ],
+          "base_cam": [
+            -0.75388,
+            -0.04507,
+            3.85212
+          ],
+          "extent_m": {
+            "width": 0.6926,
+            "height": 0.7724,
+            "depth": 0.6161
+          },
+          "yaw_deg": 69.39,
+          "points_used": 18042,
+          "splat_to_cam": {
+            "rotation_wxyz": [
+              0.572602,
+              0.804461,
+              -0.114967,
+              0.108411
+            ],
+            "translation": [
+              -0.72039,
+              -0.355978,
+              3.786873
+            ],
+            "scale": 1.89826
+          },
+          "reprojection_iou": 0.9394
+        },
+        "raw": {
+          "version": 1,
+          "camera_convention": "sam3d-pointmap",
+          "ss_keys": [
+            "6drotation_normalized",
+            "coords",
+            "coords_original",
+            "downsample_factor",
+            "rotation",
+            "scale",
+            "shape",
+            "translation",
+            "translation_scale"
+          ],
+          "rotation": [
+            0.292082,
+            0.280335,
+            0.656656,
+            0.63632
+          ],
+          "rotation_shape": [
+            1,
+            4
+          ],
+          "translation": [
+            0.440914,
+            0.310811,
+            2.331985
+          ],
+          "translation_shape": [
+            1,
+            3
+          ],
+          "scale": [
+            0.941722,
+            0.941722,
+            0.941722
+          ],
+          "scale_shape": [
+            1,
+            3
+          ],
+          "downsample_factor": [
+            2.0
+          ],
+          "downsample_factor_shape": [],
+          "image_size": [
+            768,
+            508
+          ],
+          "pointmap": {
+            "valid_points": 390144,
+            "percentiles": {
+              "x": {
+                "1": -1.127535,
+                "2": -1.117967,
+                "5": -1.086449,
+                "50": 0.000372,
+                "95": 0.996616,
+                "98": 1.09367,
+                "99": 1.185617
+              },
+              "y": {
+                "1": -0.436026,
+                "2": -0.409854,
+                "5": -0.351009,
+                "50": 0.000748,
+                "95": 1.171985,
+                "98": 1.287679,
+                "99": 1.3368
+              },
+              "z": {
+                "1": 0.548568,
+                "2": 0.563353,
+                "5": 0.593502,
+                "50": 1.520408,
+                "95": 2.646697,
+                "98": 3.139252,
+                "99": 3.51707
+              }
+            }
+          }
+        },
+        "verification": {
+          "iou_sam3d_camera": 0.5874,
+          "sam3d_intrinsics": {
+            "fx": 706.885,
+            "fy": 707.639,
+            "cx": 639.695,
+            "cy": 423.847
+          },
+          "sam3d_splat_to_cam": {
+            "rotation_wxyz": [
+              0.63632,
+              0.656656,
+              -0.280335,
+              0.292082
+            ],
+            "translation": [
+              -0.440914,
+              -0.310811,
+              2.331985
+            ],
+            "scale": 0.941722
+          },
+          "depth_scale_to_scene": 1.630768,
+          "iou_rebased": 0.5853,
+          "refine": {
+            "targets": 1291,
+            "sources": 2000,
+            "hypotheses": [
+              {
+                "name": "prior",
+                "iou_init": 0.5853,
+                "iou": 0.8488,
+                "depth_residual": 0.0278,
+                "up_cos": 0.994,
+                "score": 0.8181
+              },
+              {
+                "name": "prior_rot_reseated",
+                "iou_init": 0.6945,
+                "iou": 0.8877,
+                "depth_residual": 0.0222,
+                "up_cos": 0.998,
+                "score": 0.8643
+              },
+              {
+                "name": "yaw0",
+                "iou_init": 0.7609,
+                "iou": 0.6581,
+                "depth_residual": 0.0524,
+                "up_cos": 0.883,
+                "score": 0.5473
+              },
+              {
+                "name": "yaw90",
+                "iou_init": 0.8617,
+                "iou": 0.6959,
+                "depth_residual": 0.0403,
+                "up_cos": 0.77,
+                "score": 0.5405
+              },
+              {
+                "name": "yaw180",
+                "iou_init": 0.6402,
+                "iou": 0.6981,
+                "depth_residual": 0.031,
+                "up_cos": 0.971,
+                "score": 0.6525
+              },
+              {
+                "name": "yaw270",
+                "iou_init": 0.7588,
+                "iou": 0.8636,
+                "depth_residual": 0.024,
+                "up_cos": 0.997,
+                "score": 0.8383
+              }
+            ],
+            "final_prior": {
+              "name": "prior_rot_reseated",
+              "iou": 0.9394,
+              "scale_factor": 1.0,
+              "depth_residual": 0.0139,
+              "up_cos": 1.0
+            },
+            "final_alt": {
+              "name": "yaw270",
+              "iou": 0.9093,
+              "scale_factor": 1.0,
+              "depth_residual": 0.0129,
+              "up_cos": 1.0
+            },
+            "chosen": "prior_rot_reseated",
+            "iou": 0.9394,
+            "depth_residual": 0.0139,
+            "up_cos": 1.0,
+            "seconds": 1.44
+          }
+        },
+        "sync_refine": {
+          "pixels": 8232,
+          "coverage": 0.9879,
+          "depth_factor": 1.0,
+          "colour_gain": [
+            1.2641,
+            1.5282,
+            1.6
+          ],
+          "gap_m_before": -0.0061
+        }
+      },
+      "mask_area_frac": 0.0218
+    },
+    {
+      "label": "stone fireplace",
+      "asset_id": "36373beb70324cf4874934063c161c8c",
+      "project_id": "674a8bcb39d7442d8d2a381e105c86e5",
+      "upload_id": "3ae525c11c0b4163b2829c9951fbb1fd",
+      "job_id": "2316a3f71a6f49cba729181bf88c4667",
+      "unity_path": "Assets/SketchScape/AssetLibrary/stone_fireplace_36373beb.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/2316a3f71a6f49cba729181bf88c4667/reconstruction.ply",
+      "vertices": 497248,
+      "repaired_opacity": 0,
+      "native_extent": [
+        0.5835,
+        0.1391,
+        0.999
+      ],
+      "bounds_min": [
+        -0.2912,
+        -0.0781,
+        -0.4998
+      ],
+      "bounds_max": [
+        0.2923,
+        0.0609,
+        0.4991
+      ],
+      "photo": "uploads/674a8bcb39d7442d8d2a381e105c86e5/3ae525c11c0b4163b2829c9951fbb1fd/source.jpg",
+      "pose": {
+        "version": 2,
+        "frame": "opencv",
+        "image_size": [
+          1280,
+          847
+        ],
+        "intrinsics": {
+          "fx": 688.6835,
+          "fy": 688.6835,
+          "cx": 640.0,
+          "cy": 423.5
+        },
+        "gravity_up_cam": [
+          0.052606,
+          -0.937442,
+          -0.344145
+        ],
+        "support_plane": {
+          "normal_cam": [
+            0.052606,
+            -0.937442,
+            -0.344145
+          ],
+          "offset": 1.4807,
+          "camera_height": 1.4807,
+          "kind": "floor",
+          "method": "floor-plane",
+          "plane_fit_deg": 1.382,
+          "plane_inlier_frac": 0.9782,
+          "kind_reason": "camera height in floor range",
+          "area_m2": 5.473,
+          "candidates": [
+            {
+              "height_m": 1.55,
+              "area_m2": 5.473
+            }
+          ]
+        },
+        "metric": true,
+        "object": {
+          "mask_bbox": [
+            920,
+            0,
+            1280,
+            620
+          ],
+          "mask_area_frac": 0.11908,
+          "centroid_cam": [
+            1.74602,
+            -0.77317,
+            2.45009
+          ],
+          "base_cam": [
+            1.67916,
+            0.41834,
+            2.8875
+          ],
+          "extent_m": {
+            "width": 1.3393,
+            "height": 1.9493,
+            "depth": 0.0705
+          },
+          "yaw_deg": 73.42,
+          "points_used": 102405,
+          "splat_to_cam": {
+            "rotation_wxyz": [
+              0.550492,
+              0.577458,
+              0.428145,
+              -0.424491
+            ],
+            "translation": [
+              1.697416,
+              -0.646423,
+              2.406189
+            ],
+            "scale": 1.648249
+          },
+          "reprojection_iou": 0.7043,
+          "splat_to_cam_gpu": {
+            "rotation_wxyz": [
+              0.550492,
+              0.577458,
+              0.428145,
+              -0.424491
+            ],
+            "translation": [
+              1.789402,
+              -0.681454,
+              2.536584
+            ],
+            "scale": 1.73757
+          }
+        },
+        "raw": {
+          "version": 1,
+          "camera_convention": "sam3d-pointmap",
+          "ss_keys": [
+            "6drotation_normalized",
+            "coords",
+            "coords_original",
+            "downsample_factor",
+            "rotation",
+            "scale",
+            "shape",
+            "translation",
+            "translation_scale"
+          ],
+          "rotation": [
+            0.144926,
+            0.180429,
+            -0.673737,
+            -0.701798
+          ],
+          "rotation_shape": [
+            1,
+            4
+          ],
+          "translation": [
+            -1.081567,
+            0.12254,
+            1.592
+          ],
+          "translation_shape": [
+            1,
+            3
+          ],
+          "scale": [
+            0.017958,
+            0.017958,
+            0.017958
+          ],
+          "scale_shape": [
+            1,
+            3
+          ],
+          "downsample_factor": [
+            1.0
+          ],
+          "downsample_factor_shape": [],
+          "image_size": [
+            768,
+            508
+          ],
+          "pointmap": {
+            "valid_points": 390144,
+            "percentiles": {
+              "x": {
+                "1": -1.127535,
+                "2": -1.117967,
+                "5": -1.086449,
+                "50": 0.000372,
+                "95": 0.996616,
+                "98": 1.09367,
+                "99": 1.185617
+              },
+              "y": {
+                "1": -0.436026,
+                "2": -0.409854,
+                "5": -0.351009,
+                "50": 0.000748,
+                "95": 1.171985,
+                "98": 1.287679,
+                "99": 1.3368
+              },
+              "z": {
+                "1": 0.548568,
+                "2": 0.563353,
+                "5": 0.593502,
+                "50": 1.520408,
+                "95": 2.646697,
+                "98": 3.139252,
+                "99": 3.51707
+              }
+            }
+          }
+        },
+        "verification": {
+          "iou_sam3d_camera": 0.0008,
+          "sam3d_intrinsics": {
+            "fx": 706.885,
+            "fy": 707.639,
+            "cx": 639.695,
+            "cy": 423.847
+          },
+          "sam3d_splat_to_cam": {
+            "rotation_wxyz": [
+              0.701798,
+              0.673737,
+              0.180429,
+              -0.144926
+            ],
+            "translation": [
+              1.081567,
+              -0.12254,
+              1.592
+            ],
+            "scale": 0.017958
+          },
+          "depth_scale_to_scene": 1.610042,
+          "iou_rebased": 0.0008,
+          "refine": {
+            "targets": 1500,
+            "sources": 2000,
+            "hypotheses": [
+              {
+                "name": "prior",
+                "iou_init": 0.0008,
+                "iou": 0.2427,
+                "depth_residual": 0.0119,
+                "up_cos": 0.977,
+                "score": 0.2192
+              },
+              {
+                "name": "prior_rot_reseated",
+                "iou_init": 0.7196,
+                "iou": 0.6932,
+                "depth_residual": 0.0301,
+                "up_cos": 0.944,
+                "score": 0.6349
+              },
+              {
+                "name": "yaw0",
+                "iou_init": 0.7048,
+                "iou": 0.6998,
+                "depth_residual": 0.028,
+                "up_cos": 0.999,
+                "score": 0.6711
+              },
+              {
+                "name": "yaw90",
+                "iou_init": 0.6935,
+                "iou": 0.6726,
+                "depth_residual": 0.0266,
+                "up_cos": 0.998,
+                "score": 0.6448
+              },
+              {
+                "name": "yaw180",
+                "iou_init": 0.7028,
+                "iou": 0.7044,
+                "depth_residual": 0.0345,
+                "up_cos": 1.0,
+                "score": 0.6698
+              },
+              {
+                "name": "yaw270",
+                "iou_init": 0.7048,
+                "iou": 0.6638,
+                "depth_residual": 0.0287,
+                "up_cos": 0.997,
+                "score": 0.6335
+              }
+            ],
+            "final_prior": {
+              "name": "prior_rot_reseated",
+              "iou": 0.7043,
+              "scale_factor": 1.0,
+              "depth_residual": 0.019,
+              "up_cos": 0.947
+            },
+            "final_alt": {
+              "name": "yaw0",
+              "iou": 0.7068,
+              "scale_factor": 1.05,
+              "depth_residual": 0.0271,
+              "up_cos": 0.997
+            },
+            "chosen": "prior_rot_reseated",
+            "iou": 0.7043,
+            "depth_residual": 0.019,
+            "up_cos": 0.947,
+            "seconds": 3.58
+          }
+        },
+        "sync_refine": {
+          "pixels": 27791,
+          "coverage": 0.8309,
+          "depth_factor": 0.9486,
+          "colour_gain": [
+            0.9881,
+            1.4541,
+            1.6
+          ],
+          "gap_m_before": 0.129,
+          "gap_m_after": 0.0
+        }
+      },
+      "mask_area_frac": 0.11908
+    },
+    {
+      "label": "green sofa",
+      "asset_id": "cf3a34901d2f474fbc6edcaf24099967",
+      "project_id": "674a8bcb39d7442d8d2a381e105c86e5",
+      "upload_id": "3ae525c11c0b4163b2829c9951fbb1fd",
+      "job_id": "8bfeb6a7c7ca459b9c393d1968b2f4c5",
+      "unity_path": "Assets/SketchScape/AssetLibrary/green_sofa_cf3a3490.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/8bfeb6a7c7ca459b9c393d1968b2f4c5/reconstruction.ply",
+      "vertices": 506336,
+      "repaired_opacity": 0,
+      "native_extent": [
+        0.9949,
+        0.3853,
+        0.4401
+      ],
+      "bounds_min": [
+        -0.4987,
+        -0.1856,
+        -0.2203
+      ],
+      "bounds_max": [
+        0.4962,
+        0.1997,
+        0.2198
+      ],
+      "photo": "uploads/674a8bcb39d7442d8d2a381e105c86e5/3ae525c11c0b4163b2829c9951fbb1fd/source.jpg",
+      "pose": {
+        "version": 2,
+        "frame": "opencv",
+        "image_size": [
+          1280,
+          847
+        ],
+        "intrinsics": {
+          "fx": 688.6835,
+          "fy": 688.6835,
+          "cx": 640.0,
+          "cy": 423.5
+        },
+        "gravity_up_cam": [
+          0.052606,
+          -0.937442,
+          -0.344145
+        ],
+        "support_plane": {
+          "normal_cam": [
+            0.052606,
+            -0.937442,
+            -0.344145
+          ],
+          "offset": 1.4807,
+          "camera_height": 1.4807,
+          "kind": "floor",
+          "method": "floor-plane",
+          "plane_fit_deg": 1.382,
+          "plane_inlier_frac": 0.9782,
+          "kind_reason": "camera height in floor range",
+          "area_m2": 5.473,
+          "candidates": [
+            {
+              "height_m": 1.55,
+              "area_m2": 5.473
+            }
+          ]
+        },
+        "metric": true,
+        "object": {
+          "mask_bbox": [
+            0,
+            317,
+            382,
+            841
+          ],
+          "mask_area_frac": 0.117007,
+          "centroid_cam": [
+            -1.12485,
+            0.40838,
+            1.63846
+          ],
+          "base_cam": [
+            -1.12659,
+            0.43934,
+            1.64982
+          ],
+          "extent_m": {
+            "width": 1.4405,
+            "height": 0.4791,
+            "depth": 0.6157
+          },
+          "yaw_deg": 70.19,
+          "points_used": 113149,
+          "splat_to_cam": {
+            "rotation_wxyz": [
+              0.307888,
+              0.503739,
+              -0.652025,
+              0.475726
+            ],
+            "translation": [
+              -1.168232,
+              0.300659,
+              1.939713
+            ],
+            "scale": 1.450054
+          },
+          "reprojection_iou": 0.652
+        },
+        "raw": {
+          "version": 1,
+          "camera_convention": "sam3d-pointmap",
+          "ss_keys": [
+            "6drotation_normalized",
+            "coords",
+            "coords_original",
+            "downsample_factor",
+            "rotation",
+            "scale",
+            "shape",
+            "translation",
+            "translation_scale"
+          ],
+          "rotation": [
+            0.449922,
+            0.594001,
+            0.53982,
+            0.39157
+          ],
+          "rotation_shape": [
+            1,
+            4
+          ],
+          "translation": [
+            0.543129,
+            -0.174567,
+            1.152546
+          ],
+          "translation_shape": [
+            1,
+            3
+          ],
+          "scale": [
+            1.716135,
+            1.716135,
+            1.716135
+          ],
+          "scale_shape": [
+            1,
+            3
+          ],
+          "downsample_factor": [
+            1.0
+          ],
+          "downsample_factor_shape": [],
+          "image_size": [
+            768,
+            508
+          ],
+          "pointmap": {
+            "valid_points": 390144,
+            "percentiles": {
+              "x": {
+                "1": -1.127535,
+                "2": -1.117967,
+                "5": -1.086449,
+                "50": 0.000372,
+                "95": 0.996616,
+                "98": 1.09367,
+                "99": 1.185617
+              },
+              "y": {
+                "1": -0.436026,
+                "2": -0.409854,
+                "5": -0.351009,
+                "50": 0.000748,
+                "95": 1.171985,
+                "98": 1.287679,
+                "99": 1.3368
+              },
+              "z": {
+                "1": 0.548568,
+                "2": 0.563353,
+                "5": 0.593502,
+                "50": 1.520408,
+                "95": 2.646697,
+                "98": 3.139252,
+                "99": 3.51707
+              }
+            }
+          }
+        },
+        "verification": {
+          "iou_sam3d_camera": 0.4793,
+          "sam3d_intrinsics": {
+            "fx": 706.885,
+            "fy": 707.639,
+            "cx": 639.695,
+            "cy": 423.847
+          },
+          "sam3d_splat_to_cam": {
+            "rotation_wxyz": [
+              0.39157,
+              0.53982,
+              -0.594001,
+              0.449922
+            ],
+            "translation": [
+              -0.543129,
+              0.174567,
+              1.152546
+            ],
+            "scale": 1.716135
+          },
+          "depth_scale_to_scene": 1.646528,
+          "iou_rebased": 0.4787,
+          "refine": {
+            "targets": 1500,
+            "sources": 2000,
+            "hypotheses": [
+              {
+                "name": "prior",
+                "iou_init": 0.4787,
+                "iou": 0.6625,
+                "depth_residual": 0.1319,
+                "up_cos": 1.0,
+                "score": 0.5305
+              },
+              {
+                "name": "prior_rot_reseated",
+                "iou_init": 0.7058,
+                "iou": 0.6535,
+                "depth_residual": 0.0838,
+                "up_cos": 1.0,
+                "score": 0.5695
+              },
+              {
+                "name": "yaw0",
+                "iou_init": 0.5567,
+                "iou": 0.6983,
+                "depth_residual": 0.0793,
+                "up_cos": 0.433,
+                "score": 0.3354
+              },
+              {
+                "name": "yaw90",
+                "iou_init": 0.6105,
+                "iou": 0.5409,
+                "depth_residual": 0.1314,
+                "up_cos": 0.603,
+                "score": 0.2111
+              },
+              {
+                "name": "yaw180",
+                "iou_init": 0.6754,
+                "iou": 0.6478,
+                "depth_residual": 0.0771,
+                "up_cos": 1.0,
+                "score": 0.5705
+              },
+              {
+                "name": "yaw270",
+                "iou_init": 0.5132,
+                "iou": 0.4938,
+                "depth_residual": 0.1061,
+                "up_cos": 0.943,
+                "score": 0.3593
+              }
+            ],
+            "final_prior": {
+              "name": "prior_rot_reseated",
+              "iou": 0.652,
+              "scale_factor": 0.8,
+              "depth_residual": 0.0598,
+              "up_cos": 1.0
+            },
+            "final_alt": {
+              "name": "yaw180",
+              "iou": 0.6446,
+              "scale_factor": 0.8,
+              "depth_residual": 0.0583,
+              "up_cos": 1.0
+            },
+            "chosen": "prior_rot_reseated",
+            "iou": 0.652,
+            "depth_residual": 0.0598,
+            "up_cos": 1.0,
+            "seconds": 2.57
+          }
+        },
+        "sync_refine": {
+          "pixels": 28898,
+          "coverage": 0.7626,
+          "depth_factor": 1.0,
+          "colour_gain": [
+            1.6,
+            1.6,
+            1.6
+          ],
+          "gap_m_before": -0.0041
+        }
+      },
+      "mask_area_frac": 0.11701
+    },
+    {
+      "label": "curtains",
+      "asset_id": "1519fdcfe4a04007ae6f111ff5e57462",
+      "project_id": "674a8bcb39d7442d8d2a381e105c86e5",
+      "upload_id": "3ae525c11c0b4163b2829c9951fbb1fd",
+      "job_id": "d40eb2affb0e433f96455521ff2f1106",
+      "unity_path": "Assets/SketchScape/AssetLibrary/curtains_1519fdcf.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/d40eb2affb0e433f96455521ff2f1106/reconstruction.ply",
+      "vertices": 99936,
+      "repaired_opacity": 0,
+      "native_extent": [
+        0.207,
+        0.0974,
+        0.997
+      ],
+      "bounds_min": [
+        -0.1097,
+        -0.0484,
+        -0.4988
+      ],
+      "bounds_max": [
+        0.0973,
+        0.049,
+        0.4981
+      ],
+      "photo": "uploads/674a8bcb39d7442d8d2a381e105c86e5/3ae525c11c0b4163b2829c9951fbb1fd/source.jpg",
+      "pose": {
+        "version": 2,
+        "frame": "opencv",
+        "image_size": [
+          1280,
+          847
+        ],
+        "intrinsics": {
+          "fx": 688.6835,
+          "fy": 688.6835,
+          "cx": 640.0,
+          "cy": 423.5
+        },
+        "gravity_up_cam": [
+          0.052606,
+          -0.937442,
+          -0.344145
+        ],
+        "support_plane": {
+          "normal_cam": [
+            0.052606,
+            -0.937442,
+            -0.344145
+          ],
+          "offset": 1.4807,
+          "camera_height": 1.4807,
+          "kind": "floor",
+          "method": "floor-plane",
+          "plane_fit_deg": 1.382,
+          "plane_inlier_frac": 0.9782,
+          "kind_reason": "camera height in floor range",
+          "area_m2": 5.473,
+          "candidates": [
+            {
+              "height_m": 1.55,
+              "area_m2": 5.473
+            }
+          ]
+        },
+        "metric": true,
+        "object": {
+          "mask_bbox": [
+            34,
+            0,
+            133,
+            353
+          ],
+          "mask_area_frac": 0.015211,
+          "centroid_cam": [
+            -1.68681,
+            -0.7366,
+            2.10387
+          ],
+          "base_cam": [
+            -1.71031,
+            -0.31776,
+            2.25763
+          ],
+          "extent_m": {
+            "width": 0.2183,
+            "height": 0.9323,
+            "depth": 0.0504
+          },
+          "yaw_deg": 82.03,
+          "points_used": 9545,
+          "splat_to_cam": {
+            "rotation_wxyz": [
+              0.402447,
+              0.587601,
+              -0.555965,
+              0.428561
+            ],
+            "translation": [
+              -1.796663,
+              -0.834508,
+              2.223695
+            ],
+            "scale": 1.100869
+          },
+          "reprojection_iou": 0.8777,
+          "splat_to_cam_gpu": {
+            "rotation_wxyz": [
+              0.402447,
+              0.587601,
+              -0.555965,
+              0.428561
+            ],
+            "translation": [
+              -1.687958,
+              -0.784017,
+              2.089152
+            ],
+            "scale": 1.034262
+          }
+        },
+        "raw": {
+          "version": 1,
+          "camera_convention": "sam3d-pointmap",
+          "ss_keys": [
+            "6drotation_normalized",
+            "coords",
+            "coords_original",
+            "downsample_factor",
+            "rotation",
+            "scale",
+            "shape",
+            "translation",
+            "translation_scale"
+          ],
+          "rotation": [
+            0.421927,
+            0.559852,
+            0.573746,
+            0.423507
+          ],
+          "rotation_shape": [
+            1,
+            4
+          ],
+          "translation": [
+            0.902656,
+            0.518629,
+            1.14956
+          ],
+          "translation_shape": [
+            1,
+            3
+          ],
+          "scale": [
+            0.055968,
+            0.055968,
+            0.055968
+          ],
+          "scale_shape": [
+            1,
+            3
+          ],
+          "downsample_factor": [
+            1.0
+          ],
+          "downsample_factor_shape": [],
+          "image_size": [
+            768,
+            508
+          ],
+          "pointmap": {
+            "valid_points": 390144,
+            "percentiles": {
+              "x": {
+                "1": -1.127535,
+                "2": -1.117967,
+                "5": -1.086449,
+                "50": 0.000372,
+                "95": 0.996616,
+                "98": 1.09367,
+                "99": 1.185617
+              },
+              "y": {
+                "1": -0.436026,
+                "2": -0.409854,
+                "5": -0.351009,
+                "50": 0.000748,
+                "95": 1.171985,
+                "98": 1.287679,
+                "99": 1.3368
+              },
+              "z": {
+                "1": 0.548568,
+                "2": 0.563353,
+                "5": 0.593502,
+                "50": 1.520408,
+                "95": 2.646697,
+                "98": 3.139252,
+                "99": 3.51707
+              }
+            }
+          }
+        },
+        "verification": {
+          "iou_sam3d_camera": 0.0186,
+          "sam3d_intrinsics": {
+            "fx": 706.885,
+            "fy": 707.639,
+            "cx": 639.695,
+            "cy": 423.847
+          },
+          "sam3d_splat_to_cam": {
+            "rotation_wxyz": [
+              0.423507,
+              0.573746,
+              -0.559852,
+              0.421927
+            ],
+            "translation": [
+              -0.902656,
+              -0.518629,
+              1.14956
+            ],
+            "scale": 0.055968
+          },
+          "depth_scale_to_scene": 1.71559,
+          "iou_rebased": 0.0186,
+          "refine": {
+            "targets": 815,
+            "sources": 2000,
+            "hypotheses": [
+              {
+                "name": "prior",
+                "iou_init": 0.0186,
+                "iou": 0.317,
+                "depth_residual": 0.0064,
+                "up_cos": 0.995,
+                "score": 0.3079
+              },
+              {
+                "name": "prior_rot_reseated",
+                "iou_init": 0.8038,
+                "iou": 0.841,
+                "depth_residual": 0.0066,
+                "up_cos": 0.999,
+                "score": 0.834
+              },
+              {
+                "name": "yaw0",
+                "iou_init": 0.794,
+                "iou": 0.7211,
+                "depth_residual": 0.0066,
+                "up_cos": 0.999,
+                "score": 0.7138
+              },
+              {
+                "name": "yaw90",
+                "iou_init": 0.7626,
+                "iou": 0.8129,
+                "depth_residual": 0.0062,
+                "up_cos": 0.997,
+                "score": 0.8054
+              },
+              {
+                "name": "yaw180",
+                "iou_init": 0.7748,
+                "iou": 0.8286,
+                "depth_residual": 0.0067,
+                "up_cos": 1.0,
+                "score": 0.8218
+              },
+              {
+                "name": "yaw270",
+                "iou_init": 0.6938,
+                "iou": 0.7271,
+                "depth_residual": 0.0078,
+                "up_cos": 0.996,
+                "score": 0.7173
+              }
+            ],
+            "final_prior": {
+              "name": "prior_rot_reseated",
+              "iou": 0.8777,
+              "scale_factor": 1.1,
+              "depth_residual": 0.0071,
+              "up_cos": 0.999
+            },
+            "final_alt": {
+              "name": "yaw180",
+              "iou": 0.8725,
+              "scale_factor": 1.1,
+              "depth_residual": 0.0073,
+              "up_cos": 0.999
+            },
+            "chosen": "prior_rot_reseated",
+            "iou": 0.8777,
+            "depth_residual": 0.0071,
+            "up_cos": 0.999,
+            "seconds": 1.08
+          }
+        },
+        "sync_refine": {
+          "pixels": 6023,
+          "coverage": 0.9592,
+          "depth_factor": 1.0644,
+          "colour_gain": [
+            1.6,
+            1.6,
+            1.6
+          ],
+          "gap_m_before": -0.1357,
+          "gap_m_after": 0.0
+        }
+      },
+      "mask_area_frac": 0.01521
+    },
+    {
+      "label": "left wooden chair",
+      "asset_id": "9c3ad60a9f844495adce234826429c45",
+      "project_id": "674a8bcb39d7442d8d2a381e105c86e5",
+      "upload_id": "3ae525c11c0b4163b2829c9951fbb1fd",
+      "job_id": "db7c226e03b340fe958aed5f0036389e",
+      "unity_path": "Assets/SketchScape/AssetLibrary/left_wooden_chair_9c3ad60a.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/db7c226e03b340fe958aed5f0036389e/reconstruction.ply",
+      "vertices": 163552,
+      "repaired_opacity": 0,
+      "native_extent": [
+        0.9947,
+        0.2578,
+        0.5816
+      ],
+      "bounds_min": [
+        -0.4978,
+        -0.1232,
+        -0.2941
+      ],
+      "bounds_max": [
+        0.4969,
+        0.1346,
+        0.2875
+      ],
+      "photo": "uploads/674a8bcb39d7442d8d2a381e105c86e5/3ae525c11c0b4163b2829c9951fbb1fd/source.jpg",
+      "pose": {
+        "version": 2,
+        "frame": "opencv",
+        "image_size": [
+          1280,
+          847
+        ],
+        "intrinsics": {
+          "fx": 688.6835,
+          "fy": 688.6835,
+          "cx": 640.0,
+          "cy": 423.5
+        },
+        "gravity_up_cam": [
+          0.052606,
+          -0.937442,
+          -0.344145
+        ],
+        "support_plane": {
+          "normal_cam": [
+            0.052606,
+            -0.937442,
+            -0.344145
+          ],
+          "offset": 1.4807,
+          "camera_height": 1.4807,
+          "kind": "floor",
+          "method": "floor-plane",
+          "plane_fit_deg": 1.382,
+          "plane_inlier_frac": 0.9782,
+          "kind_reason": "camera height in floor range",
+          "area_m2": 5.473,
+          "candidates": [
+            {
+              "height_m": 1.55,
+              "area_m2": 5.473
+            }
+          ]
+        },
+        "metric": true,
+        "object": {
+          "mask_bbox": [
+            734,
+            538,
+            938,
+            642
+          ],
+          "mask_area_frac": 0.008514,
+          "centroid_cam": [
+            0.4256,
+            0.30903,
+            1.39256
+          ],
+          "base_cam": [
+            0.42149,
+            0.38215,
+            1.4194
+          ],
+          "extent_m": {
+            "width": 0.4372,
+            "height": 0.1663,
+            "depth": 0.0807
+          },
+          "yaw_deg": -19.64,
+          "points_used": 1136,
+          "splat_to_cam": null,
+          "reprojection_iou": 0.5935
+        },
+        "raw": {
+          "version": 1,
+          "camera_convention": "sam3d-pointmap",
+          "ss_keys": [
+            "6drotation_normalized",
+            "coords",
+            "coords_original",
+            "downsample_factor",
+            "rotation",
+            "scale",
+            "shape",
+            "translation",
+            "translation_scale"
+          ],
+          "rotation": [
+            0.150243,
+            0.163445,
+            0.715738,
+            0.662142
+          ],
+          "rotation_shape": [
+            1,
+            4
+          ],
+          "translation": [
+            -0.222588,
+            -0.178059,
+            0.845524
+          ],
+          "translation_shape": [
+            1,
+            3
+          ],
+          "scale": [
+            0.224184,
+            0.224184,
+            0.224184
+          ],
+          "scale_shape": [
+            1,
+            3
+          ],
+          "downsample_factor": [
+            1.0
+          ],
+          "downsample_factor_shape": [],
+          "image_size": [
+            768,
+            508
+          ],
+          "pointmap": {
+            "valid_points": 390144,
+            "percentiles": {
+              "x": {
+                "1": -1.127535,
+                "2": -1.117967,
+                "5": -1.086449,
+                "50": 0.000372,
+                "95": 0.996616,
+                "98": 1.09367,
+                "99": 1.185617
+              },
+              "y": {
+                "1": -0.436026,
+                "2": -0.409854,
+                "5": -0.351009,
+                "50": 0.000748,
+                "95": 1.171985,
+                "98": 1.287679,
+                "99": 1.3368
+              },
+              "z": {
+                "1": 0.548568,
+                "2": 0.563353,
+                "5": 0.593502,
+                "50": 1.520408,
+                "95": 2.646697,
+                "98": 3.139252,
+                "99": 3.51707
+              }
+            }
+          }
+        },
+        "verification": {
+          "iou_sam3d_camera": 0.2163,
+          "sam3d_intrinsics": {
+            "fx": 706.885,
+            "fy": 707.639,
+            "cx": 639.695,
+            "cy": 423.847
+          },
+          "sam3d_splat_to_cam": {
+            "rotation_wxyz": [
+              0.662142,
+              0.715738,
+              -0.163445,
+              0.150243
+            ],
+            "translation": [
+              0.222588,
+              0.178059,
+              0.845524
+            ],
+            "scale": 0.224184
+          },
+          "depth_scale_to_scene": 1.634063,
+          "iou_rebased": 0.2158,
+          "refine": {
+            "targets": 327,
+            "sources": 2000,
+            "hypotheses": [
+              {
+                "name": "prior",
+                "iou_init": 0.2158,
+                "iou": 0.5501,
+                "depth_residual": 0.0082,
+                "up_cos": 0.985,
+                "score": 0.5343
+              },
+              {
+                "name": "prior_rot_reseated",
+                "iou_init": 0.2892,
+                "iou": 0.5647,
+                "depth_residual": 0.0082,
+                "up_cos": 0.99,
+                "score": 0.5512
+              },
+              {
+                "name": "yaw0",
+                "iou_init": 0.4061,
+                "iou": 0.3149,
+                "depth_residual": 0.0202,
+                "up_cos": 0.963,
+                "score": 0.276
+              },
+              {
+                "name": "yaw90",
+                "iou_init": 0.1777,
+                "iou": 0.1012,
+                "depth_residual": 0.0061,
+                "up_cos": -0.795,
+                "score": -0.8023
+              },
+              {
+                "name": "yaw180",
+                "iou_init": 0.3102,
+                "iou": 0.5897,
+                "depth_residual": 0.0078,
+                "up_cos": 0.992,
+                "score": 0.5777
+              },
+              {
+                "name": "yaw270",
+                "iou_init": 0.1806,
+                "iou": 0.2185,
+                "depth_residual": 0.0177,
+                "up_cos": 0.963,
+                "score": 0.1824
+              }
+            ],
+            "final_prior": {
+              "name": "prior_rot_reseated",
+              "iou": 0.5935,
+              "scale_factor": 1.05,
+              "depth_residual": 0.0078,
+              "up_cos": 0.99
+            },
+            "final_alt": {
+              "name": "yaw180",
+              "iou": 0.5979,
+              "scale_factor": 1.05,
+              "depth_residual": 0.0078,
+              "up_cos": 0.991
+            },
+            "chosen": "prior_rot_reseated",
+            "iou": 0.5935,
+            "depth_residual": 0.0078,
+            "up_cos": 0.99,
+            "seconds": 1.01
+          }
+        }
+      },
+      "mask_area_frac": 0.00851
+    },
+    {
+      "label": "rug",
+      "asset_id": "86210a7d5ba84d4b8248da1209a64929",
+      "project_id": "674a8bcb39d7442d8d2a381e105c86e5",
+      "upload_id": "3ae525c11c0b4163b2829c9951fbb1fd",
+      "job_id": "e41be7a094aa4298815dabfd72562a60",
+      "unity_path": "Assets/SketchScape/AssetLibrary/rug_86210a7d.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/e41be7a094aa4298815dabfd72562a60/reconstruction.ply",
+      "vertices": 421568,
+      "repaired_opacity": 0,
+      "native_extent": [
+        0.9925,
+        0.9465,
+        0.2383
+      ],
+      "bounds_min": [
+        -0.4974,
+        -0.4747,
+        -0.1215
+      ],
+      "bounds_max": [
+        0.4951,
+        0.4718,
+        0.1169
+      ],
+      "photo": "uploads/674a8bcb39d7442d8d2a381e105c86e5/3ae525c11c0b4163b2829c9951fbb1fd/source.jpg",
+      "pose": {
+        "version": 2,
+        "frame": "opencv",
+        "image_size": [
+          1280,
+          847
+        ],
+        "intrinsics": {
+          "fx": 688.6835,
+          "fy": 688.6835,
+          "cx": 640.0,
+          "cy": 423.5
+        },
+        "gravity_up_cam": [
+          0.052606,
+          -0.937442,
+          -0.344145
+        ],
+        "support_plane": {
+          "normal_cam": [
+            0.052606,
+            -0.937442,
+            -0.344145
+          ],
+          "offset": 1.4807,
+          "camera_height": 1.4807,
+          "kind": "floor",
+          "method": "floor-plane",
+          "plane_fit_deg": 1.382,
+          "plane_inlier_frac": 0.9782,
+          "kind_reason": "camera height in floor range",
+          "area_m2": 5.473,
+          "candidates": [
+            {
+              "height_m": 1.55,
+              "area_m2": 5.473
+            }
+          ]
+        },
+        "metric": true,
+        "object": {
+          "mask_bbox": [
+            418,
+            503,
+            734,
+            691
+          ],
+          "mask_area_frac": 0.040563,
+          "centroid_cam": [
+            -0.31502,
+            0.6335,
+            2.52968
+          ],
+          "base_cam": [
+            -0.31523,
+            0.63712,
+            2.53101
+          ],
+          "extent_m": {
+            "width": 1.0799,
+            "height": 0.0421,
+            "depth": 1.0173
+          },
+          "yaw_deg": null,
+          "points_used": 36187,
+          "splat_to_cam": {
+            "rotation_wxyz": [
+              0.569182,
+              0.818599,
+              0.074207,
+              -0.020508
+            ],
+            "translation": [
+              -0.280271,
+              0.681994,
+              2.773327
+            ],
+            "scale": 1.228908
+          },
+          "reprojection_iou": 0.7946
+        },
+        "raw": {
+          "version": 1,
+          "camera_convention": "sam3d-pointmap",
+          "ss_keys": [
+            "6drotation_normalized",
+            "coords",
+            "coords_original",
+            "downsample_factor",
+            "rotation",
+            "scale",
+            "shape",
+            "translation",
+            "translation_scale"
+          ],
+          "rotation": [
+            0.066484,
+            -0.147047,
+            0.838282,
+            0.520807
+          ],
+          "rotation_shape": [
+            1,
+            4
+          ],
+          "translation": [
+            0.180918,
+            -0.397729,
+            1.729929
+          ],
+          "translation_shape": [
+            1,
+            3
+          ],
+          "scale": [
+            0.79419,
+            0.79419,
+            0.79419
+          ],
+          "scale_shape": [
+            1,
+            3
+          ],
+          "downsample_factor": [
+            1.0
+          ],
+          "downsample_factor_shape": [],
+          "image_size": [
+            768,
+            508
+          ],
+          "pointmap": {
+            "valid_points": 390144,
+            "percentiles": {
+              "x": {
+                "1": -1.127535,
+                "2": -1.117967,
+                "5": -1.086449,
+                "50": 0.000372,
+                "95": 0.996616,
+                "98": 1.09367,
+                "99": 1.185617
+              },
+              "y": {
+                "1": -0.436026,
+                "2": -0.409854,
+                "5": -0.351009,
+                "50": 0.000748,
+                "95": 1.171985,
+                "98": 1.287679,
+                "99": 1.3368
+              },
+              "z": {
+                "1": 0.548568,
+                "2": 0.563353,
+                "5": 0.593502,
+                "50": 1.520408,
+                "95": 2.646697,
+                "98": 3.139252,
+                "99": 3.51707
+              }
+            }
+          }
+        },
+        "verification": {
+          "iou_sam3d_camera": 0.702,
+          "sam3d_intrinsics": {
+            "fx": 706.885,
+            "fy": 707.639,
+            "cx": 639.695,
+            "cy": 423.847
+          },
+          "sam3d_splat_to_cam": {
+            "rotation_wxyz": [
+              0.520807,
+              0.838282,
+              0.147047,
+              0.066484
+            ],
+            "translation": [
+              -0.180918,
+              0.397729,
+              1.729929
+            ],
+            "scale": 0.79419
+          },
+          "depth_scale_to_scene": 1.622465,
+          "iou_rebased": 0.6997,
+          "refine": {
+            "targets": 1500,
+            "sources": 2000,
+            "hypotheses": [
+              {
+                "name": "prior",
+                "iou_init": 0.6997,
+                "iou": 0.7782,
+                "depth_residual": 0.0086,
+                "up_cos": 1.0,
+                "score": 0.7695
+              },
+              {
+                "name": "prior_rot_reseated",
+                "iou_init": 0.6974,
+                "iou": 0.7469,
+                "depth_residual": 0.0069,
+                "up_cos": 1.0,
+                "score": 0.74
+              },
+              {
+                "name": "yaw0",
+                "iou_init": 0.8098,
+                "iou": 0.7911,
+                "depth_residual": 0.0076,
+                "up_cos": 1.0,
+                "score": 0.7835
+              },
+              {
+                "name": "yaw90",
+                "iou_init": 0.7789,
+                "iou": 0.7741,
+                "depth_residual": 0.0069,
+                "up_cos": 1.0,
+                "score": 0.7672
+              },
+              {
+                "name": "yaw180",
+                "iou_init": 0.8141,
+                "iou": 0.8135,
+                "depth_residual": 0.0072,
+                "up_cos": 1.0,
+                "score": 0.8063
+              },
+              {
+                "name": "yaw270",
+                "iou_init": 0.7216,
+                "iou": 0.7138,
+                "depth_residual": 0.0076,
+                "up_cos": 1.0,
+                "score": 0.7062
+              }
+            ],
+            "final_prior": {
+              "name": "prior",
+              "iou": 0.7946,
+              "scale_factor": 0.95,
+              "depth_residual": 0.0062,
+              "up_cos": 1.0
+            },
+            "final_alt": {
+              "name": "yaw180",
+              "iou": 0.8198,
+              "scale_factor": 1.0,
+              "depth_residual": 0.006,
+              "up_cos": 1.0
+            },
+            "chosen": "prior",
+            "iou": 0.7946,
+            "depth_residual": 0.0062,
+            "up_cos": 1.0,
+            "seconds": 2.46
+          }
+        },
+        "sync_refine": {
+          "pixels": 8462,
+          "coverage": 0.9064,
+          "depth_factor": 1.0,
+          "colour_gain": [
+            1.6,
+            1.6,
+            1.6
+          ],
+          "gap_m_before": 0.0473
+        }
+      },
+      "mask_area_frac": 0.04056
+    },
+    {
+      "label": "right green armchair",
+      "asset_id": "851fae8333044bed869468e13eb0fd67",
+      "project_id": "674a8bcb39d7442d8d2a381e105c86e5",
+      "upload_id": "3ae525c11c0b4163b2829c9951fbb1fd",
+      "job_id": "d757e64ff1f2404f9b6ac0812987e552",
+      "unity_path": "Assets/SketchScape/AssetLibrary/right_green_armchair_851fae83.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/d757e64ff1f2404f9b6ac0812987e552/reconstruction.ply",
+      "vertices": 252544,
+      "repaired_opacity": 0,
+      "native_extent": [
+        0.3994,
+        0.3992,
+        0.4963
+      ],
+      "bounds_min": [
+        -0.2067,
+        -0.2047,
+        -0.2507
+      ],
+      "bounds_max": [
+        0.1927,
+        0.1945,
+        0.2456
+      ],
+      "photo": "uploads/674a8bcb39d7442d8d2a381e105c86e5/3ae525c11c0b4163b2829c9951fbb1fd/source.jpg",
+      "pose": {
+        "version": 2,
+        "frame": "opencv",
+        "image_size": [
+          1280,
+          847
+        ],
+        "intrinsics": {
+          "fx": 688.6835,
+          "fy": 688.6835,
+          "cx": 640.0,
+          "cy": 423.5
+        },
+        "gravity_up_cam": [
+          0.052606,
+          -0.937442,
+          -0.344145
+        ],
+        "support_plane": {
+          "normal_cam": [
+            0.052606,
+            -0.937442,
+            -0.344145
+          ],
+          "offset": 1.4807,
+          "camera_height": 1.4807,
+          "kind": "floor",
+          "method": "floor-plane",
+          "plane_fit_deg": 1.382,
+          "plane_inlier_frac": 0.9782,
+          "kind_reason": "camera height in floor range",
+          "area_m2": 5.473,
+          "candidates": [
+            {
+              "height_m": 1.55,
+              "area_m2": 5.473
+            }
+          ]
+        },
+        "metric": true,
+        "object": {
+          "mask_bbox": [
+            577,
+            268,
+            737,
+            450
+          ],
+          "mask_area_frac": 0.01927,
+          "centroid_cam": [
+            0.0514,
+            -0.36424,
+            3.9124
+          ],
+          "base_cam": [
+            0.03445,
+            -0.06225,
+            4.02327
+          ],
+          "extent_m": {
+            "width": 0.8301,
+            "height": 0.7702,
+            "depth": 0.6664
+          },
+          "yaw_deg": null,
+          "points_used": 14884,
+          "splat_to_cam": {
+            "rotation_wxyz": [
+              0.557751,
+              0.817546,
+              -0.104071,
+              0.098501
+            ],
+            "translation": [
+              0.069438,
+              -0.426933,
+              4.024503
+            ],
+            "scale": 1.809195
+          },
+          "reprojection_iou": 0.8954
+        },
+        "raw": {
+          "version": 1,
+          "camera_convention": "sam3d-pointmap",
+          "ss_keys": [
+            "6drotation_normalized",
+            "coords",
+            "coords_original",
+            "downsample_factor",
+            "rotation",
+            "scale",
+            "shape",
+            "translation",
+            "translation_scale"
+          ],
+          "rotation": [
+            0.251099,
+            0.244704,
+            0.675316,
+            0.648859
+          ],
+          "rotation_shape": [
+            1,
+            4
+          ],
+          "translation": [
+            -0.057411,
+            0.335642,
+            2.30405
+          ],
+          "translation_shape": [
+            1,
+            3
+          ],
+          "scale": [
+            0.073801,
+            0.073801,
+            0.073801
+          ],
+          "scale_shape": [
+            1,
+            3
+          ],
+          "downsample_factor": [
+            2.0
+          ],
+          "downsample_factor_shape": [],
+          "image_size": [
+            768,
+            508
+          ],
+          "pointmap": {
+            "valid_points": 390144,
+            "percentiles": {
+              "x": {
+                "1": -1.127535,
+                "2": -1.117967,
+                "5": -1.086449,
+                "50": 0.000372,
+                "95": 0.996616,
+                "98": 1.09367,
+                "99": 1.185617
+              },
+              "y": {
+                "1": -0.436026,
+                "2": -0.409854,
+                "5": -0.351009,
+                "50": 0.000748,
+                "95": 1.171985,
+                "98": 1.287679,
+                "99": 1.3368
+              },
+              "z": {
+                "1": 0.548568,
+                "2": 0.563353,
+                "5": 0.593502,
+                "50": 1.520408,
+                "95": 2.646697,
+                "98": 3.139252,
+                "99": 3.51707
+              }
+            }
+          }
+        },
+        "verification": {
+          "iou_sam3d_camera": 0.0083,
+          "sam3d_intrinsics": {
+            "fx": 706.885,
+            "fy": 707.639,
+            "cx": 639.695,
+            "cy": 423.847
+          },
+          "sam3d_splat_to_cam": {
+            "rotation_wxyz": [
+              0.648859,
+              0.675316,
+              -0.244704,
+              0.251099
+            ],
+            "translation": [
+              0.057411,
+              -0.335642,
+              2.30405
+            ],
+            "scale": 0.073801
+          },
+          "depth_scale_to_scene": 1.633501,
+          "iou_rebased": 0.0083,
+          "refine": {
+            "targets": 1123,
+            "sources": 2000,
+            "hypotheses": [
+              {
+                "name": "prior",
+                "iou_init": 0.0083,
+                "iou": 0.6659,
+                "depth_residual": 0.0345,
+                "up_cos": -0.144,
+                "score": 0.0597
+              },
+              {
+                "name": "prior_rot_reseated",
+                "iou_init": 0.6965,
+                "iou": 0.8256,
+                "depth_residual": 0.0175,
+                "up_cos": 1.0,
+                "score": 0.808
+              },
+              {
+                "name": "yaw0",
+                "iou_init": 0.8486,
+                "iou": 0.8595,
+                "depth_residual": 0.0178,
+                "up_cos": 1.0,
+                "score": 0.8416
+              },
+              {
+                "name": "yaw90",
+                "iou_init": 0.7092,
+                "iou": 0.6907,
+                "depth_residual": 0.0298,
+                "up_cos": 0.999,
+                "score": 0.6605
+              },
+              {
+                "name": "yaw180",
+                "iou_init": 0.7666,
+                "iou": 0.6077,
+                "depth_residual": 0.0338,
+                "up_cos": 0.622,
+                "score": 0.3849
+              },
+              {
+                "name": "yaw270",
+                "iou_init": 0.5983,
+                "iou": 0.6648,
+                "depth_residual": 0.0156,
+                "up_cos": 0.992,
+                "score": 0.6452
+              }
+            ],
+            "final_prior": {
+              "name": "prior_rot_reseated",
+              "iou": 0.8954,
+              "scale_factor": 1.05,
+              "depth_residual": 0.0117,
+              "up_cos": 1.0
+            },
+            "final_alt": {
+              "name": "yaw0",
+              "iou": 0.871,
+              "scale_factor": 1.05,
+              "depth_residual": 0.0105,
+              "up_cos": 1.0
+            },
+            "chosen": "prior_rot_reseated",
+            "iou": 0.8954,
+            "depth_residual": 0.0117,
+            "up_cos": 1.0,
+            "seconds": 1.44
+          }
+        },
+        "sync_refine": {
+          "pixels": 6924,
+          "coverage": 0.9533,
+          "depth_factor": 1.0,
+          "colour_gain": [
+            1.2193,
+            1.4505,
+            1.6
+          ],
+          "gap_m_before": 0.0034
+        }
+      },
+      "mask_area_frac": 0.01927
+    },
+    {
+      "label": "wooden table",
+      "asset_id": "7779dd47e66d4ed0be4a6549fe3a2fa2",
+      "project_id": "674a8bcb39d7442d8d2a381e105c86e5",
+      "upload_id": "3ae525c11c0b4163b2829c9951fbb1fd",
+      "job_id": "8482d22e6a554262b5c678c88eb9e048",
+      "unity_path": "Assets/SketchScape/AssetLibrary/wooden_table_7779dd47.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/8482d22e6a554262b5c678c88eb9e048/reconstruction.ply",
+      "vertices": 368832,
+      "repaired_opacity": 0,
+      "native_extent": [
+        0.9999,
+        0.5412,
+        0.4845
+      ],
+      "bounds_min": [
+        -0.5006,
+        -0.2721,
+        -0.2445
+      ],
+      "bounds_max": [
+        0.4993,
+        0.2691,
+        0.24
+      ],
+      "photo": "uploads/674a8bcb39d7442d8d2a381e105c86e5/3ae525c11c0b4163b2829c9951fbb1fd/source.jpg",
+      "pose": {
+        "version": 2,
+        "frame": "opencv",
+        "image_size": [
+          1280,
+          847
+        ],
+        "intrinsics": {
+          "fx": 688.6835,
+          "fy": 688.6835,
+          "cx": 640.0,
+          "cy": 423.5
+        },
+        "gravity_up_cam": [
+          0.052606,
+          -0.937442,
+          -0.344145
+        ],
+        "support_plane": {
+          "normal_cam": [
+            0.052606,
+            -0.937442,
+            -0.344145
+          ],
+          "offset": 1.4807,
+          "camera_height": 1.4807,
+          "kind": "floor",
+          "method": "floor-plane",
+          "plane_fit_deg": 1.382,
+          "plane_inlier_frac": 0.9782,
+          "kind_reason": "camera height in floor range",
+          "area_m2": 5.473,
+          "candidates": [
+            {
+              "height_m": 1.55,
+              "area_m2": 5.473
+            }
+          ]
+        },
+        "metric": true,
+        "object": {
+          "mask_bbox": [
+            343,
+            578,
+            1280,
+            847
+          ],
+          "mask_area_frac": 0.168652,
+          "centroid_cam": [
+            0.34893,
+            0.49438,
+            1.08152
+          ],
+          "base_cam": [
+            0.34801,
+            0.51067,
+            1.0875
+          ],
+          "extent_m": {
+            "width": 1.6201,
+            "height": 0.0419,
+            "depth": 0.4635
+          },
+          "yaw_deg": -13.47,
+          "points_used": 162115,
+          "splat_to_cam": null,
+          "reprojection_iou": 0.6837
+        },
+        "raw": {
+          "version": 1,
+          "camera_convention": "sam3d-pointmap",
+          "ss_keys": [
+            "6drotation_normalized",
+            "coords",
+            "coords_original",
+            "downsample_factor",
+            "rotation",
+            "scale",
+            "shape",
+            "translation",
+            "translation_scale"
+          ],
+          "rotation": [
+            0.545503,
+            0.837497,
+            -0.01525,
+            -0.028167
+          ],
+          "rotation_shape": [
+            1,
+            4
+          ],
+          "translation": [
+            -0.191781,
+            -0.439109,
+            0.90973
+          ],
+          "translation_shape": [
+            1,
+            3
+          ],
+          "scale": [
+            1.161185,
+            1.161185,
+            1.161185
+          ],
+          "scale_shape": [
+            1,
+            3
+          ],
+          "downsample_factor": [
+            1.0
+          ],
+          "downsample_factor_shape": [],
+          "image_size": [
+            768,
+            508
+          ],
+          "pointmap": {
+            "valid_points": 390144,
+            "percentiles": {
+              "x": {
+                "1": -1.127535,
+                "2": -1.117967,
+                "5": -1.086449,
+                "50": 0.000372,
+                "95": 0.996616,
+                "98": 1.09367,
+                "99": 1.185617
+              },
+              "y": {
+                "1": -0.436026,
+                "2": -0.409854,
+                "5": -0.351009,
+                "50": 0.000748,
+                "95": 1.171985,
+                "98": 1.287679,
+                "99": 1.3368
+              },
+              "z": {
+                "1": 0.548568,
+                "2": 0.563353,
+                "5": 0.593502,
+                "50": 1.520408,
+                "95": 2.646697,
+                "98": 3.139252,
+                "99": 3.51707
+              }
+            }
+          }
+        },
+        "verification": {
+          "iou_sam3d_camera": 0.4802,
+          "sam3d_intrinsics": {
+            "fx": 706.885,
+            "fy": 707.639,
+            "cx": 639.695,
+            "cy": 423.847
+          },
+          "sam3d_splat_to_cam": {
+            "rotation_wxyz": [
+              0.028167,
+              0.01525,
+              0.837497,
+              -0.545503
+            ],
+            "translation": [
+              0.191781,
+              0.439109,
+              0.90973
+            ],
+            "scale": 1.161185
+          },
+          "depth_scale_to_scene": 1.646911,
+          "iou_rebased": 0.479,
+          "refine": {
+            "targets": 1500,
+            "sources": 2000,
+            "hypotheses": [
+              {
+                "name": "prior",
+                "iou_init": 0.479,
+                "iou": 0.6291,
+                "depth_residual": 0.2259,
+                "up_cos": 0.999,
+                "score": 0.4029
+              },
+              {
+                "name": "prior_rot_reseated",
+                "iou_init": 0.6158,
+                "iou": 0.6689,
+                "depth_residual": 0.1654,
+                "up_cos": 0.999,
+                "score": 0.5031
+              },
+              {
+                "name": "yaw0",
+                "iou_init": 0.6034,
+                "iou": 0.6572,
+                "depth_residual": 0.1703,
+                "up_cos": 0.999,
+                "score": 0.4866
+              },
+              {
+                "name": "yaw90",
+                "iou_init": 0.3207,
+                "iou": 0.4808,
+                "depth_residual": 0.3269,
+                "up_cos": 1.0,
+                "score": 0.1539
+              },
+              {
+                "name": "yaw180",
+                "iou_init": 0.5971,
+                "iou": 0.6601,
+                "depth_residual": 0.1693,
+                "up_cos": 0.999,
+                "score": 0.4904
+              },
+              {
+                "name": "yaw270",
+                "iou_init": 0.3214,
+                "iou": 0.4758,
+                "depth_residual": 0.3273,
+                "up_cos": 1.0,
+                "score": 0.1485
+              }
+            ],
+            "final_prior": {
+              "name": "prior_rot_reseated",
+              "iou": 0.6837,
+              "scale_factor": 0.95,
+              "depth_residual": 0.1805,
+              "up_cos": 0.999
+            },
+            "final_alt": {
+              "name": "yaw180",
+              "iou": 0.6836,
+              "scale_factor": 1.0,
+              "depth_residual": 0.1889,
+              "up_cos": 0.999
+            },
+            "chosen": "prior_rot_reseated",
+            "iou": 0.6837,
+            "depth_residual": 0.1805,
+            "up_cos": 0.999,
+            "seconds": 2.43
+          }
+        }
+      },
+      "mask_area_frac": 0.16865
+    }
+  ],
+  "scenes": [
+    {
+      "scene_id": "b0949bf0e9f540229b92411d42843db4",
+      "project_id": "02b682878bc045d5a5eadc9837f01865",
+      "photo": "uploads/02b682878bc045d5a5eadc9837f01865/b0949bf0e9f540229b92411d42843db4/source.jpg",
+      "unity_path": "Assets/SketchScape/Scenes/b0949bf0/scene.ply",
+      "scene": {
+        "version": 1,
+        "upload_id": "b0949bf0e9f540229b92411d42843db4",
+        "photo": "uploads/02b682878bc045d5a5eadc9837f01865/b0949bf0e9f540229b92411d42843db4/source.jpg",
+        "frame": "opencv",
+        "image_size": [
+          640,
+          480
+        ],
+        "intrinsics": {
+          "fx": 514.3668,
+          "fy": 514.3668,
+          "cx": 320.0,
+          "cy": 240.0
+        },
+        "gravity_up_cam": [
+          -0.000309,
+          -0.369442,
+          -0.929254
+        ],
+        "support_plane": {
+          "normal_cam": [
+            -0.000309,
+            -0.369442,
+            -0.929254
+          ],
+          "offset": 0.7633,
+          "camera_height": 0.7633,
+          "kind": "surface",
+          "method": "height-histogram",
+          "plane_fit_deg": 3.599,
+          "plane_inlier_frac": 0.6521,
+          "kind_reason": "camera height outside floor range",
+          "area_m2": 0.33,
+          "candidates": [
+            {
+              "height_m": 0.75,
+              "area_m2": 0.33
+            }
+          ]
+        },
+        "depth_range_m": [
+          0.6851,
+          0.9577
+        ],
+        "splat": {
+          "file": "scene.ply",
+          "count": 600000,
+          "source": "apple-sharp",
+          "aligned_scale": 1.0,
+          "align_log_mad": 0.04233,
+          "metric_scale": {
+            "source": "sharp",
+            "moge_over_sharp": 1.55829,
+            "moge_factor": 0.64173,
+            "align_log_mad": 0.04233,
+            "align_pixels": 300371
+          },
+          "align_pixels": 300371,
+          "prune": {
+            "input": 1179648,
+            "nonfinite": 0,
+            "after_filter": 1165520,
+            "output": 600000
+          },
+          "sh_degree": 0,
+          "color_space": "sRGB"
+        },
+        "models": {
+          "depth": "moge-2 Ruicheng/moge-2-vitl-normal",
+          "gravity": "geocalib (pinhole, focal prior from moge-2) + moge-2 normals mean-shift + floor-plane snap",
+          "splat": "sharp sharp_2572gikvuh.pt (apple/ml-sharp)"
+        },
+        "gravity": {
+          "source": "geocalib",
+          "method": "prior+normals",
+          "support_fraction": 0.1973,
+          "refine_deg": 24.28,
+          "prior_up": [
+            0.067831,
+            -0.713601,
+            -0.69726
+          ],
+          "final_minus_prior_deg": 24.28
+        },
+        "timings_s": {
+          "geometry": 4.77,
+          "geometry_cached": false,
+          "sharp": 0.05,
+          "sharp_inference": 3.86,
+          "total": 5.19
+        },
+        "vram_peak_gb": 8.23,
+        "depth_grid": {
+          "w": 192,
+          "h": 1,
+          "points_cam": [
+            -0.4931,
+            -0.3548,
+            0.8469,
+            -0.4089,
+            -0.3488,
+            0.8363,
+            -0.339,
+            -0.3454,
+            0.8283,
+            -0.2719,
+            -0.3421,
+            0.8204,
+            -0.2136,
+            -0.3406,
+            0.8168,
+            -0.1439,
+            -0.3411,
+            0.8179,
+            -0.0911,
+            -0.3399,
+            0.815,
+            -0.0166,
+            -0.3393,
+            0.8136,
+            0.0324,
+            -0.3387,
+            0.8122,
+            0.098,
+            -0.3419,
+            0.82,
+            0.1774,
+            -0.3491,
+            0.8332,
+            0.2424,
+            -0.3523,
+            0.8568,
+            0.3065,
+            -0.3636,
+            0.8639,
+            0.3674,
+            -0.348,
+            0.8344,
+            0.4175,
+            -0.3441,
+            0.8213,
+            0.4842,
+            -0.3378,
+            0.8099,
+            -0.5301,
+            -0.3106,
+            0.9104,
+            -0.4455,
+            -0.3103,
+            0.9148,
+            -0.3779,
+            -0.3118,
+            0.9191,
+            -0.3091,
+            -0.3091,
+            0.9271,
+            -0.2537,
+            -0.3233,
+            0.9422,
+            -0.1812,
+            -0.3284,
+            0.9462,
+            -0.1005,
+            -0.3175,
+            0.915,
+            -0.0198,
+            -0.3213,
+            0.9694,
+            0.0541,
+            -0.32,
+            0.9433,
+            0.1251,
+            -0.3186,
+            0.9392,
+            0.1753,
+            -0.2841,
+            0.8234,
+            0.2324,
+            -0.2705,
+            0.816,
+            0.3012,
+            -0.2914,
+            0.8398,
+            0.3755,
+            -0.3016,
+            0.8642,
+            0.456,
+            -0.313,
+            0.8969,
+            0.5239,
+            -0.306,
+            0.8968,
+            -0.5121,
+            -0.234,
+            0.8883,
+            -0.4225,
+            -0.226,
+            0.8641,
+            -0.3583,
+            -0.2363,
+            0.8714,
+            -0.3025,
+            -0.2401,
+            0.8918,
+            -0.2378,
+            -0.2395,
+            0.9093,
+            -0.1733,
+            -0.2503,
+            0.9433,
+            -0.1035,
+            -0.2489,
+            0.9591,
+            -0.0304,
+            -0.2462,
+            0.9488,
+            0.0449,
+            -0.2386,
+            0.9057,
+            0.1027,
+            -0.2143,
+            0.8319,
+            0.1635,
+            -0.2105,
+            0.8049,
+            0.2253,
+            -0.2175,
+            0.8077,
+            0.302,
+            -0.2141,
+            0.8374,
+            0.386,
+            -0.2354,
+            0.8806,
+            0.4497,
+            -0.2304,
+            0.8745,
+            0.5312,
+            -0.2289,
+            0.8886,
+            -0.4951,
+            -0.1634,
+            0.8618,
+            -0.425,
+            -0.159,
+            0.8657,
+            -0.3459,
+            -0.1536,
+            0.8451,
+            -0.2957,
+            -0.1633,
+            0.8617,
+            -0.2339,
+            -0.173,
+            0.8946,
+            -0.1737,
+            -0.1683,
+            0.9258,
+            -0.0955,
+            -0.1826,
+            0.9536,
+            -0.0277,
+            -0.1686,
+            0.918,
+            0.0435,
+            -0.1646,
+            0.8775,
+            0.1033,
+            -0.1523,
+            0.8116,
+            0.1646,
+            -0.1476,
+            0.7948,
+            0.2278,
+            -0.1417,
+            0.8054,
+            0.3029,
+            -0.1478,
+            0.84,
+            0.3837,
+            -0.1625,
+            0.8751,
+            0.4374,
+            -0.157,
+            0.8637,
+            0.5042,
+            -0.1602,
+            0.8631,
+            -0.4925,
+            -0.0949,
+            0.8486,
+            -0.4237,
+            -0.0831,
+            0.8464,
+            -0.3368,
+            -0.0808,
+            0.8231,
+            -0.2891,
+            -0.0947,
+            0.8473,
+            -0.2321,
+            -0.0958,
+            0.8877,
+            -0.173,
+            -0.0896,
+            0.9127,
+            -0.0963,
+            -0.0997,
+            0.877,
+            -0.0181,
+            -0.092,
+            0.8848,
+            0.0413,
+            -0.0952,
+            0.8666,
+            0.0961,
+            -0.0792,
+            0.7913,
+            0.1581,
+            -0.084,
+            0.7781,
+            0.2253,
+            -0.0782,
+            0.7964,
+            0.3052,
+            -0.0946,
+            0.8463,
+            0.376,
+            -0.0963,
+            0.8465,
+            0.4342,
+            -0.0901,
+            0.8349,
+            0.4892,
+            -0.0881,
+            0.8319,
+            -0.4781,
+            -0.025,
+            0.8295,
+            -0.3952,
+            -0.0239,
+            0.7926,
+            -0.3401,
+            -0.0308,
+            0.8118,
+            -0.2871,
+            -0.0173,
+            0.8464,
+            -0.2264,
+            -0.0261,
+            0.8658,
+            -0.1629,
+            -0.024,
+            0.8507,
+            -0.0836,
+            -0.0256,
+            0.8511,
+            -0.0174,
+            -0.0223,
+            0.8512,
+            0.0422,
+            -0.0167,
+            0.819,
+            0.0958,
+            -0.0174,
+            0.7761,
+            0.1505,
+            -0.0213,
+            0.7553,
+            0.2103,
+            -0.0262,
+            0.7701,
+            0.3033,
+            -0.0235,
+            0.8319,
+            0.3637,
+            -0.0248,
+            0.8223,
+            0.4196,
+            -0.0244,
+            0.8099,
+            0.4796,
+            -0.0243,
+            0.8048,
+            -0.4637,
+            0.0457,
+            0.7964,
+            -0.3849,
+            0.0354,
+            0.7749,
+            -0.3397,
+            0.0355,
+            0.8108,
+            -0.2716,
+            0.047,
+            0.8194,
+            -0.2134,
+            0.0392,
+            0.8224,
+            -0.1561,
+            0.0388,
+            0.8154,
+            -0.0945,
+            0.0389,
+            0.8171,
+            -0.0267,
+            0.0374,
+            0.7852,
+            0.0343,
+            0.0375,
+            0.8204,
+            0.0918,
+            0.0369,
+            0.7435,
+            0.1524,
+            0.0365,
+            0.7359,
+            0.2107,
+            0.0355,
+            0.7447,
+            0.2711,
+            0.0332,
+            0.7599,
+            0.3576,
+            0.0366,
+            0.8014,
+            0.3985,
+            0.0436,
+            0.7869,
+            0.4636,
+            0.0386,
+            0.778,
+            -0.4417,
+            0.0979,
+            0.7689,
+            -0.3784,
+            0.0955,
+            0.7617,
+            -0.3352,
+            0.1044,
+            0.8076,
+            -0.2793,
+            0.1048,
+            0.8233,
+            -0.1923,
+            0.098,
+            0.7578,
+            -0.1455,
+            0.1008,
+            0.7918,
+            -0.0819,
+            0.0969,
+            0.7728,
+            -0.0177,
+            0.0993,
+            0.7916,
+            0.0438,
+            0.1037,
+            0.7902,
+            0.0898,
+            0.0829,
+            0.705,
+            0.134,
+            0.0883,
+            0.6725,
+            0.2229,
+            0.099,
+            0.7772,
+            0.2691,
+            0.0988,
+            0.7421,
+            0.3476,
+            0.0985,
+            0.7859,
+            0.3881,
+            0.0983,
+            0.7604,
+            0.4478,
+            0.0942,
+            0.7514,
+            -0.4336,
+            0.1587,
+            0.7522,
+            -0.368,
+            0.1561,
+            0.7468,
+            -0.3153,
+            0.1536,
+            0.7561,
+            -0.2567,
+            0.1505,
+            0.748,
+            -0.1964,
+            0.1529,
+            0.7455,
+            -0.1481,
+            0.1556,
+            0.7657,
+            -0.0841,
+            0.1556,
+            0.7658,
+            -0.0245,
+            0.1549,
+            0.7627,
+            0.0319,
+            0.1551,
+            0.7637,
+            0.0928,
+            0.1389,
+            0.6968,
+            0.1373,
+            0.1442,
+            0.7029,
+            0.2201,
+            0.1539,
+            0.7574,
+            0.2759,
+            0.1538,
+            0.7569,
+            0.3232,
+            0.1514,
+            0.7245,
+            0.3848,
+            0.1509,
+            0.7427,
+            0.43,
+            0.1504,
+            0.7335,
+            -0.4162,
+            0.2085,
+            0.737,
+            -0.3643,
+            0.2032,
+            0.7334,
+            -0.3173,
+            0.2089,
+            0.7435,
+            -0.246,
+            0.2084,
+            0.742,
+            -0.1909,
+            0.2082,
+            0.7411,
+            -0.1418,
+            0.208,
+            0.7405,
+            -0.0768,
+            0.2074,
+            0.7383,
+            -0.028,
+            0.2074,
+            0.7384,
+            0.0422,
+            0.2068,
+            0.736,
+            0.0965,
+            0.2065,
+            0.735,
+            0.156,
+            0.2059,
+            0.7329,
+            0.2029,
+            0.2072,
+            0.7325,
+            0.2664,
+            0.2028,
+            0.7268,
+            0.3164,
+            0.2074,
+            0.7283,
+            0.3723,
+            0.1998,
+            0.7213,
+            0.4172,
+            0.2014,
+            0.7118,
+            -0.4131,
+            0.2616,
+            0.7216,
+            -0.3516,
+            0.2511,
+            0.7077,
+            -0.2986,
+            0.2581,
+            0.7195,
+            -0.2468,
+            0.258,
+            0.7192,
+            -0.1827,
+            0.2582,
+            0.7199,
+            -0.1335,
+            0.2592,
+            0.7188,
+            -0.082,
+            0.26,
+            0.7208,
+            -0.0146,
+            0.2543,
+            0.7168,
+            0.0341,
+            0.2583,
+            0.7162,
+            0.088,
+            0.257,
+            0.7125,
+            0.1516,
+            0.2569,
+            0.7122,
+            0.1983,
+            0.2563,
+            0.7108,
+            0.2556,
+            0.2556,
+            0.7088,
+            0.3014,
+            0.2538,
+            0.6998,
+            0.3626,
+            0.2529,
+            0.705,
+            0.4078,
+            0.2471,
+            0.6888,
+            -0.4023,
+            0.3056,
+            0.7002,
+            -0.3435,
+            0.311,
+            0.697,
+            -0.2887,
+            0.3036,
+            0.6955,
+            -0.2421,
+            0.3031,
+            0.6976,
+            -0.1842,
+            0.3051,
+            0.699,
+            -0.1259,
+            0.3055,
+            0.7,
+            -0.0753,
+            0.3047,
+            0.6982,
+            -0.0197,
+            0.3067,
+            0.6997,
+            0.0359,
+            0.3024,
+            0.696,
+            0.0938,
+            0.303,
+            0.6943,
+            0.1463,
+            0.304,
+            0.6934,
+            0.1966,
+            0.3012,
+            0.6902,
+            0.2544,
+            0.3001,
+            0.6906,
+            0.2966,
+            0.3006,
+            0.6858,
+            0.3568,
+            0.3021,
+            0.686,
+            0.4035,
+            0.2962,
+            0.6817
+          ],
+          "resampled_from": [
+            64,
+            48
+          ]
+        }
+      },
+      "analysis": {
+        "room_type": "living room",
+        "setting": "indoor",
+        "camera_view": "top-down",
+        "time_of_day": "afternoon",
+        "mood": "relaxed, cozy",
+        "lighting": {
+          "key_direction": "above",
+          "key_direction_code": "above",
+          "key_azimuth_deg": 0,
+          "key_elevation_deg": 75,
+          "key_description": "window",
+          "color_temperature_k": 6250,
+          "sources": [
+            "window"
+          ],
+          "brightness": "medium",
+          "shadows": "soft",
+          "color_temperature_model_k": 6500,
+          "measured": {
+            "mean_luminance": 0.236,
+            "color_temperature_k": 6250,
+            "neutral_fraction": 0.133
+          }
+        },
+        "materials": {
+          "floor": "beige carpet",
+          "floor_visible": false,
+          "walls": "white painted plaster",
+          "other": [
+            "pink fabric",
+            "gray remote control",
+            "brown tabby fur"
+          ]
+        },
+        "palette": [
+          "#f765c1",
+          "#a1888b",
+          "#e64ba6",
+          "#861f3f",
+          "#371f24",
+          "#c1bdc0"
+        ],
+        "objects": [
+          {
+            "name": "pink blanket",
+            "box": [
+              0,
+              48,
+              640,
+              479
+            ],
+            "salient": true
+          },
+          {
+            "name": "left striped cat",
+            "box": [
+              8,
+              53,
+              315,
+              473
+            ],
+            "salient": true
+          },
+          {
+            "name": "right striped cat",
+            "box": [
+              347,
+              25,
+              640,
+              372
+            ],
+            "salient": true
+          },
+          {
+            "name": "left remote control",
+            "box": [
+              40,
+              73,
+              176,
+              117
+            ],
+            "salient": true
+          },
+          {
+            "name": "right remote control",
+            "box": [
+              331,
+              77,
+              371,
+              186
+            ],
+            "salient": true
+          }
+        ],
+        "search_terms": {
+          "hdri": [
+            "living room",
+            "warm indoor",
+            "soft lighting"
+          ],
+          "sounds": [
+            "room tone",
+            "gentle purring"
+          ],
+          "images": [
+            "cat sleeping",
+            "cozy sofa"
+          ]
+        },
+        "caption": "Two tabby cats nap on a pink couch with remote controls nearby.",
+        "image_size": [
+          640,
+          480
+        ],
+        "model": "Qwen3-VL-4B-Instruct"
+      },
+      "asset_ids": [
+        "fa48cc2de6f5449badfddbfbd333b592",
+        "3ffac273fd654746be2de48d5588e10d",
+        "8cdb9300aacd4bdb8f41ead8414eed2b"
+      ],
+      "cut_asset_ids": [
+        "fa48cc2de6f5449badfddbfbd333b592",
+        "8cdb9300aacd4bdb8f41ead8414eed2b"
+      ],
+      "cut": {
+        "before": 600000,
+        "after": 543195,
+        "removed": {
+          "fa48cc2de6f5449badfddbfbd333b592": 10251,
+          "8cdb9300aacd4bdb8f41ead8414eed2b": 91840
+        },
+        "below_support_pruned": 2747,
+        "filled": {
+          "fa48cc2de6f5449badfddbfbd333b592": 4584,
+          "8cdb9300aacd4bdb8f41ead8414eed2b": 43449
+        },
+        "photo_check": {
+          "fa48cc2de6f5449badfddbfbd333b592": {
+            "pixels": 3271,
+            "coverage": 0.9596,
+            "depth_factor": 1.0,
+            "colour_gain": [
+              0.9529,
+              0.9473,
+              1.0087
+            ],
+            "gap_m_before": -0.0097
+          },
+          "8cdb9300aacd4bdb8f41ead8414eed2b": {
+            "pixels": 31280,
+            "coverage": 0.7971,
+            "depth_factor": 0.9625,
+            "colour_gain": [
+              1.4666,
+              1.5496,
+              1.6
+            ],
+            "gap_m_before": 0.0318,
+            "gap_m_after": -0.0
+          }
+        }
+      }
+    },
+    {
+      "scene_id": "testroom1",
+      "project_id": "",
+      "photo": "artifacts/_deploy/testphotos/room1.jpg",
+      "unity_path": "Assets/SketchScape/Scenes/testroom/scene.ply",
+      "scene": {
+        "version": 1,
+        "upload_id": "testroom1",
+        "photo": "artifacts/_deploy/testphotos/room1.jpg",
+        "frame": "opencv",
+        "image_size": [
+          1280,
+          847
+        ],
+        "intrinsics": {
+          "fx": 689.2923,
+          "fy": 689.2923,
+          "cx": 640.0,
+          "cy": 423.5
+        },
+        "gravity_up_cam": [
+          0.0523,
+          -0.937395,
+          -0.344318
+        ],
+        "support_plane": {
+          "normal_cam": [
+            0.0523,
+            -0.937395,
+            -0.344318
+          ],
+          "offset": 1.4792,
+          "camera_height": 1.4792,
+          "kind": "floor",
+          "method": "floor-plane",
+          "plane_fit_deg": 1.298,
+          "plane_inlier_frac": 0.9762,
+          "kind_reason": "camera height in floor range",
+          "area_m2": 5.518,
+          "candidates": [
+            {
+              "height_m": 1.55,
+              "area_m2": 5.518
+            }
+          ]
+        },
+        "depth_range_m": [
+          0.9006,
+          5.7694
+        ],
+        "splat": {
+          "file": "scene.ply",
+          "count": 600000,
+          "source": "apple-sharp",
+          "aligned_scale": 1.0,
+          "align_log_mad": 0.0142,
+          "metric_scale": {
+            "source": "sharp",
+            "moge_over_sharp": 0.99852,
+            "moge_factor": 1.00148,
+            "align_log_mad": 0.0142,
+            "align_pixels": 796359
+          },
+          "align_pixels": 796359,
+          "prune": {
+            "input": 1179648,
+            "nonfinite": 0,
+            "after_filter": 1170300,
+            "output": 600000
+          },
+          "sh_degree": 0,
+          "color_space": "sRGB"
+        },
+        "models": {
+          "depth": "moge-2 Ruicheng/moge-2-vitl-normal",
+          "gravity": "geocalib (pinhole, focal prior from moge-2) + moge-2 normals mean-shift + floor-plane snap",
+          "splat": "sharp sharp_2572gikvuh.pt (apple/ml-sharp)"
+        },
+        "gravity": {
+          "source": "geocalib",
+          "method": "prior+normals",
+          "support_fraction": 0.2666,
+          "refine_deg": 1.62,
+          "prior_up": [
+            0.062068,
+            -0.938363,
+            -0.340033
+          ],
+          "final_minus_prior_deg": 0.61
+        },
+        "timings_s": {
+          "geometry": 0.0,
+          "geometry_cached": true,
+          "sharp": 0.37,
+          "sharp_inference": 5.23,
+          "total": 0.89
+        },
+        "vram_peak_gb": 8.27,
+        "depth_grid": {
+          "w": 192,
+          "h": 1,
+          "points_cam": [
+            -1.6734,
+            -1.1127,
+            1.9566,
+            -2.0957,
+            -1.6143,
+            2.8242,
+            -1.8895,
+            -1.726,
+            3.0044,
+            -1.5178,
+            -1.6893,
+            2.9183,
+            -1.3774,
+            -2.0937,
+            3.617,
+            -1.0386,
+            -2.1151,
+            3.7191,
+            -0.622,
+            -2.1673,
+            3.811,
+            -0.2189,
+            -2.2064,
+            3.9198,
+            0.3006,
+            -2.3055,
+            4.0232,
+            0.7268,
+            -2.3377,
+            4.0898,
+            1.1074,
+            -2.029,
+            3.5588,
+            1.4725,
+            -1.9867,
+            3.4581,
+            1.7877,
+            -1.8914,
+            3.3259,
+            1.6943,
+            -1.4384,
+            2.5752,
+            1.7615,
+            -1.3007,
+            2.2931,
+            1.8282,
+            -1.2088,
+            2.0676,
+            -1.7492,
+            -0.9162,
+            2.0112,
+            -2.0924,
+            -1.2444,
+            2.8308,
+            -1.9645,
+            -1.4423,
+            3.1165,
+            -1.5579,
+            -1.3922,
+            3.0464,
+            -1.4235,
+            -1.7126,
+            3.7238,
+            -1.0108,
+            -1.7877,
+            3.8387,
+            -0.6636,
+            -1.7637,
+            3.96,
+            -0.1865,
+            -1.847,
+            4.0804,
+            0.3581,
+            -1.9712,
+            4.2198,
+            1.059,
+            -2.5415,
+            5.5089,
+            1.364,
+            -2.0183,
+            4.4877,
+            1.6415,
+            -1.8315,
+            3.9084,
+            1.5829,
+            -1.355,
+            2.937,
+            1.6955,
+            -1.1667,
+            2.5942,
+            1.774,
+            -1.0708,
+            2.3138,
+            1.8347,
+            -0.971,
+            2.0851,
+            -1.7357,
+            -0.7534,
+            2.0365,
+            -1.9555,
+            -0.9864,
+            2.6456,
+            -2.0259,
+            -1.1909,
+            3.2064,
+            -1.5932,
+            -1.15,
+            3.1333,
+            -1.5216,
+            -1.3803,
+            3.821,
+            -1.0704,
+            -1.4557,
+            3.9349,
+            -0.6456,
+            -1.4917,
+            4.064,
+            -0.1858,
+            -1.5349,
+            4.1983,
+            0.3307,
+            -1.5999,
+            4.3419,
+            1.0736,
+            -2.0156,
+            5.6707,
+            1.3701,
+            -1.6883,
+            4.618,
+            1.6448,
+            -1.4431,
+            3.9163,
+            1.5601,
+            -1.0359,
+            2.9026,
+            1.6935,
+            -0.9398,
+            2.5911,
+            1.7871,
+            -0.8373,
+            2.3177,
+            1.8228,
+            -0.7776,
+            2.0614,
+            -1.7848,
+            -0.4948,
+            2.0798,
+            -1.9227,
+            -0.6264,
+            2.6012,
+            -2.1081,
+            -0.8423,
+            3.3366,
+            -1.6177,
+            -0.8218,
+            3.2557,
+            -1.5352,
+            -0.9928,
+            3.9558,
+            -1.1405,
+            -1.0072,
+            4.0837,
+            -0.7191,
+            -1.0099,
+            4.2187,
+            -0.1805,
+            -1.0958,
+            4.3662,
+            0.3915,
+            -1.1843,
+            4.5351,
+            1.0733,
+            -1.5002,
+            5.7131,
+            1.2118,
+            -0.9959,
+            3.9682,
+            1.4559,
+            -0.8397,
+            3.3847,
+            1.5731,
+            -0.7218,
+            2.9267,
+            1.7069,
+            -0.6203,
+            2.5604,
+            1.643,
+            -0.5224,
+            2.1308,
+            1.6742,
+            -0.4941,
+            1.9028,
+            -1.8142,
+            -0.3262,
+            2.1214,
+            -1.6942,
+            -0.3458,
+            2.292,
+            -2.1235,
+            -0.5202,
+            3.4481,
+            -1.7011,
+            -0.5369,
+            3.3645,
+            -1.4567,
+            -0.6009,
+            3.6983,
+            -1.0628,
+            -0.6304,
+            3.8454,
+            -0.6223,
+            -0.6481,
+            3.9536,
+            -0.223,
+            -0.6481,
+            4.0983,
+            0.3352,
+            -0.8195,
+            4.6682,
+            1.0886,
+            -1.0171,
+            5.7941,
+            1.1244,
+            -0.6153,
+            3.7532,
+            1.4307,
+            -0.5504,
+            3.4182,
+            1.5972,
+            -0.4625,
+            2.9795,
+            1.6933,
+            -0.4407,
+            2.5966,
+            1.7615,
+            -0.3859,
+            2.2931,
+            1.8314,
+            -0.316,
+            2.0746,
+            -1.4486,
+            -0.0841,
+            1.7054,
+            -1.3581,
+            -0.1005,
+            1.823,
+            -1.4651,
+            -0.0989,
+            2.3513,
+            -1.2852,
+            -0.0906,
+            2.6016,
+            -1.0655,
+            -0.1138,
+            2.7052,
+            -0.9531,
+            -0.122,
+            3.5038,
+            -0.5646,
+            -0.1613,
+            3.5868,
+            -0.1431,
+            -0.1728,
+            3.7226,
+            0.2546,
+            -0.1678,
+            3.8563,
+            0.898,
+            -0.2272,
+            5.0527,
+            1.1582,
+            -0.1431,
+            3.7927,
+            1.4631,
+            -0.1703,
+            3.5574,
+            1.5835,
+            -0.094,
+            2.9461,
+            1.7114,
+            -0.1104,
+            2.6243,
+            1.79,
+            -0.0707,
+            2.3215,
+            1.8527,
+            -0.0759,
+            2.0918,
+            -1.2406,
+            0.0587,
+            1.4458,
+            -1.2725,
+            0.0953,
+            1.7283,
+            -1.3941,
+            0.1269,
+            2.2426,
+            -1.2171,
+            0.1028,
+            2.4422,
+            -1.0027,
+            0.095,
+            2.5178,
+            -1.0,
+            0.1837,
+            3.6183,
+            -0.5481,
+            0.1636,
+            3.7592,
+            -0.219,
+            0.1608,
+            3.8222,
+            0.3132,
+            0.1693,
+            3.8896,
+            0.6945,
+            0.1671,
+            3.9725,
+            1.1641,
+            0.1507,
+            3.8485,
+            1.479,
+            0.1533,
+            3.5215,
+            1.5889,
+            0.1161,
+            2.9641,
+            1.6731,
+            0.0968,
+            2.5656,
+            1.7787,
+            0.1075,
+            2.3155,
+            1.8635,
+            0.0943,
+            2.0972,
+            -1.1631,
+            0.2065,
+            1.3554,
+            -1.2024,
+            0.237,
+            1.6172,
+            -1.2219,
+            0.3072,
+            1.9251,
+            -1.006,
+            0.3095,
+            1.9397,
+            -0.7938,
+            0.3311,
+            2.0379,
+            -0.7854,
+            0.4633,
+            2.903,
+            -0.4994,
+            0.4675,
+            2.9297,
+            -0.17,
+            0.4733,
+            2.9658,
+            0.177,
+            0.4807,
+            3.0121,
+            0.5369,
+            0.4861,
+            3.0459,
+            0.9669,
+            0.498,
+            3.0927,
+            1.3333,
+            0.5042,
+            3.1312,
+            1.5737,
+            0.4783,
+            2.9437,
+            1.7272,
+            0.3972,
+            2.6844,
+            1.8108,
+            0.3632,
+            2.3618,
+            1.8545,
+            0.3433,
+            2.0938,
+            -1.124,
+            0.3054,
+            1.3076,
+            -1.1773,
+            0.412,
+            1.5865,
+            -1.0433,
+            0.4154,
+            1.6743,
+            -0.8581,
+            0.4198,
+            1.6924,
+            -0.6926,
+            0.4608,
+            1.7846,
+            -0.6878,
+            0.6206,
+            2.5017,
+            -0.4023,
+            0.6283,
+            2.5326,
+            -0.1096,
+            0.6353,
+            2.5608,
+            0.189,
+            0.6401,
+            2.5804,
+            0.481,
+            0.6678,
+            2.6005,
+            0.439,
+            0.3583,
+            1.4444,
+            0.5848,
+            0.3613,
+            1.4069,
+            1.4428,
+            0.6656,
+            2.6987,
+            0.9735,
+            0.372,
+            1.4996,
+            1.1459,
+            0.3757,
+            1.5146,
+            1.8617,
+            0.4918,
+            2.1055,
+            -1.0694,
+            0.4589,
+            1.2504,
+            -1.068,
+            0.516,
+            1.4171,
+            -0.9102,
+            0.5198,
+            1.4275,
+            -0.7436,
+            0.5221,
+            1.4338,
+            -0.6016,
+            0.5362,
+            1.5274,
+            -0.5946,
+            0.7673,
+            2.1072,
+            -0.3612,
+            0.7716,
+            2.1189,
+            -0.0638,
+            0.4154,
+            1.1734,
+            0.0699,
+            0.4315,
+            1.1898,
+            0.2102,
+            0.4379,
+            1.2024,
+            0.3551,
+            0.4423,
+            1.2147,
+            0.5311,
+            0.4484,
+            1.2264,
+            0.6542,
+            0.4518,
+            1.2406,
+            0.8072,
+            0.4569,
+            1.2546,
+            0.9915,
+            0.4648,
+            1.2715,
+            1.1499,
+            0.4723,
+            1.292,
+            -1.0447,
+            0.5583,
+            1.2216,
+            -0.9313,
+            0.5783,
+            1.2775,
+            -0.6873,
+            0.4969,
+            1.0979,
+            -0.5636,
+            0.496,
+            1.0958,
+            -0.3857,
+            0.462,
+            1.0207,
+            -0.2735,
+            0.4665,
+            1.0273,
+            -0.1513,
+            0.4712,
+            1.0378,
+            -0.0373,
+            0.4761,
+            1.0486,
+            0.0717,
+            0.4808,
+            1.0623,
+            0.2098,
+            0.4881,
+            1.075,
+            0.3161,
+            0.4919,
+            1.0868,
+            0.4754,
+            0.4985,
+            1.0977,
+            0.6062,
+            0.5026,
+            1.1069,
+            0.7141,
+            0.5058,
+            1.1174,
+            0.8531,
+            0.5114,
+            1.1298,
+            1.0129,
+            0.5202,
+            1.1492,
+            -0.8287,
+            0.5437,
+            0.956,
+            -0.7444,
+            0.5824,
+            1.0011,
+            -0.696,
+            0.632,
+            1.117,
+            -0.5857,
+            0.656,
+            1.1685,
+            -0.3394,
+            0.5107,
+            0.8981,
+            -0.2559,
+            0.5158,
+            0.907,
+            -0.1546,
+            0.5202,
+            0.9148,
+            -0.0475,
+            0.5251,
+            0.9233,
+            0.078,
+            0.533,
+            0.9349,
+            0.172,
+            0.5373,
+            0.9447,
+            0.2774,
+            0.5423,
+            0.9536,
+            0.3942,
+            0.547,
+            0.9618,
+            0.5084,
+            0.548,
+            0.9587,
+            0.6366,
+            0.5502,
+            0.9675,
+            0.7653,
+            0.5627,
+            0.9869,
+            0.8967,
+            0.5731,
+            1.0026
+          ],
+          "resampled_from": [
+            64,
+            42
+          ]
+        }
+      },
+      "analysis": {
+        "room_type": "cabin living room",
+        "setting": "indoor",
+        "camera_view": "eye-level",
+        "time_of_day": "afternoon",
+        "mood": "cozy, rustic, warm, inviting",
+        "lighting": {
+          "key_direction": "left, window light",
+          "key_direction_code": "left",
+          "key_azimuth_deg": 270,
+          "key_elevation_deg": 40,
+          "key_description": "window",
+          "color_temperature_k": 5500,
+          "sources": [
+            "window on left"
+          ],
+          "brightness": "medium",
+          "shadows": "soft",
+          "color_temperature_model_k": 5500,
+          "measured": {
+            "mean_luminance": 0.177,
+            "color_temperature_k": 5500,
+            "neutral_fraction": 0.059
+          }
+        },
+        "materials": {
+          "floor": "polished wood planks",
+          "floor_visible": true,
+          "walls": "log cabin style",
+          "other": [
+            "green fabric",
+            "stone",
+            "wooden furniture",
+            "microwave"
+          ]
+        },
+        "palette": [
+          "#494737",
+          "#76694e",
+          "#a86c2d",
+          "#b48955",
+          "#231911",
+          "#dbb67e"
+        ],
+        "objects": [
+          {
+            "name": "wooden table",
+            "box": [
+              332,
+              573,
+              1280,
+              846
+            ],
+            "salient": true
+          },
+          {
+            "name": "green sofa",
+            "box": [
+              0,
+              312,
+              388,
+              772
+            ],
+            "salient": true
+          },
+          {
+            "name": "stone fireplace",
+            "box": [
+              968,
+              364,
+              1280,
+              639
+            ],
+            "salient": true
+          },
+          {
+            "name": "rug",
+            "box": [
+              416,
+              501,
+              736,
+              692
+            ],
+            "salient": true
+          },
+          {
+            "name": "curtains",
+            "box": [
+              0,
+              0,
+              138,
+              424
+            ],
+            "salient": true
+          },
+          {
+            "name": "left wooden chair",
+            "box": [
+              0,
+              684,
+              358,
+              847
+            ],
+            "salient": true
+          },
+          {
+            "name": "left green armchair",
+            "box": [
+              422,
+              261,
+              618,
+              460
+            ],
+            "salient": true
+          },
+          {
+            "name": "right green armchair",
+            "box": [
+              582,
+              264,
+              739,
+              451
+            ],
+            "salient": true
+          },
+          {
+            "name": "wooden cabinet",
+            "box": [
+              806,
+              292,
+              955,
+              480
+            ],
+            "salient": true
+          },
+          {
+            "name": "right wooden chair",
+            "box": [
+              732,
+              538,
+              938,
+              641
+            ],
+            "salient": true
+          },
+          {
+            "name": "wooden side table",
+            "box": [
+              342,
+              296,
+              434,
+              424
+            ],
+            "salient": true
+          },
+          {
+            "name": "microwave oven",
+            "box": [
+              838,
+              237,
+              968,
+              315
+            ],
+            "salient": true
+          },
+          {
+            "name": "left framed picture",
+            "box": [
+              324,
+              48,
+              399,
+              130
+            ],
+            "salient": true
+          },
+          {
+            "name": "door",
+            "box": [
+              740,
+              113,
+              809,
+              358
+            ],
+            "salient": false
+          },
+          {
+            "name": "right framed picture",
+            "box": [
+              580,
+              70,
+              650,
+              142
+            ],
+            "salient": false
+          }
+        ],
+        "search_terms": {
+          "hdri": [
+            "cabin interior",
+            "warm indoor",
+            "wooden log",
+            "cozy living room"
+          ],
+          "sounds": [
+            "fireplace crackling",
+            "room tone",
+            "birds outside"
+          ],
+          "images": [
+            "log cabin decor",
+            "cabin interior photos",
+            "wooden furniture",
+            "stone fireplace"
+          ]
+        },
+        "caption": "A cozy log cabin living room with green furniture and a stone fireplace.",
+        "image_size": [
+          1280,
+          847
+        ],
+        "model": "Qwen3-VL-4B-Instruct"
+      },
+      "asset_ids": [],
+      "cut_asset_ids": [],
+      "cut": {
+        "before": 600000,
+        "after": 595462,
+        "removed": {},
+        "below_support_pruned": 4538
+      }
+    },
+    {
+      "scene_id": "3ae525c11c0b4163b2829c9951fbb1fd",
+      "project_id": "674a8bcb39d7442d8d2a381e105c86e5",
+      "photo": "uploads/674a8bcb39d7442d8d2a381e105c86e5/3ae525c11c0b4163b2829c9951fbb1fd/source.jpg",
+      "unity_path": "Assets/SketchScape/Scenes/3ae525c1/scene.ply",
+      "scene": {
+        "version": 1,
+        "upload_id": "3ae525c11c0b4163b2829c9951fbb1fd",
+        "photo": "uploads/674a8bcb39d7442d8d2a381e105c86e5/3ae525c11c0b4163b2829c9951fbb1fd/source.jpg",
+        "frame": "opencv",
+        "image_size": [
+          1280,
+          847
+        ],
+        "intrinsics": {
+          "fx": 688.6835,
+          "fy": 688.6835,
+          "cx": 640.0,
+          "cy": 423.5
+        },
+        "gravity_up_cam": [
+          0.052606,
+          -0.937442,
+          -0.344145
+        ],
+        "support_plane": {
+          "normal_cam": [
+            0.052606,
+            -0.937442,
+            -0.344145
+          ],
+          "offset": 1.4807,
+          "camera_height": 1.4807,
+          "kind": "floor",
+          "method": "floor-plane",
+          "plane_fit_deg": 1.382,
+          "plane_inlier_frac": 0.9782,
+          "kind_reason": "camera height in floor range",
+          "area_m2": 5.473,
+          "candidates": [
+            {
+              "height_m": 1.55,
+              "area_m2": 5.473
+            }
+          ]
+        },
+        "depth_range_m": [
+          0.9013,
+          5.7764
+        ],
+        "splat": {
+          "file": "scene.ply",
+          "count": 600000,
+          "source": "apple-sharp",
+          "aligned_scale": 1.0,
+          "align_log_mad": 0.01389,
+          "metric_scale": {
+            "source": "sharp",
+            "moge_over_sharp": 0.99606,
+            "moge_factor": 1.00396,
+            "align_log_mad": 0.01389,
+            "align_pixels": 798283
+          },
+          "align_pixels": 798283,
+          "prune": {
+            "input": 1179648,
+            "nonfinite": 0,
+            "after_filter": 1170764,
+            "output": 600000
+          },
+          "sh_degree": 0,
+          "color_space": "sRGB"
+        },
+        "models": {
+          "depth": "moge-2 Ruicheng/moge-2-vitl-normal",
+          "gravity": "geocalib (pinhole, focal prior from moge-2) + moge-2 normals mean-shift + floor-plane snap",
+          "splat": "sharp sharp_2572gikvuh.pt (apple/ml-sharp)"
+        },
+        "gravity": {
+          "source": "geocalib",
+          "method": "prior+normals",
+          "support_fraction": 0.2621,
+          "refine_deg": 1.57,
+          "prior_up": [
+            0.063306,
+            -0.937383,
+            -0.342498
+          ],
+          "final_minus_prior_deg": 0.62
+        },
+        "timings_s": {
+          "geometry": 0.0,
+          "geometry_cached": true,
+          "sharp": 0.06,
+          "sharp_inference": 4.66,
+          "total": 0.47
+        },
+        "vram_peak_gb": 8.28,
+        "depth_grid": {
+          "w": 192,
+          "h": 1,
+          "points_cam": [
+            -1.7055,
+            -1.1038,
+            1.9592,
+            -2.0952,
+            -1.6067,
+            2.8155,
+            -1.8777,
+            -1.7141,
+            3.0038,
+            -1.4806,
+            -1.6648,
+            2.9174,
+            -1.3989,
+            -2.0786,
+            3.615,
+            -0.9959,
+            -2.143,
+            3.7175,
+            -0.5833,
+            -2.1841,
+            3.8079,
+            -0.1621,
+            -2.2406,
+            3.9165,
+            0.2541,
+            -2.2661,
+            4.0222,
+            0.7268,
+            -2.3376,
+            4.086,
+            1.1119,
+            -2.0372,
+            3.57,
+            1.4811,
+            -1.9849,
+            3.4519,
+            1.7889,
+            -1.8879,
+            3.3252,
+            1.6816,
+            -1.5035,
+            2.5821,
+            1.7682,
+            -1.3057,
+            2.2997,
+            1.839,
+            -1.2049,
+            2.0746,
+            -1.7431,
+            -0.9441,
+            2.0192,
+            -2.097,
+            -1.2471,
+            2.8345,
+            -1.9153,
+            -1.3794,
+            3.1147,
+            -1.5546,
+            -1.3888,
+            3.046,
+            -1.4403,
+            -1.7024,
+            3.722,
+            -1.0501,
+            -1.7493,
+            3.8367,
+            -0.6408,
+            -1.7874,
+            3.958,
+            -0.2339,
+            -1.8004,
+            4.0786,
+            0.3094,
+            -1.9179,
+            4.2199,
+            1.0283,
+            -2.5047,
+            5.511,
+            1.3326,
+            -1.9745,
+            4.4879,
+            1.6436,
+            -1.8338,
+            3.9099,
+            1.5712,
+            -1.2997,
+            2.9444,
+            1.6978,
+            -1.2162,
+            2.6012,
+            1.7805,
+            -1.0781,
+            2.3202,
+            1.8472,
+            -0.9623,
+            2.0907,
+            -1.7475,
+            -0.7513,
+            2.045,
+            -1.9566,
+            -1.0062,
+            2.6447,
+            -2.0041,
+            -1.1824,
+            3.206,
+            -1.613,
+            -1.1603,
+            3.1336,
+            -1.5111,
+            -1.3919,
+            3.819,
+            -1.0535,
+            -1.4732,
+            3.9325,
+            -0.6988,
+            -1.4388,
+            4.0609,
+            -0.2407,
+            -1.4867,
+            4.1963,
+            0.3499,
+            -1.6202,
+            4.3416,
+            1.0667,
+            -2.1417,
+            5.673,
+            1.452,
+            -1.6498,
+            4.6187,
+            1.646,
+            -1.4442,
+            3.9157,
+            1.5652,
+            -1.0435,
+            2.9094,
+            1.6888,
+            -0.9887,
+            2.5989,
+            1.7901,
+            -0.8267,
+            2.3239,
+            1.8346,
+            -0.7351,
+            2.0662,
+            -1.7951,
+            -0.4977,
+            2.09,
+            -1.9255,
+            -0.6311,
+            2.6026,
+            -2.1107,
+            -0.8433,
+            3.3378,
+            -1.6383,
+            -0.8227,
+            3.2561,
+            -1.4953,
+            -1.016,
+            3.9532,
+            -1.1643,
+            -0.9835,
+            4.0804,
+            -0.7194,
+            -1.0102,
+            4.2163,
+            -0.2313,
+            -1.0519,
+            4.364,
+            0.3259,
+            -1.126,
+            4.5347,
+            1.0751,
+            -1.4944,
+            5.7175,
+            1.2002,
+            -1.0035,
+            3.9267,
+            1.4592,
+            -0.8416,
+            3.3893,
+            1.5785,
+            -0.72,
+            2.934,
+            1.6724,
+            -0.6414,
+            2.568,
+            1.6621,
+            -0.5152,
+            2.1375,
+            1.7116,
+            -0.4518,
+            1.9089,
+            -1.828,
+            -0.3529,
+            2.132,
+            -1.7024,
+            -0.3475,
+            2.3011,
+            -2.1353,
+            -0.5507,
+            3.4479,
+            -1.7225,
+            -0.5522,
+            3.3652,
+            -1.4566,
+            -0.6009,
+            3.6947,
+            -1.0596,
+            -0.6039,
+            3.8508,
+            -0.6237,
+            -0.6496,
+            3.9588,
+            -0.1281,
+            -0.7028,
+            4.1019,
+            0.349,
+            -0.8132,
+            4.6669,
+            1.0908,
+            -1.0192,
+            5.8011,
+            1.17,
+            -0.6545,
+            3.7564,
+            1.4183,
+            -0.5067,
+            3.4213,
+            1.6027,
+            -0.4641,
+            2.9872,
+            1.6998,
+            -0.3971,
+            2.6043,
+            1.7692,
+            -0.3943,
+            2.3011,
+            1.8416,
+            -0.348,
+            2.0843,
+            -1.4552,
+            -0.0845,
+            1.7117,
+            -1.3641,
+            -0.1009,
+            1.8294,
+            -1.4806,
+            -0.1369,
+            2.3576,
+            -1.3387,
+            -0.1288,
+            2.608,
+            -1.0837,
+            -0.1062,
+            2.709,
+            -0.9487,
+            -0.1272,
+            3.5034,
+            -0.5862,
+            -0.1511,
+            3.5882,
+            -0.1542,
+            -0.1623,
+            3.726,
+            0.2327,
+            -0.1402,
+            3.8615,
+            1.0108,
+            -0.2205,
+            5.0627,
+            1.1555,
+            -0.193,
+            3.7984,
+            1.4773,
+            -0.1811,
+            3.5637,
+            1.5882,
+            -0.0943,
+            2.9521,
+            1.7381,
+            -0.1262,
+            2.6336,
+            1.7955,
+            -0.0948,
+            2.3309,
+            1.8618,
+            -0.0701,
+            2.1003,
+            -1.2393,
+            0.0758,
+            1.4502,
+            -1.2877,
+            0.0604,
+            1.7338,
+            -1.4084,
+            0.0653,
+            2.2478,
+            -1.2163,
+            0.103,
+            2.4457,
+            -0.9942,
+            0.0989,
+            2.522,
+            -1.0174,
+            0.1893,
+            3.6211,
+            -0.6471,
+            0.1584,
+            3.7608,
+            -0.2194,
+            0.1111,
+            3.8247,
+            0.2517,
+            0.164,
+            3.895,
+            0.6964,
+            0.1676,
+            3.9802,
+            1.2053,
+            0.2125,
+            3.8518,
+            1.4819,
+            0.1536,
+            3.5253,
+            1.5946,
+            0.1122,
+            2.9721,
+            1.6786,
+            0.0971,
+            2.5718,
+            1.7912,
+            0.0945,
+            2.3253,
+            1.8785,
+            0.0795,
+            2.1053,
+            -1.1685,
+            0.2074,
+            1.3604,
+            -1.1976,
+            0.2732,
+            1.622,
+            -1.2231,
+            0.3082,
+            1.9298,
+            -1.0091,
+            0.3105,
+            1.9439,
+            -0.8201,
+            0.3025,
+            2.0427,
+            -0.7866,
+            0.464,
+            2.9047,
+            -0.5002,
+            0.4682,
+            2.9316,
+            -0.1702,
+            0.4741,
+            2.968,
+            0.1773,
+            0.4816,
+            3.0152,
+            0.538,
+            0.4871,
+            3.0497,
+            0.9693,
+            0.4993,
+            3.0976,
+            1.3359,
+            0.5052,
+            3.1345,
+            1.5909,
+            0.4668,
+            2.9493,
+            1.762,
+            0.4273,
+            2.6995,
+            1.8157,
+            0.3483,
+            2.375,
+            1.8648,
+            0.3452,
+            2.1036,
+            -1.1254,
+            0.3202,
+            1.3125,
+            -1.1814,
+            0.4134,
+            1.5907,
+            -1.0465,
+            0.4166,
+            1.678,
+            -0.8606,
+            0.4211,
+            1.6959,
+            -0.695,
+            0.4625,
+            1.7892,
+            -0.689,
+            0.6217,
+            2.504,
+            -0.4066,
+            0.6293,
+            2.5342,
+            -0.1098,
+            0.6363,
+            2.5627,
+            0.1894,
+            0.6413,
+            2.5828,
+            0.5236,
+            0.6615,
+            2.6034,
+            0.4406,
+            0.3596,
+            1.4483,
+            0.5785,
+            0.3624,
+            1.4102,
+            1.4375,
+            0.6785,
+            2.7012,
+            0.9763,
+            0.3731,
+            1.5025,
+            1.1577,
+            0.3767,
+            1.5172,
+            1.8715,
+            0.5465,
+            2.1146,
+            -1.0704,
+            0.4755,
+            1.2547,
+            -1.071,
+            0.5175,
+            1.4198,
+            -0.9106,
+            0.5212,
+            1.4301,
+            -0.7481,
+            0.5238,
+            1.4371,
+            -0.5946,
+            0.578,
+            1.5252,
+            -0.6021,
+            0.7691,
+            2.1103,
+            -0.331,
+            0.7697,
+            2.1204,
+            -0.0452,
+            0.4298,
+            1.1746,
+            0.0804,
+            0.4341,
+            1.191,
+            0.2438,
+            0.4404,
+            1.2037,
+            0.3559,
+            0.4433,
+            1.2163,
+            0.5339,
+            0.4492,
+            1.2276,
+            0.6553,
+            0.4525,
+            1.2415,
+            0.8106,
+            0.4577,
+            1.2559,
+            0.9934,
+            0.4657,
+            1.2728,
+            1.1619,
+            0.4753,
+            1.2938,
+            -1.051,
+            0.5429,
+            1.2258,
+            -0.964,
+            0.5782,
+            1.2805,
+            -0.6926,
+            0.4996,
+            1.1029,
+            -0.5523,
+            0.4988,
+            1.1009,
+            -0.3893,
+            0.4627,
+            1.0214,
+            -0.2935,
+            0.466,
+            1.0285,
+            -0.1803,
+            0.4707,
+            1.0389,
+            -0.0526,
+            0.4756,
+            1.0498,
+            0.0841,
+            0.4832,
+            1.0633,
+            0.1961,
+            0.4875,
+            1.076,
+            0.3215,
+            0.4929,
+            1.088,
+            0.4761,
+            0.4992,
+            1.0985,
+            0.6022,
+            0.5033,
+            1.1074,
+            0.715,
+            0.5064,
+            1.1179,
+            0.8615,
+            0.5125,
+            1.1312,
+            1.0331,
+            0.5245,
+            1.1503,
+            -0.8114,
+            0.5469,
+            0.9609,
+            -0.7492,
+            0.5862,
+            1.0068,
+            -0.6924,
+            0.6509,
+            1.1207,
+            -0.5885,
+            0.6591,
+            1.173,
+            -0.3398,
+            0.5114,
+            0.8984,
+            -0.2445,
+            0.5181,
+            0.9079,
+            -0.1363,
+            0.5226,
+            0.9157,
+            -0.0329,
+            0.5275,
+            0.9243,
+            0.0768,
+            0.5342,
+            0.9362,
+            0.1861,
+            0.5398,
+            0.9459,
+            0.2849,
+            0.5435,
+            0.9548,
+            0.4061,
+            0.5494,
+            0.9628,
+            0.5232,
+            0.5434,
+            0.9595,
+            0.6375,
+            0.551,
+            0.968,
+            0.7678,
+            0.5635,
+            0.9874,
+            0.8928,
+            0.5729,
+            1.0039
+          ],
+          "resampled_from": [
+            64,
+            42
+          ]
+        }
+      },
+      "analysis": {
+        "room_type": "cabin living room",
+        "setting": "indoor",
+        "camera_view": "eye-level",
+        "time_of_day": "afternoon",
+        "mood": "cozy, rustic, warm",
+        "lighting": {
+          "key_direction": "left, window light",
+          "key_direction_code": "left",
+          "key_azimuth_deg": 270,
+          "key_elevation_deg": 40,
+          "key_description": "window",
+          "color_temperature_k": 5500,
+          "sources": [
+            "window on left"
+          ],
+          "brightness": "medium",
+          "shadows": "soft",
+          "color_temperature_model_k": 5500,
+          "measured": {
+            "mean_luminance": 0.177,
+            "color_temperature_k": 5500,
+            "neutral_fraction": 0.06
+          }
+        },
+        "materials": {
+          "floor": "wooden planks",
+          "floor_visible": true,
+          "walls": "log cabin",
+          "other": [
+            "green fabric",
+            "stone",
+            "wooden furniture",
+            "microwave"
+          ]
+        },
+        "palette": [
+          "#494737",
+          "#76694f",
+          "#a86c2d",
+          "#b48955",
+          "#231911",
+          "#dbb67e"
+        ],
+        "objects": [
+          {
+            "name": "wooden table",
+            "box": [
+              332,
+              573,
+              1280,
+              846
+            ],
+            "salient": true
+          },
+          {
+            "name": "green sofa",
+            "box": [
+              0,
+              312,
+              388,
+              772
+            ],
+            "salient": true
+          },
+          {
+            "name": "stone fireplace",
+            "box": [
+              968,
+              364,
+              1280,
+              639
+            ],
+            "salient": true
+          },
+          {
+            "name": "rug",
+            "box": [
+              415,
+              501,
+              736,
+              692
+            ],
+            "salient": true
+          },
+          {
+            "name": "curtains",
+            "box": [
+              0,
+              0,
+              138,
+              424
+            ],
+            "salient": true
+          },
+          {
+            "name": "left wooden chair",
+            "box": [
+              0,
+              684,
+              358,
+              847
+            ],
+            "salient": true
+          },
+          {
+            "name": "left green armchair",
+            "box": [
+              422,
+              261,
+              618,
+              460
+            ],
+            "salient": true
+          },
+          {
+            "name": "right green armchair",
+            "box": [
+              582,
+              264,
+              739,
+              451
+            ],
+            "salient": true
+          },
+          {
+            "name": "wooden cabinet",
+            "box": [
+              806,
+              292,
+              955,
+              480
+            ],
+            "salient": true
+          },
+          {
+            "name": "right wooden chair",
+            "box": [
+              732,
+              538,
+              938,
+              641
+            ],
+            "salient": true
+          },
+          {
+            "name": "wooden side table",
+            "box": [
+              342,
+              296,
+              434,
+              424
+            ],
+            "salient": true
+          },
+          {
+            "name": "microwave oven",
+            "box": [
+              838,
+              237,
+              968,
+              315
+            ],
+            "salient": true
+          }
+        ],
+        "search_terms": {
+          "hdri": [
+            "cabin interior",
+            "warm indoor",
+            "wooden log",
+            "rustic cabin"
+          ],
+          "sounds": [
+            "fireplace crackling",
+            "wooden floor creaking",
+            "birds outside",
+            "soft ambient"
+          ],
+          "images": [
+            "log cabin decor",
+            "cabin interior photos",
+            "wooden furniture",
+            "stone fireplace"
+          ]
+        },
+        "caption": "A cozy log cabin living room with green furniture and a stone fireplace.",
+        "image_size": [
+          1280,
+          847
+        ],
+        "model": "Qwen3-VL-4B-Instruct"
+      },
+      "asset_ids": [
+        "ea387cad366448fbb58fda656eecc8c0",
+        "36373beb70324cf4874934063c161c8c",
+        "cf3a34901d2f474fbc6edcaf24099967",
+        "1519fdcfe4a04007ae6f111ff5e57462",
+        "9c3ad60a9f844495adce234826429c45",
+        "86210a7d5ba84d4b8248da1209a64929",
+        "851fae8333044bed869468e13eb0fd67",
+        "7779dd47e66d4ed0be4a6549fe3a2fa2"
+      ],
+      "cut_asset_ids": [
+        "ea387cad366448fbb58fda656eecc8c0",
+        "36373beb70324cf4874934063c161c8c",
+        "cf3a34901d2f474fbc6edcaf24099967",
+        "1519fdcfe4a04007ae6f111ff5e57462",
+        "86210a7d5ba84d4b8248da1209a64929",
+        "851fae8333044bed869468e13eb0fd67"
+      ],
+      "cut": {
+        "before": 600000,
+        "after": 604760,
+        "removed": {
+          "ea387cad366448fbb58fda656eecc8c0": 12492,
+          "36373beb70324cf4874934063c161c8c": 56463,
+          "cf3a34901d2f474fbc6edcaf24099967": 53130,
+          "1519fdcfe4a04007ae6f111ff5e57462": 10461,
+          "86210a7d5ba84d4b8248da1209a64929": 12178,
+          "851fae8333044bed869468e13eb0fd67": 9860
+        },
+        "below_support_pruned": 4519,
+        "filled": {
+          "ea387cad366448fbb58fda656eecc8c0": 10330,
+          "cf3a34901d2f474fbc6edcaf24099967": 98628,
+          "1519fdcfe4a04007ae6f111ff5e57462": 2107,
+          "86210a7d5ba84d4b8248da1209a64929": 44882,
+          "851fae8333044bed869468e13eb0fd67": 7916
+        },
+        "photo_check": {
+          "ea387cad366448fbb58fda656eecc8c0": {
+            "pixels": 8232,
+            "coverage": 0.9879,
+            "depth_factor": 1.0,
+            "colour_gain": [
+              1.2641,
+              1.5282,
+              1.6
+            ],
+            "gap_m_before": -0.0061
+          },
+          "36373beb70324cf4874934063c161c8c": {
+            "pixels": 27791,
+            "coverage": 0.8309,
+            "depth_factor": 0.9486,
+            "colour_gain": [
+              0.9881,
+              1.4541,
+              1.6
+            ],
+            "gap_m_before": 0.129,
+            "gap_m_after": 0.0
+          },
+          "cf3a34901d2f474fbc6edcaf24099967": {
+            "pixels": 28898,
+            "coverage": 0.7626,
+            "depth_factor": 1.0,
+            "colour_gain": [
+              1.6,
+              1.6,
+              1.6
+            ],
+            "gap_m_before": -0.0041
+          },
+          "1519fdcfe4a04007ae6f111ff5e57462": {
+            "pixels": 6023,
+            "coverage": 0.9592,
+            "depth_factor": 1.0644,
+            "colour_gain": [
+              1.6,
+              1.6,
+              1.6
+            ],
+            "gap_m_before": -0.1357,
+            "gap_m_after": 0.0
+          },
+          "86210a7d5ba84d4b8248da1209a64929": {
+            "pixels": 8462,
+            "coverage": 0.9064,
+            "depth_factor": 1.0,
+            "colour_gain": [
+              1.6,
+              1.6,
+              1.6
+            ],
+            "gap_m_before": 0.0473
+          },
+          "851fae8333044bed869468e13eb0fd67": {
+            "pixels": 6924,
+            "coverage": 0.9533,
+            "depth_factor": 1.0,
+            "colour_gain": [
+              1.2193,
+              1.4505,
+              1.6
+            ],
+            "gap_m_before": 0.0034
+          }
+        }
+      }
     }
   ]
 }

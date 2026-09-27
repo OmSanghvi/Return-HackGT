@@ -1,32 +1,33 @@
 #!/usr/bin/env python3
-"""Command-line entry point for unity_room, for agent runtimes with shell
+"""Command-line entry point for the room tools, for agent runtimes with shell
 access (the sketchscape-unity-room OpenClaw skill).
 
-Usage:
-    python3 unity_room_cli.py compose_room '<json>'     # or '-' to read JSON from stdin
-    python3 unity_room_cli.py build_code <room-slug>
-    python3 unity_room_cli.py finalize_code <room-slug>
+Usage (every verb takes exactly one argument; JSON may be '-' for stdin):
+    python3 unity_room_cli.py list_scenes all
     python3 unity_room_cli.py list_assets all
+    python3 unity_room_cli.py search_images '{"query": "family photos 1990s", "count": 4}'
+    python3 unity_room_cli.py search_sounds '{"query": "rain on window"}'
+    python3 unity_room_cli.py search_environment '{"kind": "hdri", "query": "cozy living room evening"}'
+    python3 unity_room_cli.py compose_room '{"scene_id": "<id>", "room_name": "Lazy Sunday"}'
+    python3 unity_room_cli.py build_code <room-slug> [part]
+    python3 unity_room_cli.py finalize_code <room-slug>
 
-list_assets prints the real 3D scans (Gaussian splats) available in Unity.
-compose_room builds any object whose label matches one of them (for example
-"our cat Miso" matches "cat") from that scan instead of a placeholder cube.
-
-compose_room takes {"objects": [{"asset_id", "label"}, ...], "theme"?,
-"connection_insight"? {"theme", "explanation"}, "room_name"?,
-"sketch_layout_hint"? {"relations": [...]}, "project_id"?}, prints the plan
-as compact JSON (summary, room, objects, staging, unity_steps), and saves
-the room's build code under $SKETCHSCAPE_ROOM_STATE_DIR (default
-/tmp/sketchscape-rooms).
-
-build_code and finalize_code print C# for the Unity_RunCommand steps
-between marker lines:
+compose_room prints a compact plan (summary, room, objects, environment,
+audio, images, unity_steps, ...) and saves the room spec and its C# under
+$SKETCHSCAPE_ROOM_STATE_DIR (default /tmp/sketchscape-rooms).
+build_code / finalize_code print C# for Unity_RunCommand between marker lines:
 
     === BUILD CODE: pass everything between the markers verbatim as Code to unity-mcp__Unity_RunCommand ===
     <C#>
     === END BUILD CODE ===
 
-Outputs stay small on purpose: agent runtimes truncate long tool results.
+A bigger room's build comes in parts (=== BUILD CODE PART k/N ... ===), one
+Unity_RunCommand call each, in order: the first parts store slices of the spec
+in the Editor's SessionState, the last reassembles them (length + hash checked)
+and builds.
+`build_code <slug> <k>` prints part k alone.
+
+Outputs stay small on purpose (agent runtimes truncate tool results at 16k).
 Non-zero exit + a JSON {"error": ...} on failure.
 """
 
@@ -39,10 +40,29 @@ from pathlib import Path
 
 import scene_tools as st
 import unity_room as ur
+import web_media as wm
+
+MAX_OUTPUT = 12000
 
 
 def _state_dir() -> Path:
     return Path(os.environ.get("SKETCHSCAPE_ROOM_STATE_DIR", "/tmp/sketchscape-rooms"))
+
+
+def _json_arg(raw: str) -> dict:
+    payload = json.loads(sys.stdin.read() if raw == "-" else raw)
+    if not isinstance(payload, dict):
+        raise TypeError("expected a JSON object")
+    return payload
+
+
+def _emit(obj: object) -> None:
+    text = json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+    if len(text) > MAX_OUTPUT and isinstance(obj, dict) and isinstance(obj.get("results"), list):
+        while len(text) > MAX_OUTPUT and obj["results"]:
+            obj["results"].pop()
+            text = json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+    print(text[:MAX_OUTPUT])
 
 
 def _print_code(label: str, code: str) -> None:
@@ -52,57 +72,133 @@ def _print_code(label: str, code: str) -> None:
 
 
 def _compose(raw: str) -> None:
-    payload = json.loads(sys.stdin.read() if raw == "-" else raw)
-    hint = payload.get("sketch_layout_hint")
-    plan = ur.compose_room(
-        payload["objects"],
-        theme=payload.get("theme") or (payload.get("connection_insight") or {}).get("theme") or "Shared Room",
-        connection_insight=payload.get("connection_insight"),
-        sketch_layout_hint=st.LayoutHint(**hint) if hint else None,
-        room_name=payload.get("room_name"),
-        project_id=payload.get("project_id", "preview"),
-    )
-    code = plan.pop("build_code")
+    result = ur.compose_room(_json_arg(raw))
+    slug = result["plan"]["room"]["slug"]
     state = _state_dir()
     state.mkdir(parents=True, exist_ok=True)
-    (state / f"{plan['room']['slug']}.build.cs").write_text(code)
-    print(json.dumps(plan, separators=(",", ":")))
+    (state / f"{slug}.spec.json").write_text(json.dumps(result["spec"], indent=1, ensure_ascii=False), encoding="utf-8")
+    (state / f"{slug}.build.cs").write_text(result["build_code"], encoding="utf-8")
+    (state / f"{slug}.finalize.cs").write_text(result["finalize_code"], encoding="utf-8")
+    plan = result["plan"]
+    text = json.dumps(plan, separators=(",", ":"), ensure_ascii=False)
+    if len(text) > MAX_OUTPUT:  # many hotspots/objects: keep the plan printable
+        for key in ("notes", "images", "audio", "lights"):
+            plan[key] = plan[key][:3] if isinstance(plan.get(key), list) else plan.get(key)
+        for obj in plan["objects"]:
+            obj.pop("position", None)
+    print(json.dumps(plan, separators=(",", ":"), ensure_ascii=False))
 
 
-def _build_code(slug: str) -> None:
-    path = _state_dir() / f"{ur._checked_slug(slug)}.build.cs"
-    if not path.is_file():
+def _part_block(parts: list[str], k: int) -> str:
+    n = len(parts)
+    return (f"=== BUILD CODE PART {k}/{n}: pass everything between the markers verbatim as Code to unity-mcp__Unity_RunCommand ===\n"
+            f"{parts[k - 1].rstrip()}\n=== END BUILD CODE PART {k}/{n} ===")
+
+
+def _build_code(arg: str) -> None:
+    """``build_code <slug>`` (all parts that fit in one output) or ``build_code <slug> <k>`` (part k)."""
+    words = arg.replace(":", " ").split()
+    slug = ur._checked_slug(words[0] if words else "")
+    spec_path = _state_dir() / f"{slug}.spec.json"
+    if not spec_path.is_file():
         raise st.SceneToolError(f"no composed room '{slug}'; run compose_room first (it prints room.slug)")
-    _print_code("BUILD", path.read_text())
+    parts = ur.room_build_parts(json.loads(spec_path.read_text(encoding="utf-8")))
+    n = len(parts)
+    if len(words) > 1:
+        k = int(words[1])
+        if not 1 <= k <= n:
+            raise ValueError(f"room {slug} has build parts 1..{n}")
+        if n == 1:
+            _print_code("BUILD", parts[0])
+        else:
+            print(_part_block(parts, k))
+        return
+    if n == 1:
+        _print_code("BUILD", parts[0])
+        return
+    head = (f"This room's build comes in {n} parts. Make one unity-mcp__Unity_RunCommand call per part, in order "
+            f"1..{n}, each with exactly the code between that part's markers (parts 1-{n - 1} store the room spec in "
+            f"Unity, part {n} builds the room).")
+    blocks = [_part_block(parts, k) for k in range(1, n + 1)]
+    text = "\n".join([head] + blocks)
+    if len(text) <= MAX_OUTPUT:
+        print(text)
+    else:  # too long for one tool result: one part at a time
+        print(head + f" This output shows part 1; get the others with: build_code {slug} 2 ... build_code {slug} {n}")
+        print(blocks[0])
+
+
+def _finalize_code(slug: str) -> None:
+    slug = ur._checked_slug(slug)
+    spec_path = _state_dir() / f"{slug}.spec.json"
+    spec = json.loads(spec_path.read_text(encoding="utf-8")) if spec_path.is_file() else None
+    _print_code("FINALIZE", ur.room_finalize_command(slug, spec))
 
 
 def _list_assets(_: str) -> None:
     assets = ur.load_catalog()
-    print(json.dumps(
-        {"real_assets": [{"label": a["label"], "asset_id": a["asset_id"]} for a in assets],
-         "note": "Objects whose label contains one of these labels are built from the real 3D scan; others are placeholder cubes."},
-        separators=(",", ":"),
-    ))
+    _emit({
+        "real_assets": [
+            {"label": a.get("label"), "asset_id": a.get("asset_id"), "scene_id": a.get("upload_id") or "",
+             "posed": bool((a.get("pose") or {}).get("object") or (a.get("pose") or {}).get("rotation"))}
+            for a in assets
+        ][:80],
+        "note": "Objects whose label contains one of these labels are built from the real 3D scan; others are placeholder cubes. Prefer compose_room with a scene_id (list_scenes all).",
+    })
+
+
+def _list_scenes(_: str) -> None:
+    doc = ur.load_catalog_doc()
+    scenes = ur.list_scenes(doc)
+    _emit({
+        "scenes": scenes[:30],
+        "note": ("compose_room {\"scene_id\": ..., \"room_name\": ...} rebuilds that photo as a room you stand inside, with all its objects."
+                 if scenes else "No photo scenes synced yet; compose_room with objects instead (list_assets all)."),
+    })
+
+
+def _search_images(raw: str) -> None:
+    p = _json_arg(raw)
+    _emit(wm.search_images(p.get("query") or p.get("q") or "", count=p.get("count", 5), license=p.get("license") or wm.DEFAULT_LICENSES,
+                           aspect_ratio=p.get("aspect_ratio") or ""))
+
+
+def _search_sounds(raw: str) -> None:
+    p = _json_arg(raw)
+    _emit(wm.search_sounds(p.get("query") or p.get("q") or "", count=p.get("count", 4), license=p.get("license") or wm.DEFAULT_LICENSES,
+                           prefer_loops=bool(p.get("prefer_loops", True))))
+
+
+def _search_environment(raw: str) -> None:
+    p = _json_arg(raw)
+    _emit(wm.search_environment(p.get("query") or p.get("q") or "", kind=p.get("kind") or "hdri", categories=p.get("categories") or "",
+                                count=p.get("count", 4), resolution=p.get("resolution") or "2k"))
 
 
 _COMMANDS = {
+    "list_scenes": _list_scenes,
     "list_assets": _list_assets,
+    "search_images": _search_images,
+    "search_sounds": _search_sounds,
+    "search_environment": _search_environment,
     "compose_room": _compose,
     "build_code": _build_code,
-    "finalize_code": lambda slug: _print_code("FINALIZE", ur.room_finalize_command(slug)),
+    "finalize_code": _finalize_code,
 }
+
+_USAGE = ("usage: unity_room_cli.py list_scenes all | list_assets all | search_images '<json>' | search_sounds '<json>' | "
+          "search_environment '<json>' | compose_room '<json>'|- | build_code <slug> [part] | finalize_code <slug>")
 
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] == ["build_code"] and len(argv) == 4:  # build_code <slug> <part>
+        argv = argv[:2] + [f"{argv[2]} {argv[3]}"]
     if len(argv) != 3 or argv[1] not in _COMMANDS:
-        print(
-            json.dumps({"error": "usage: unity_room_cli.py compose_room '<json>'|- | build_code <slug> | finalize_code <slug> | list_assets all"}),
-            file=sys.stderr,
-        )
+        print(json.dumps({"error": _USAGE}))
         return 2
     try:
         _COMMANDS[argv[1]](argv[2])
-    except (st.SceneToolError, KeyError, TypeError, json.JSONDecodeError) as exc:
+    except (st.SceneToolError, wm.WebMediaError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         print(json.dumps({"error": f"{type(exc).__name__}: {exc}"}))
         return 1
     return 0

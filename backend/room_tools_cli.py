@@ -50,6 +50,7 @@ def _cmd_draft_room(payload: dict) -> dict:
         payload["project_id"],
         connection_insight=payload.get("connection_insight"),
         theme=payload.get("theme"),
+        player_eye_height=payload.get("player_eye_height"),
     )
 
 

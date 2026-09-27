@@ -206,6 +206,10 @@
         "contribution_id": {
           "type": ["string", "null"],
           "maxLength": 80
+        },
+        "placement": {
+          "description": "upright: Unity stands the Z-up scan on the floor at the origin. pose: the transform already carries the scan's pose from its photo (scene_layout.py); apply it exactly.",
+          "enum": ["upright", "pose"]
         }
       }
     },

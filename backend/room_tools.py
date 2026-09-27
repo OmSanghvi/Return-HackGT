@@ -395,6 +395,7 @@ def draft_room(
     *,
     connection_insight: Optional[dict] = None,
     theme: Optional[str] = None,
+    player_eye_height: Optional[float] = None,
     base_url: str | None = None,
     token: str | None = None,
     nemoclaw_id: str | None = None,
@@ -415,6 +416,7 @@ def draft_room(
     The draft is based on the live revision (0 if nothing is published) and
     replaces the live layout. On a 409 it raises ``StaleRevisionError``.
     """
+    import scene_layout
     import scene_tools as st  # local: keeps get_room_state/propose_room_edit import-light
 
     base_url, token, nemoclaw_id, timeout = _resolve(base_url, token, nemoclaw_id, timeout_seconds)
@@ -464,6 +466,21 @@ def draft_room(
             obj["scale"] = [round(size, 3)] * 3
             obj["position"][1] = 0.0
 
+    # Where the scans carry their pose from the photo, reproduce the photo:
+    # positions, orientations and player-relative sizes (scene_layout.py).
+    photo_layout = scene_layout.apply_photo_layout(
+        blueprint["objects"],
+        {
+            obj["id"]: {
+                "pose": by_id[obj["asset_id"]].get("pose"),
+                "photo": ((by_id[obj["asset_id"]].get("views") or [{}])[0]).get("image_key"),
+                "label_size": max(st._footprint_for_label(by_id[obj["asset_id"]].get("label") or "")),
+            }
+            for obj in blueprint["objects"]
+        },
+        player_eye_height=player_eye_height,
+    )
+
     staging = None
     if connection_insight:
         staging = st.stage_immersive_reveal(connection_insight, blueprint["objects"])
@@ -494,6 +511,7 @@ def draft_room(
             "label": by_id[obj["asset_id"]].get("label"),
             "size_m": obj["scale"][0],
             "attributed": obj["contribution_id"] is not None,
+            "placed_from_photo": obj.get("placement") == "pose",
         }
         for obj in blueprint["objects"]
     ]
@@ -501,6 +519,12 @@ def draft_room(
         f"revision {result['revision']} drafted for project {project_id} from live {live_revision}: "
         f"{len(objects)} object(s) ({', '.join(str(o['label']) for o in objects)}), all grabbable"
         + (f", lighting {staging['lighting_preset']}, reveal {' -> '.join(staging['reveal_order'])}" if staging else "")
+        + (
+            f"; {len(photo_layout['objects'])} object(s) placed as in their photo, scaled to a "
+            f"{photo_layout['player_eye_height']} m eye height ({photo_layout['scale_source']})"
+            if photo_layout
+            else "; no photo poses, so objects are arranged in an arc"
+        )
         + ". Not published: a project member publishes it (website or scripts/publish_room.py), then "
         "scripts/export_unity_experience.py + Unity's offline builder turn it into the VR scene."
     )
@@ -514,6 +538,7 @@ def draft_room(
             "reveal_order": staging["reveal_order"],
             "narration": staging["narration"]["text"],
         },
+        "photo_layout": photo_layout,
         "published": False,
         "summary": summary,
     }

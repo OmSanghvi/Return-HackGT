@@ -8,6 +8,8 @@ one job at a time and writes the result manifest in ``worker_contract.json``.
 from __future__ import annotations
 
 import asyncio
+import collections
+import contextlib
 import hashlib
 import io
 import json
@@ -53,7 +55,7 @@ from auth import (
 )
 from storage import RevisionConflict, create_store
 from artifact_store import create_artifact_store
-from subject_labeler import SubjectLabelError, create_subject_labeler
+from subject_labeler import GpuSubjectLabeler, SubjectLabel, SubjectLabelError, create_subject_labeler
 from letters import LetterSceneRef, RoomLetterView, room_letter_views
 
 
@@ -97,6 +99,10 @@ class SceneObject(BaseModel):
     # Anyone in the room may pick this up to look at it; it returns to its
     # place when released (local only; nothing is saved).
     grabbable: bool = False
+    # How Unity places a real scan: "upright" stands the Z-up scan on the
+    # floor at its origin; "pose" applies the transform exactly, because it
+    # already carries the scan's pose from the photo (scene_layout.py).
+    placement: Literal["upright", "pose"] = "upright"
     # Step 28: runtime fields for a letter object. The texture URL is never
     # here -- it depends on who's asking (sealed vs. opened), so Unity reads
     # it from room state instead.
@@ -147,7 +153,9 @@ class ProjectRecord(BaseModel):
     created_by: str | None = None
 
 
-SubjectHintSource = Literal["user", "nemoclaw"]
+# "nemoclaw": NemoClaw identify_subject (or the offline mock); "gpu": the GPU
+# host's vision server (subject_labeler.GpuSubjectLabeler).
+SubjectHintSource = Literal["user", "nemoclaw", "gpu"]
 
 
 class ViewStatus(StrEnum):
@@ -176,6 +184,14 @@ class AssetView(BaseModel):
     preview_url: str | None = None
     error: str | None = None
     recorded_at: datetime
+    # The object's pose in its photo (worker pose.json, scene_layout.py): lets a
+    # room reproduce the photo's layout and real sizes. None for older scans.
+    pose: dict[str, Any] | None = None
+    # The upload (photo) this view came from, and that photo's whole-scene
+    # capture (docs/IMMERSIVE_SCENE_PIPELINE.md 1b): the storage key of
+    # artifacts/scenes/<upload_id>/scene.json once the GPU stored it.
+    upload_id: str | None = None
+    scene_key: str | None = None
 
 
 AssetKind = Literal["reconstruction", "sketch_card"]
@@ -201,6 +217,9 @@ class ProjectAsset(BaseModel):
     bounds: list[float] = Field(default_factory=lambda: [1.0, 1.0, 1.0], min_length=3, max_length=3)
     suggested_scale: list[float] = Field(default_factory=lambda: [1.0, 1.0, 1.0], min_length=3, max_length=3)
     error: str | None = None
+    # The object's pose in its photo (worker pose.json, scene_layout.py): lets a
+    # room reproduce the photo's layout and real sizes. None for older scans.
+    pose: dict[str, Any] | None = None
     # Step 26: reconstruction | sketch_card | letter (letter arrives in step 28).
     kind: Literal["reconstruction", "sketch_card", "letter"] = "reconstruction"
     views: list[AssetView] = Field(
@@ -323,6 +342,10 @@ class BlueprintObject(BaseModel):
     # The contribution this object stands for; compile_blueprint turns it into
     # the social manifest. None for unattributed objects (e.g. set dressing).
     contribution_id: str | None = Field(default=None, max_length=80)
+    # How Unity places a real scan: "upright" stands the Z-up scan on the
+    # floor at its origin; "pose" applies the transform exactly, because it
+    # already carries the scan's pose from the photo (scene_layout.py).
+    placement: Literal["upright", "pose"] = "upright"
 
 
 class PortalSettings(BaseModel):
@@ -443,6 +466,11 @@ class ReconstructionJob(ReconstructionResponse):
     mask_url: str | None = None
     artifact_url: str | None = None
     error: str | None = None
+    # The object's pose in its photo (worker pose.json, scene_layout.py): lets a
+    # room reproduce the photo's layout and real sizes. None for older scans.
+    pose: dict[str, Any] | None = None
+    # /v1/artifacts/<job_id>/pose.json: the full (sanitized) pose file.
+    pose_url: str | None = None
     scene: SceneDocument | None = None
     # Step 26 durable-job fields.
     kind: JobKind = "reconstruct"
@@ -454,6 +482,10 @@ class ReconstructionJob(ReconstructionResponse):
     # Shared-storage keys (ArtifactStore uploads/ prefix), not host-local paths.
     image_key: str | None = None
     mask_key: str | None = None
+    # A `segment` job from an upload that asked for it (auto-detected or named
+    # at upload time): once every selection resolves, the backend queues the
+    # `reconstruct` jobs itself instead of waiting for /generate.
+    auto_generate: bool = False
 
 
 SelectionStatus = Literal["pending", "segmented", "failed", "generated"]
@@ -464,6 +496,10 @@ class SelectionPrompt(BaseModel):
     """A typed name for the object SAM 3.1 should find (validated in the route)."""
 
     text: str = Field(min_length=1, max_length=100)
+    # Where the vision labeler saw this object: pixel box [x0, y0, x1, y1] in
+    # the stored (EXIF-oriented) upload image. Lets the segmenter pick *that*
+    # instance when the photo has several of a kind; None for typed names.
+    box: list[float] | None = Field(default=None, min_length=4, max_length=4)
 
 
 class UploadSelection(BaseModel):
@@ -495,6 +531,12 @@ class UploadRecord(BaseModel):
     created_at: datetime
     original_filename: str = ""
     selections: list[UploadSelection] = Field(default_factory=list)
+    # The whole photo as a scene (docs/IMMERSIVE_SCENE_PIPELINE.md 1b), stored
+    # by the GPU host under artifacts/scenes/<upload_id>/. Storage keys.
+    scene_key: str | None = None
+    scene_ply_key: str | None = None
+    analysis_key: str | None = None
+    scene_updated_at: datetime | None = None
 
 
 class SelectionsRequest(BaseModel):
@@ -863,6 +905,65 @@ def invite_codes_match(provided: str | None, expected: str) -> bool:
     return secrets.compare_digest(provided, expected)
 
 
+MAX_POSE_BYTES = 256 * 1024
+# The pose is also kept inline on the job, the asset and its view (DynamoDB
+# items max out at 400 KB), so the inline copy is capped; the full file is
+# always at artifacts/<job_id>/pose.json.
+MAX_INLINE_POSE_BYTES = 48 * 1024
+_MAX_JSON_DEPTH = 32
+
+
+def finite_json(value: Any, depth: int = 0) -> Any:
+    """``value`` with every NaN/Infinity replaced by None (strict JSON)."""
+    if depth > _MAX_JSON_DEPTH:
+        raise ValueError("JSON nesting is too deep.")
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(k): finite_json(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, list):
+        return [finite_json(v, depth + 1) for v in value]
+    return value
+
+
+def inline_pose(pose: dict[str, Any]) -> dict[str, Any] | None:
+    """A copy of ``pose`` small enough to embed in the job/asset records:
+    the whole pose, else without its bulky ``raw`` decoder record, else None."""
+    if len(json.dumps(pose)) <= MAX_INLINE_POSE_BYTES:
+        return pose
+    trimmed = {key: value for key, value in pose.items() if key != "raw"}
+    if len(json.dumps(trimmed)) <= MAX_INLINE_POSE_BYTES:
+        return trimmed
+    return None
+
+
+async def read_worker_pose(upload: UploadFile) -> dict[str, Any] | None:
+    """The worker's pose.json (non-finite numbers nulled), or None if it is
+    unusable. A bad pose never fails a finished reconstruction; the room just
+    falls back to label sizes."""
+    data = await upload.read(MAX_POSE_BYTES + 1)
+    if len(data) > MAX_POSE_BYTES:
+        print(f"pose.json over {MAX_POSE_BYTES} bytes; ignored", file=sys.stderr)
+        return None
+    try:
+        pose = finite_json(json.loads(data))
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError):
+        print("pose.json is not valid JSON; ignored", file=sys.stderr)
+        return None
+    if not isinstance(pose, dict) or not isinstance(pose.get("version"), int):
+        print("pose.json has no integer version; ignored", file=sys.stderr)
+        return None
+    return pose
+
+
+def upload_id_from_image_key(image_key: str | None) -> str | None:
+    """``uploads/<project_id>/<upload_id>/<file>`` -> upload_id."""
+    parts = (image_key or "").split("/")
+    if len(parts) == 4 and parts[0] == "uploads" and parts[2]:
+        return parts[2]
+    return None
+
+
 def sync_project_asset(job: ReconstructionJob) -> None:
     if not job.asset_id:
         return
@@ -875,7 +976,16 @@ def sync_project_asset(job: ReconstructionJob) -> None:
     if view is not None:
         view.artifact_url = job.artifact_url
         view.mask_url = job.mask_url
+        view.pose = job.pose
         view.error = job.error
+        # Carry the photo's scene capture onto the view; also repairs a
+        # scene_key lost to a concurrent write of this asset.
+        if job.upload_id and view.upload_id is None:
+            view.upload_id = job.upload_id
+        if view.scene_key is None and job.project_id and job.upload_id:
+            upload = store.get_upload_record(job.project_id, job.upload_id)
+            if upload is not None and upload.scene_key:
+                view.scene_key = upload.scene_key
         if job.status == JobStatus.COMPLETE:
             view.status = ViewStatus.READY
         elif job.status == JobStatus.MASK_REVIEW:
@@ -897,6 +1007,7 @@ def sync_project_asset(job: ReconstructionJob) -> None:
             first_ready = next(v for v in asset.views if v.status == ViewStatus.READY)
             asset.artifact_url = first_ready.artifact_url
             asset.mask_url = first_ready.mask_url
+            asset.pose = first_ready.pose
             asset.error = None
         elif ViewStatus.MASK_REVIEW in statuses:
             asset.status = AssetStatus.MASK_REVIEW
@@ -908,6 +1019,7 @@ def sync_project_asset(job: ReconstructionJob) -> None:
         # Pre-provenance asset (no views) — legacy single-job sync.
         asset.artifact_url = job.artifact_url
         asset.mask_url = job.mask_url
+        asset.pose = job.pose
         asset.error = job.error
         if job.status == JobStatus.COMPLETE:
             asset.status = AssetStatus.READY
@@ -991,6 +1103,7 @@ def compile_blueprint(blueprint: ExperienceBlueprint) -> SceneDocument:
                     if action.removesuffix("_by") in item.interactions
                 ],
                 grabbable="grab" in item.interactions,
+                placement=item.placement,
                 letter=(
                     LetterSceneRef(
                         letter_id=letter.letter_id,
@@ -1044,19 +1157,42 @@ async def resolve_subject_hint(
         return subject_hint.strip(), "user", None
     if has_mask:
         return None, None, None
-    with tempfile.NamedTemporaryFile(suffix=image_suffix) as tmp:
-        tmp.write(image_bytes)
-        tmp.flush()
-        try:
-            label = await asyncio.to_thread(
-                subject_labeler.identify_subject, Path(tmp.name), original_filename
-            )
-        except SubjectLabelError as exc:
-            print(f"identify_subject unavailable: {exc}", file=sys.stderr)
-            return None, None, None
+    label = await label_photo(image_bytes, image_suffix, original_filename)
     if label is None:
         return None, None, None
-    return label.label, "nemoclaw", label.backend
+    return label.label, label_source(label), label.backend
+
+
+def label_source(label: SubjectLabel) -> SubjectHintSource:
+    return "gpu" if label.backend.startswith("gpu") else "nemoclaw"
+
+
+async def label_photo(
+    image_bytes: bytes, image_suffix: str, original_filename: str, *, raise_unavailable: bool = False
+) -> SubjectLabel | None:
+    """Every object the configured labeler sees in a photo (most prominent
+    first), or None. Never raises (unless ``raise_unavailable``, for a caller
+    that retries: then an unavailable labeler raises ``SubjectLabelError``):
+    a missing, slow or broken labeler just means no suggestions, so an upload
+    never fails over it.
+
+    `identify_subject` takes a path, so the (already shared-storage-durable)
+    image bytes are spilled to a throwaway temp file just for this call.
+    """
+    try:
+        with tempfile.NamedTemporaryFile(suffix=image_suffix) as tmp:
+            tmp.write(image_bytes)
+            tmp.flush()
+            return await asyncio.to_thread(
+                subject_labeler.identify_subject, Path(tmp.name), original_filename
+            )
+    except SubjectLabelError as exc:
+        print(f"identify_subject unavailable: {exc}", file=sys.stderr)
+        if raise_unavailable:
+            raise
+    except Exception as exc:  # noqa: BLE001 - a labeler bug must not 500 an upload
+        print(f"identify_subject failed: {exc!r}", file=sys.stderr)
+    return None
 
 
 def dispatch_job(job: ReconstructionJob, background_tasks: BackgroundTasks) -> None:
@@ -1156,6 +1292,10 @@ async def run_mock_segment_job(job_id: str) -> None:
     job.status = JobStatus.COMPLETE
     job.updated_at = utc_now()
     store.save_job(job)
+    if job.auto_generate:
+        tasks = BackgroundTasks()
+        await auto_generate_segmented(job, tasks)
+        await tasks()
 
 
 @app.get("/health")
@@ -1226,7 +1366,39 @@ async def rotate_project_invite(
 )
 async def list_project_assets(project_id: str) -> list[ProjectAsset]:
     project = get_project(project_id)
-    return [store.get_asset(asset_id) for asset_id in project_asset_ids(project) if store.get_asset(asset_id)]
+    assets = [asset for asset in (store.get_asset(i) for i in project_asset_ids(project)) if asset is not None]
+    return await asyncio.to_thread(with_scene_info, project_id, assets)
+
+
+def with_scene_info(project_id: str, assets: list[ProjectAsset]) -> list[ProjectAsset]:
+    """Fill each view's ``upload_id``/``scene_key`` from its photo's upload
+    record (read-time, so views made before the scene was captured, or whose
+    write raced the scene callback, still point at the scene). A scene put
+    straight into storage (worker/backfill_scenes.py) has no record yet, so
+    for those photos the scene.json itself is looked up (one HEAD each)."""
+    uploads = {upload.image_key: upload for upload in store.list_upload_records(project_id)}
+    found: dict[str, str | None] = {}
+
+    def scene_key_of(upload: UploadRecord) -> str | None:
+        if upload.scene_key:
+            return upload.scene_key
+        if upload.upload_id not in found:
+            stored = _SCENE_ID.match(upload.upload_id) and artifact_store.exists(
+                scene_artifact_dir(upload.upload_id), "scene.json"
+            )
+            found[upload.upload_id] = scene_storage_key(upload.upload_id, "scene.json") if stored else None
+        return found[upload.upload_id]
+
+    for asset in assets:
+        for view in asset.views:
+            upload = uploads.get(view.image_key)
+            if upload is None:
+                continue
+            view.upload_id = view.upload_id or upload.upload_id
+            key = scene_key_of(upload)
+            if key:
+                view.scene_key = key
+    return assets
 
 
 @app.post(
@@ -1511,6 +1683,7 @@ async def receive_worker_result(
     ply: UploadFile | None = File(default=None, description="SAM 3D Gaussian-splat PLY"),
     mask: UploadFile | None = File(default=None, description="Aligned binary object mask"),
     preview: UploadFile | None = File(default=None, description="Mask-preview PNG"),
+    pose: UploadFile | None = File(default=None, description="Object pose in its photo (worker scene_pose.py)"),
 ) -> ReconstructionJob:
     """Private callback for the GPU worker; it is not a Unity endpoint."""
     if not worker_is_authorized(worker_token):
@@ -1542,6 +1715,18 @@ async def receive_worker_result(
             await artifact_store.put(
                 job_id, "mask-preview.png", preview, size_limit=MAX_UPLOAD_BYTES
             )
+        job.pose, job.pose_url = None, None
+        full_pose = await read_worker_pose(pose) if pose is not None else None
+        if full_pose is not None:
+            try:
+                job.pose_url = await artifact_store.put(
+                    job_id, "pose.json",
+                    _bytes_upload_file(json.dumps(full_pose).encode(), "pose.json"),
+                    size_limit=2 * MAX_POSE_BYTES,
+                )
+            except Exception as error:  # noqa: BLE001 - layout metadata never fails a scan
+                print(f"[{job_id[:8]}] could not store pose.json: {error!r}", file=sys.stderr)
+            job.pose = inline_pose(full_pose)
         job.scene = SceneDocument(
             objects=[
                 SceneObject(
@@ -1574,6 +1759,9 @@ async def receive_worker_result(
 class SegmentTaskSelection(BaseModel):
     selection_id: str
     text: str
+    # The vision labeler's pixel box for this object (SelectionPrompt.box),
+    # so the segmenter can pick that instance; None for typed names.
+    box: list[float] | None = None
 
 
 class SegmentTaskResponse(BaseModel):
@@ -1602,7 +1790,7 @@ async def get_worker_selections(
     upload = get_upload_or_404(job.project_id, job.upload_id)
     by_id = {item.selection_id: item for item in upload.selections}
     selections = [
-        SegmentTaskSelection(selection_id=sid, text=by_id[sid].prompt.text)
+        SegmentTaskSelection(selection_id=sid, text=by_id[sid].prompt.text, box=by_id[sid].prompt.box)
         for sid in job.selection_ids
         if sid in by_id
     ]
@@ -1616,6 +1804,7 @@ async def get_worker_selections(
 async def receive_selection_result(
     job_id: str,
     selection_id: str,
+    background_tasks: BackgroundTasks,
     result: Annotated[str, Form(description="JSON SelectionWorkerResult payload")],
     worker_token: Annotated[str | None, Form()] = None,
     worker_id: Annotated[str | None, Form(description="Lease owner from /v1/internal/jobs/claim")] = None,
@@ -1691,8 +1880,239 @@ async def receive_selection_result(
         job.lease_expires_at = None
         job.updated_at = utc_now()
         store.save_job(job)
+        if job.auto_generate:
+            await auto_generate_segmented(job, background_tasks)
 
     return selection
+
+
+# -- Whole-photo scene capture (docs/IMMERSIVE_SCENE_PIPELINE.md 1b / 2) -------
+#
+# The GPU host turns each uploaded photo into a metric scene (SHARP splat +
+# MoGe-2 depth/intrinsics/gravity + optional vision analysis) and stores it
+# under artifacts/scenes/<upload_id>/ through these worker-only routes. It is
+# addressed by any of the photo's jobs, so the GPU side needs nothing but the
+# job id it is already working on.
+
+MAX_SCENE_JSON_BYTES = 2 * 1024 * 1024
+MAX_SCENE_PLY_BYTES = 200 * 1024 * 1024
+MAX_SCENE_ANALYSIS_BYTES = 256 * 1024
+SCENE_FILES = ("scene.json", "scene.ply", "analysis.json")
+_SCENE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+
+
+def scene_upload_id(job: ReconstructionJob) -> str:
+    """The photo a job belongs to. A standalone /v1/reconstructions job has no
+    UploadRecord; its own id stands in for the upload."""
+    scene_id = job.upload_id or job.job_id
+    if not _SCENE_ID.match(scene_id):
+        raise HTTPException(422, "This job's upload id cannot name a scene directory.")
+    return scene_id
+
+
+def scene_artifact_dir(upload_id: str) -> str:
+    """ArtifactStore "job id" for a scene: artifacts/scenes/<upload_id>/."""
+    return f"scenes/{upload_id}"
+
+
+def scene_storage_key(upload_id: str, filename: str) -> str:
+    """The object key (S3) / path under DATA_DIR (local) of one scene file."""
+    return f"artifacts/scenes/{upload_id}/{filename}"
+
+
+def _reject_constant(name: str) -> Any:
+    raise ValueError(f"non-finite number {name} (the contract requires finite JSON)")
+
+
+async def read_json_document(upload: UploadFile, field: str, limit: int) -> tuple[bytes, dict[str, Any]]:
+    """The raw bytes and parsed object of an uploaded JSON file; 413/422 when
+    it is too large, not strict JSON (NaN/Infinity rejected), or not an object."""
+    data = await upload.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(413, f"`{field}` exceeds the {limit // 1024} KB limit.")
+    try:
+        document = json.loads(data, parse_constant=_reject_constant)
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError) as error:
+        raise HTTPException(422, f"`{field}` is not valid JSON: {error}") from error
+    if not isinstance(document, dict):
+        raise HTTPException(422, f"`{field}` must be a JSON object.")
+    return data, document
+
+
+def record_scene_on_assets(job: ReconstructionJob, upload: UploadRecord | None, upload_id: str, scene_key: str) -> int:
+    """Set ``scene_key`` on every asset view made from this photo (or, for a
+    standalone job, on its own asset). Returns how many assets changed."""
+    if job.project_id is None:
+        candidates = [job.asset_id] if job.asset_id else []
+    else:
+        project = store.get_project(job.project_id)
+        candidates = sorted(project_asset_ids(project)) if project is not None else []
+        if job.asset_id and job.asset_id not in candidates:
+            candidates.append(job.asset_id)
+    changed = 0
+    for asset_id in candidates:
+        asset = store.get_asset(asset_id)
+        if asset is None:
+            continue
+        touched = False
+        for view in asset.views:
+            same_photo = (
+                view.reconstruction_job_id == job.job_id
+                or view.upload_id == upload_id
+                or (upload is not None and view.image_key == upload.image_key)
+            )
+            if same_photo and (view.scene_key != scene_key or view.upload_id != upload_id):
+                view.scene_key = scene_key
+                view.upload_id = upload_id
+                touched = True
+        if touched:
+            store.save_asset(asset)
+            changed += 1
+    return changed
+
+
+async def store_scene_ply(directory: str, upload: UploadFile) -> None:
+    """Store a (<= 200 MB) scene splat off the event loop, in constant memory:
+    Starlette has already spooled the part to disk; it is copied in 1 MB
+    chunks to a size-capped temp file and handed to the ArtifactStore from
+    there (S3 multipart upload / local copy), so the API keeps serving
+    everyone else meanwhile and the splat never sits in RAM."""
+
+    def spill_and_store() -> None:
+        fd, tmp_name = tempfile.mkstemp(suffix=".ply")
+        tmp_path = Path(tmp_name)
+        try:
+            size = 0
+            with os.fdopen(fd, "wb") as output:
+                upload.file.seek(0)
+                while chunk := upload.file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > MAX_SCENE_PLY_BYTES:
+                        raise HTTPException(
+                            413, f"`scene_ply` exceeds the {MAX_SCENE_PLY_BYTES // 1024 // 1024} MB limit."
+                        )
+                    output.write(chunk)
+            if not size:
+                raise HTTPException(400, "`scene_ply` is empty.")
+            # copy_local never awaits (plain file copy / boto3 upload_file),
+            # so it runs to completion on this thread's own loop.
+            asyncio.run(artifact_store.copy_local(directory, "scene.ply", tmp_path))
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    await asyncio.to_thread(spill_and_store)
+
+
+@app.get("/v1/internal/reconstructions/{job_id}/scene")
+async def get_worker_scene(
+    job_id: str,
+    worker_token: Annotated[str | None, Header(alias="X-SketchScape-Worker-Token")] = None,
+) -> dict[str, Any]:
+    """Worker-only: which photo this job belongs to and whether its scene is
+    already stored (``exists`` = scene.json present), so the GPU host captures
+    each photo once however many of its objects are reconstructed."""
+    if not worker_is_authorized(worker_token):
+        raise HTTPException(401, "Invalid GPU worker token.")
+    job = get_job_or_404(job_id)
+    upload_id = scene_upload_id(job)
+    upload = (
+        store.get_upload_record(job.project_id, job.upload_id)
+        if job.project_id and job.upload_id
+        else None
+    )
+    exists = await asyncio.to_thread(artifact_store.exists, scene_artifact_dir(upload_id), "scene.json")
+    return {
+        "upload_id": upload_id,
+        "project_id": job.project_id,
+        "image_key": upload.image_key if upload is not None else job.image_key,
+        "exists": exists,
+        "scene_key": scene_storage_key(upload_id, "scene.json") if exists else None,
+    }
+
+
+@app.post("/v1/internal/reconstructions/{job_id}/scene")
+async def receive_worker_scene(
+    job_id: str,
+    worker_token: Annotated[str | None, Form()] = None,
+    worker_id: Annotated[str | None, Form(description="Lease owner from /v1/internal/jobs/claim")] = None,
+    scene_json: UploadFile = File(description="scene.json (contract 1b), <= 2 MB"),
+    scene_ply: UploadFile | None = File(default=None, description="scene.ply 3DGS splat, <= 200 MB"),
+    analysis_json: UploadFile | None = File(default=None, description="analysis.json, <= 256 KB"),
+) -> dict[str, Any]:
+    """Worker-only: store a photo's scene under artifacts/scenes/<upload_id>/
+    and record ``scene_key`` on the upload and on its assets' views.
+    Idempotent: a later capture of the same photo overwrites the files.
+    ``scene_ply`` is optional so a capture whose splat failed still delivers
+    its depth, intrinsics and gravity."""
+    if not worker_is_authorized(worker_token):
+        raise HTTPException(401, "Invalid GPU worker token.")
+    job = get_job_or_404(job_id)
+    if job.lease_owner is not None and job.lease_owner != worker_id:
+        raise HTTPException(401, "This job's lease is held by a different worker.")
+    upload_id = scene_upload_id(job)
+
+    scene_bytes, scene_doc = await read_json_document(scene_json, "scene_json", MAX_SCENE_JSON_BYTES)
+    if not isinstance(scene_doc.get("version"), int):
+        raise HTTPException(422, "`scene_json` needs an integer `version`.")
+    claimed = scene_doc.get("upload_id")
+    if claimed not in (None, "", upload_id):
+        raise HTTPException(422, f"`scene_json` is for upload {claimed!r}, but this job's photo is {upload_id!r}.")
+    analysis_bytes = None
+    if analysis_json is not None:
+        analysis_bytes, _ = await read_json_document(analysis_json, "analysis_json", MAX_SCENE_ANALYSIS_BYTES)
+    if scene_ply is not None:
+        magic = await scene_ply.read(4)
+        await scene_ply.seek(0)
+        if magic[:4] != b"ply\n" and magic[:4] != b"ply\r":
+            raise HTTPException(422, "`scene_ply` is not a PLY file.")
+
+    directory = scene_artifact_dir(upload_id)
+    # The splat and analysis first, scene.json last: `exists` (scene.json
+    # present) then means the whole capture is stored.
+    ply_key = None
+    if scene_ply is not None:
+        await store_scene_ply(directory, scene_ply)
+        ply_key = scene_storage_key(upload_id, "scene.ply")
+    analysis_key = None
+    if analysis_bytes is not None:
+        await artifact_store.put(
+            directory, "analysis.json", _bytes_upload_file(analysis_bytes, "analysis.json"),
+            size_limit=MAX_SCENE_ANALYSIS_BYTES,
+        )
+        analysis_key = scene_storage_key(upload_id, "analysis.json")
+    await artifact_store.put(
+        directory, "scene.json", _bytes_upload_file(scene_bytes, "scene.json"),
+        size_limit=MAX_SCENE_JSON_BYTES,
+    )
+    scene_key = scene_storage_key(upload_id, "scene.json")
+
+    # Read-modify-write of the upload record right after the (slow) file
+    # writes, so a concurrent selection result is not overwritten by a stale copy.
+    upload = (
+        store.get_upload_record(job.project_id, job.upload_id)
+        if job.project_id and job.upload_id
+        else None
+    )
+    if upload is not None:
+        upload.scene_key = scene_key
+        # An overwrite without a splat/analysis keeps the earlier files' keys
+        # only if those files are still there.
+        upload.scene_ply_key = ply_key or (
+            upload.scene_ply_key if artifact_store.exists(directory, "scene.ply") else None
+        )
+        upload.analysis_key = analysis_key or (
+            upload.analysis_key if artifact_store.exists(directory, "analysis.json") else None
+        )
+        upload.scene_updated_at = utc_now()
+        store.save_upload_record(upload)
+    assets_updated = record_scene_on_assets(job, upload, upload_id, scene_key)
+    return {
+        "upload_id": upload_id,
+        "scene_key": scene_key,
+        "scene_ply_key": upload.scene_ply_key if upload is not None else ply_key,
+        "analysis_key": upload.analysis_key if upload is not None else analysis_key,
+        "assets_updated": assets_updated,
+    }
 
 
 @app.get("/v1/scene", response_model=SceneResponse, dependencies=[Depends(require_mock_mode)])
@@ -2315,7 +2735,7 @@ async def get_project_asset(project_id: str, asset_id: str) -> ProjectAsset:
     asset = store.get_asset(asset_id)
     if asset is None:
         raise HTTPException(404, "Asset record not found.")
-    return asset
+    return (await asyncio.to_thread(with_scene_info, project_id, [asset]))[0]
 
 
 @app.get(
@@ -2421,9 +2841,11 @@ async def add_asset_view(
 # -- multi-object upload: person-chosen selections -> SAM 3.1 -> generate -----
 #
 # Build Plan step 26. The person picks which objects in a photo become 3D on
-# the website; those choices are the SAM 3.1 prompts. Auto-detect only ever
+# the website; those choices are the SAM 3.1 prompts. /detect only ever
 # creates *suggested* selections -- nothing is generated without the person
-# choosing. See docs/DATA_ARCHITECTURE.md's "Object selection flow".
+# choosing. See docs/DATA_ARCHITECTURE.md's "Object selection flow". The
+# upload default (no typed names, docs/IMMERSIVE_SCENE_PIPELINE.md 2) detects
+# every object and reconstructs them without a /generate call.
 
 
 class UploadCreateResponse(BaseModel):
@@ -2431,6 +2853,14 @@ class UploadCreateResponse(BaseModel):
     image_url: str
     width: int
     height: int
+    # Set when the upload itself asked for objects (typed `objects` or
+    # `detect`): the `segment` job and the selections it covers.
+    job_id: str | None = None
+    selections: list[UploadSelection] = Field(default_factory=list)
+    # "none" | "typed" | "detected" | "nothing_detected" | "auto_detect"
+    # (detection running in the background; poll the upload's selections).
+    objects_mode: str = "none"
+    label_backend: str | None = None
 
 
 class JobIdResponse(BaseModel):
@@ -2453,10 +2883,46 @@ def upload_image_url(project_id: str, upload_id: str) -> str:
 )
 async def create_upload(
     project_id: str,
+    background_tasks: BackgroundTasks,
     image: Annotated[UploadFile, File(description="Photo or Notability sketch page")],
+    objects: Annotated[
+        str | None,
+        Form(max_length=4000, description="Object names: a JSON array, or comma/newline separated"),
+    ] = None,
+    detect: Annotated[
+        bool | None,
+        Form(
+            description="Detect every object in the photo now (vision labeler). Unset: automatic "
+            "when no names are typed (see SKETCHSCAPE_UPLOAD_AUTO_DETECT); false: just store the photo."
+        ),
+    ] = None,
+    generate: Annotated[
+        bool | None,
+        Form(description="Queue the 3D reconstructions once segmented (default: on when objects are named or detected)"),
+    ] = None,
     identity: Identity = Depends(require_project_write),
 ) -> UploadCreateResponse:
+    """Store a photo and, by default, every object in it
+    (docs/IMMERSIVE_SCENE_PIPELINE.md 2: no typed names -> detect all objects).
+
+    - `objects` (typed names): one selection per name.
+    - `detect=true`: detect every object now (deduplicated, capped at the
+      per-upload limit); the response carries the selections and job.
+    - neither (the web app's own flow): when auto-detect is on
+      (`upload_auto_detect_enabled`), a background task detects every object
+      after a short grace period -- unless the client names objects
+      (/selections) or asks /detect itself first, which the web app does
+      right after its upload, so its objects are never doubled.
+      `objects_mode="auto_detect"`; poll the upload for its selections.
+    - `detect=false`: just store the photo.
+
+    The selections are queued as a single `segment` job exactly like
+    /selections, and by default each segmented object then gets its
+    `reconstruct` job without a /generate call (`generate=false` turns that
+    off). Labeler trouble never fails the upload
+    (`objects_mode="nothing_detected"`)."""
     get_project(project_id)
+    typed_names = parse_object_names(objects)
     image_extension(image)  # 415 on an unsupported content type
     raw = await read_upload_bytes(image)
     oriented, width, height, suffix = safe_exif_transpose(raw)
@@ -2478,12 +2944,249 @@ async def create_upload(
         original_filename=image.filename or "image",
     )
     store.save_upload_record(upload)
-    return UploadCreateResponse(
+    response = UploadCreateResponse(
         upload_id=upload_id,
         image_url=upload_image_url(project_id, upload_id),
         width=width,
         height=height,
     )
+    auto_generate = generate if generate is not None else True
+    if not typed_names and detect is None:
+        if upload_auto_detect_enabled():
+            background_tasks.add_task(auto_detect_upload, project_id, upload_id, auto_generate)
+            response.objects_mode = "auto_detect"
+        return response
+    if not typed_names and not detect:
+        return response
+    label_backend = None
+    if typed_names:
+        new_selections = [
+            UploadSelection(selection_id=uuid.uuid4().hex, prompt=SelectionPrompt(text=name), label=name)
+            for name in typed_names
+        ]
+        response.objects_mode = "typed"
+    else:
+        label = await label_photo(oriented, suffix, upload.original_filename)
+        new_selections = suggestion_selections(upload, label)
+        label_backend = label.backend if label is not None else None
+        response.objects_mode = "detected" if new_selections else "nothing_detected"
+    response.label_backend = label_backend
+    if not new_selections:
+        return response
+    upload.selections.extend(new_selections)
+    store.save_upload_record(upload)
+    job = queue_segment_job(
+        upload, new_selections, background_tasks,
+        label_backend=label_backend, auto_generate=auto_generate,
+    )
+    response.job_id = job.job_id
+    response.selections = new_selections
+    return response
+
+
+def parse_object_names(raw: str | None) -> list[str]:
+    """Typed object names from the upload form: a JSON array of strings, or
+    comma/newline separated. Trimmed, case-insensitively deduplicated; 422
+    when a name is too long or there are more than the per-upload cap."""
+    if raw is None or not raw.strip():
+        return []
+    text = raw.strip()
+    if text.startswith("["):
+        try:
+            items = json.loads(text)
+        except json.JSONDecodeError as error:
+            raise HTTPException(422, "`objects` is not a valid JSON array.") from error
+        if not isinstance(items, list) or not all(isinstance(item, str) for item in items):
+            raise HTTPException(422, "`objects` must be a JSON array of strings.")
+    else:
+        items = re.split(r"[,\n]", text)
+    names: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        name = " ".join(item.split())
+        if not name or name.lower() in seen:
+            continue
+        if len(name) > 100:
+            raise HTTPException(422, "A selection's text prompt must be ≤100 characters.")
+        seen.add(name.lower())
+        names.append(name)
+    max_objects = upload_pipeline.max_objects_per_upload()
+    if len(names) > max_objects:
+        raise HTTPException(422, f"A photo may have at most {max_objects} selected objects.")
+    return names
+
+
+def suggestion_selections(upload: UploadRecord, label: SubjectLabel | None) -> list[UploadSelection]:
+    """One *suggested* selection per object the labeler saw (most prominent
+    first), skipping names the upload already has, up to the per-upload cap."""
+    if label is None:
+        return []
+    existing = {(item.label or item.prompt.text).strip().lower() for item in upload.selections}
+    room = upload_pipeline.max_objects_per_upload() - len(upload.selections)
+    suggestions: list[UploadSelection] = []
+    for text in [label.label, *label.alternatives]:
+        if len(suggestions) >= room:
+            break
+        name = " ".join(str(text).split())[:100]
+        if not name or name.lower() in existing:
+            continue
+        existing.add(name.lower())
+        suggestions.append(
+            UploadSelection(
+                selection_id=uuid.uuid4().hex,
+                prompt=SelectionPrompt(text=name, box=label_box(label, name, upload)),
+                label=name,
+                origin="suggested",
+            )
+        )
+    return suggestions
+
+
+def label_box(label: SubjectLabel, name: str, upload: UploadRecord) -> list[float] | None:
+    """The labeler's box for ``name``, clamped to the photo, or None when it
+    has none or it is degenerate (a wrong box is worse than no box)."""
+    box = label.boxes.get(name) if isinstance(label.boxes, dict) else None
+    if not isinstance(box, list) or len(box) != 4:
+        return None
+    try:
+        x0, y0, x1, y1 = (float(value) for value in box)
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(value) for value in (x0, y0, x1, y1)):
+        return None
+    x0, x1 = max(0.0, min(x0, upload.width)), max(0.0, min(x1, upload.width))
+    y0, y1 = max(0.0, min(y0, upload.height)), max(0.0, min(y1, upload.height))
+    if x1 - x0 < 2 or y1 - y0 < 2:
+        return None
+    return [round(x0, 1), round(y0, 1), round(x1, 1), round(y1, 1)]
+
+
+def queue_segment_job(
+    upload: UploadRecord,
+    selections: list[UploadSelection],
+    background_tasks: BackgroundTasks,
+    *,
+    label_backend: str | None = None,
+    auto_generate: bool = False,
+) -> ReconstructionJob:
+    """One `segment` job (a single SAM 3.1 pass) over these selections."""
+    now = utc_now()
+    job_id = uuid.uuid4().hex
+    job = ReconstructionJob(
+        job_id=job_id,
+        status=JobStatus.QUEUED,
+        poll_url=job_url(job_id),
+        created_at=now,
+        updated_at=now,
+        project_id=upload.project_id,
+        kind="segment",
+        upload_id=upload.upload_id,
+        selection_ids=[item.selection_id for item in selections],
+        image_key=upload.image_key,
+        subject_label_backend=label_backend,
+        auto_generate=auto_generate,
+    )
+    store.save_job(job)
+    dispatch_job(job, background_tasks)
+    return job
+
+
+# Uploads whose objects this API process is labeling right now (/detect or the
+# automatic default), so the default stands down when the client asked itself.
+_DETECTING_UPLOADS: collections.Counter[str] = collections.Counter()
+
+
+@contextlib.contextmanager
+def detecting_upload(upload_id: str):
+    _DETECTING_UPLOADS[upload_id] += 1
+    try:
+        yield
+    finally:
+        _DETECTING_UPLOADS[upload_id] -= 1
+        if _DETECTING_UPLOADS[upload_id] <= 0:
+            del _DETECTING_UPLOADS[upload_id]
+
+
+def upload_auto_detect_enabled() -> bool:
+    """Whether an upload with no typed names detects every object by default
+    (contract section 2). ``SKETCHSCAPE_UPLOAD_AUTO_DETECT=1|0`` forces it;
+    unset/"auto": on when the labeler is the GPU vision server, whose
+    detections are real objects (the mock labeler only echoes the filename)."""
+    setting = os.environ.get("SKETCHSCAPE_UPLOAD_AUTO_DETECT", "auto").strip().lower()
+    if setting in {"1", "true", "yes", "on"}:
+        return True
+    if setting in {"0", "false", "no", "off"}:
+        return False
+    return isinstance(subject_labeler, GpuSubjectLabeler)
+
+
+def auto_detect_grace_seconds() -> float:
+    try:
+        return max(0.0, float(os.environ.get("SKETCHSCAPE_AUTO_DETECT_GRACE_SECONDS", "5")))
+    except ValueError:
+        return 5.0
+
+
+def auto_detect_retry_delays() -> list[float]:
+    """Seconds between auto-detect attempts while the labeler is unavailable
+    (SKETCHSCAPE_AUTO_DETECT_RETRY_SECONDS, comma separated; default 15,30,45)."""
+    raw = os.environ.get("SKETCHSCAPE_AUTO_DETECT_RETRY_SECONDS", "15,30,45")
+    try:
+        return [max(0.0, float(part)) for part in raw.split(",") if part.strip()][:10]
+    except ValueError:
+        return [15.0, 30.0, 45.0]
+
+
+async def auto_detect_upload(project_id: str, upload_id: str, auto_generate: bool) -> None:
+    """The default for an upload with no typed names: detect every object and
+    queue one selection each (then, by default, reconstruct them), like
+    /detect. Waits a short grace period first and stands down if the client
+    has meanwhile named objects (/selections) or asked /detect itself.
+    Never raises: the photo is already stored."""
+    try:
+        await asyncio.sleep(auto_detect_grace_seconds())
+        upload = store.get_upload_record(project_id, upload_id)
+        if upload is None or upload.selections or upload_id in _DETECTING_UPLOADS:
+            return
+        with detecting_upload(upload_id):
+            image_bytes = await asyncio.to_thread(artifact_store.open_upload, upload.image_key)
+            suffix = Path(upload.image_key).suffix or ".png"
+            # The vision server may be restarting or loading its model: retry
+            # an unavailable labeler with backoff before giving up.
+            delays = auto_detect_retry_delays()
+            for attempt in range(len(delays) + 1):
+                try:
+                    label = await label_photo(
+                        image_bytes, suffix, upload.original_filename, raise_unavailable=True
+                    )
+                    break
+                except SubjectLabelError:
+                    if attempt == len(delays):
+                        print(f"[{upload_id[:8]}] auto-detect gave up: labeler unavailable", file=sys.stderr)
+                        return
+                    await asyncio.sleep(delays[attempt])
+        # Fresh copy: the client may have named objects while the model ran.
+        upload = store.get_upload_record(project_id, upload_id)
+        if upload is None or upload.selections:
+            return
+        suggestions = suggestion_selections(upload, label)
+        if label is None or not suggestions:
+            print(f"[{upload_id[:8]}] auto-detect found no objects", file=sys.stderr)
+            return
+        upload.selections.extend(suggestions)
+        store.save_upload_record(upload)
+        tasks = BackgroundTasks()
+        job = queue_segment_job(
+            upload, suggestions, tasks, label_backend=label.backend, auto_generate=auto_generate
+        )
+        print(
+            f"[{upload_id[:8]}] auto-detected {[s.label for s in suggestions]} ({label.backend}) "
+            f"-> segment job {job.job_id}",
+            file=sys.stderr,
+        )
+        await tasks()
+    except Exception as error:  # noqa: BLE001 - detection is best-effort
+        print(f"[{upload_id[:8]}] auto-detect failed: {error!r}", file=sys.stderr)
 
 
 @app.get(
@@ -2514,6 +3217,21 @@ async def get_upload_image(project_id: str, upload_id: str) -> Response:
     data = artifact_store.open_upload(upload.image_key)
     media_type = mimetypes.guess_type(upload.image_key)[0] or "application/octet-stream"
     return Response(content=data, media_type=media_type)
+
+
+@app.get(
+    "/v1/projects/{project_id}/uploads/{upload_id}/scene/{filename}",
+    dependencies=[Depends(require_project_read)],
+)
+async def get_upload_scene_file(project_id: str, upload_id: str, filename: str) -> Response:
+    """The photo's scene capture (scene.json, scene.ply, analysis.json) for
+    project members; 404 until the GPU host has stored it."""
+    get_upload_or_404(project_id, upload_id)
+    if filename not in SCENE_FILES or not _SCENE_ID.match(upload_id):
+        raise HTTPException(404, "Unknown scene file.")
+    if not await asyncio.to_thread(artifact_store.exists, scene_artifact_dir(upload_id), filename):
+        raise HTTPException(404, "This photo has no such scene file yet.")
+    return await artifact_store.serve(scene_artifact_dir(upload_id), filename)
 
 
 @app.get(
@@ -2654,67 +3372,26 @@ async def detect_upload_objects(
     background_tasks: BackgroundTasks,
     identity: Identity = Depends(require_project_write),
 ) -> JobIdResponse:
-    """Optional auto-detect helper (skill item 6): NemoClaw's identify_subject
-    as a text prompt, added as a *suggested* selection the person can keep or
-    delete. Nothing generates without the person choosing."""
+    """Auto-detect helper (skill item 6): every object the configured labeler
+    sees (the GPU vision server with SKETCHSCAPE_SUBJECT_LABELER=gpu) as text
+    prompts, added as *suggested* selections the person can keep or delete.
+    Nothing generates without the person choosing (/generate)."""
     upload = get_upload_or_404(project_id, upload_id)
     image_bytes = artifact_store.open_upload(upload.image_key)
     suffix = Path(upload.image_key).suffix or ".png"
-    label = None
-    with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
-        tmp.write(image_bytes)
-        tmp.flush()
-        try:
-            label = await asyncio.to_thread(
-                subject_labeler.identify_subject, Path(tmp.name), upload.original_filename
-            )
-        except SubjectLabelError:
-            label = None
-    if label is None:
-        return JobIdResponse(job_id=None)
-
-    # Every object NemoClaw saw becomes a suggestion (most prominent first),
-    # skipping names the person already has, up to the per-upload cap.
-    existing = {item.label.strip().lower() for item in upload.selections if item.label}
-    room = upload_pipeline.max_objects_per_upload() - len(upload.selections)
-    suggestions = []
-    for text in [label.label, *label.alternatives]:
-        if len(suggestions) >= room:
-            break
-        if text.strip().lower() in existing:
-            continue
-        existing.add(text.strip().lower())
-        suggestions.append(
-            UploadSelection(
-                selection_id=uuid.uuid4().hex,
-                prompt=SelectionPrompt(text=text),
-                label=text,
-                origin="suggested",
-            )
-        )
-    if not suggestions:
+    with detecting_upload(upload_id):  # the upload's automatic default stands down
+        label = await label_photo(image_bytes, suffix, upload.original_filename)
+    # Every object the labeler saw becomes a suggestion (most prominent
+    # first), skipping names the upload already has (re-read: a concurrent
+    # detection may have added them meanwhile), up to the per-upload cap.
+    upload = get_upload_or_404(project_id, upload_id)
+    suggestions = suggestion_selections(upload, label)
+    if label is None or not suggestions:
         return JobIdResponse(job_id=None)
     upload.selections.extend(suggestions)
     store.save_upload_record(upload)
-
-    job_id = uuid.uuid4().hex
-    now = utc_now()
-    job = ReconstructionJob(
-        job_id=job_id,
-        status=JobStatus.QUEUED,
-        poll_url=job_url(job_id),
-        created_at=now,
-        updated_at=now,
-        project_id=project_id,
-        kind="segment",
-        upload_id=upload_id,
-        selection_ids=[item.selection_id for item in suggestions],
-        image_key=upload.image_key,
-        subject_label_backend=label.backend,
-    )
-    store.save_job(job)
-    dispatch_job(job, background_tasks)
-    return JobIdResponse(job_id=job_id)
+    job = queue_segment_job(upload, suggestions, background_tasks, label_backend=label.backend)
+    return JobIdResponse(job_id=job.job_id)
 
 
 async def do_generate(
@@ -2722,10 +3399,12 @@ async def do_generate(
     upload_id: str,
     selection_ids: list[str],
     background_tasks: BackgroundTasks,
-    identity: Identity,
+    identity: Identity | None,
     *,
     create_contribution: bool,
 ) -> tuple[list[ProjectAsset], list[ReconstructionJob]]:
+    """Queue one `reconstruct` job (and catalog asset) per segmented selection.
+    ``identity=None``: the backend acting for the uploader (auto-generate)."""
     project = get_project(project_id)
     upload = get_upload_or_404(project_id, upload_id)
     by_id = {item.selection_id: item for item in upload.selections}
@@ -2736,11 +3415,12 @@ async def do_generate(
     if not_segmented:
         raise HTTPException(409, f"Selections are not segmented yet: {', '.join(sorted(not_segmented))}")
 
-    contributor = (
-        find_contributor_by_clerk_user(project_id, identity.user_id)
-        if identity.kind != "service"
-        else None
-    )
+    if identity is None:
+        contributor = find_contributor_by_clerk_user(project_id, upload.uploader_user_id)
+    elif identity.kind != "service":
+        contributor = find_contributor_by_clerk_user(project_id, identity.user_id)
+    else:
+        contributor = None
 
     now = utc_now()
     assets: list[ProjectAsset] = []
@@ -2759,6 +3439,8 @@ async def do_generate(
             subject_hint_source="user" if name else None,
             reconstruction_job_id=job_id,
             recorded_at=now,
+            upload_id=upload_id,
+            scene_key=upload.scene_key,
         )
         asset = ProjectAsset(
             asset_id=asset_id,
@@ -2811,6 +3493,28 @@ async def do_generate(
     store.save_project(project)
     store.save_upload_record(upload)
     return assets, jobs
+
+
+async def auto_generate_segmented(job: ReconstructionJob, background_tasks: BackgroundTasks) -> None:
+    """A finished auto-generate `segment` job: queue the reconstructions of
+    its segmented selections (the failed ones stay for the person to refine).
+    Selections someone already generated are skipped, so a concurrent
+    /generate never doubles them. Never raises into the worker callback."""
+    if not (job.project_id and job.upload_id):
+        return
+    try:
+        upload = get_upload_or_404(job.project_id, job.upload_id)
+        ready = [
+            item.selection_id
+            for item in upload.selections
+            if item.selection_id in job.selection_ids and item.status == "segmented"
+        ]
+        if ready:
+            await do_generate(
+                job.project_id, job.upload_id, ready, background_tasks, None, create_contribution=True
+            )
+    except Exception as error:  # noqa: BLE001 - the segmentation result is already stored
+        print(f"[{job.job_id[:8]}] auto-generate failed: {error!r}", file=sys.stderr)
 
 
 @app.post(

@@ -192,6 +192,27 @@ class DraftRoomTests(unittest.TestCase):
         self.assertTrue(posted[0][0].endswith("?base_revision=7"))
         self.assertNotIn("staging", posted[0][1])
 
+    def test_scans_with_photo_poses_reproduce_the_photo_at_player_scale(self) -> None:
+        def posed(asset, translation, scale):
+            return {
+                **asset,
+                "views": [{"image_key": "uploads/p/u1/source.jpg"}],
+                "pose": {"rotation": [1, 0, 0, 0], "translation": translation, "scale": [scale] * 3,
+                         "pointmap": {"percentiles": {"y": {"2": -0.8}}}},
+            }
+
+        assets = [posed(_ASSETS[0], [0.0, -0.8, 2.0], 0.25), posed(_ASSETS[1], [-1.0, -0.8, 2.5], 0.7)]
+        result, posted = self._run(
+            [(200, assets), (200, []), (404, None), (201, {"revision": 1})], player_eye_height=1.6
+        )
+        cat, blanket = posted[0][1]["objects"]
+        self.assertEqual(cat["placement"], "pose")
+        self.assertEqual(cat["position"], [0.0, 0.0, 4.0])
+        self.assertEqual(cat["scale"], [0.5, 0.5, 0.5])  # 0.25 pose units at 2x player scale
+        self.assertEqual(blanket["position"], [2.0, 0.0, 5.0])
+        self.assertEqual(result["photo_layout"]["scale_source"], "floor")
+        self.assertIn("placed as in their photo", result["summary"])
+
     def test_no_ready_assets_is_actionable(self) -> None:
         with self.assertRaises(rt.RoomToolError):
             self._run([(200, [_ASSETS[2]])])
