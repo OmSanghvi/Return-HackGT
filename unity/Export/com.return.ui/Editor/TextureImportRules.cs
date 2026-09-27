@@ -19,6 +19,18 @@ namespace Return.UI.Editor
                 t.alphaIsTransparency = true;
                 t.filterMode = UnityEngine.FilterMode.Bilinear;
             }
+            else if (assetPath.Contains("/Impostors/") || assetPath.Contains("/Ground/"))
+            {
+                // baked tree cards (alpha-cut) and tiled photo ground: mips + trilinear so distance doesn't shimmer
+                t.textureType = TextureImporterType.Default;
+                t.sRGBTexture = true;
+                t.alphaIsTransparency = assetPath.Contains("/Impostors/");
+                t.mipmapEnabled = true;
+                t.filterMode = UnityEngine.FilterMode.Trilinear;
+                t.wrapMode = assetPath.Contains("/Ground/") ? UnityEngine.TextureWrapMode.Repeat : UnityEngine.TextureWrapMode.Clamp;
+                t.maxTextureSize = 1024;
+                t.textureCompression = TextureImporterCompression.Compressed;
+            }
             else if (assetPath.Contains("/Depth/"))
             {
                 t.sRGBTexture = false;

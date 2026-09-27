@@ -157,7 +157,7 @@ namespace Return.UI
         void LayoutRing()
         {
             int n = _cards.Count;
-            float span = Mathf.Min(200f, 48f * (n - 1));
+            float span = Mathf.Min(220f, 66f * (n - 1)); // ~5 m of arc between neighbours at the ring radius
             for (int i = 0; i < n; i++)
             {
                 float t = n == 1 ? 0.5f : i / (float)(n - 1);

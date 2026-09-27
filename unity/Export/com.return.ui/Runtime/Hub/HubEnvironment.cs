@@ -45,9 +45,7 @@ namespace Return.UI
                 var sunGo = new GameObject("Sun"); sunGo.transform.SetParent(go.transform, false); sunGo.transform.localRotation = Quaternion.Euler(50f, -30f, 0f);
                 var sun = sunGo.AddComponent<Light>(); sun.type = LightType.Directional; sun.color = new Color(1f, 0.96f, 0.9f); sun.intensity = 1.1f; sun.shadows = LightShadows.None;
                 RenderSettings.sun = sun;
-                env.BuildMeadowFloor(go.transform, horizon);
-                var hillColor = Color.Lerp(new Color(0.42f, 0.58f, 0.36f), horizon, 0.25f); // green-grey, blended toward horizon so the ring doesn't jump out against the sky
-                HillsRing.Build(go.transform, 35f, 70f, 6f, hillColor, 11);
+                env.BuildPhotoGround(go.transform); // the photographed meadow sky (sky-evening-meadow) supplies the distant landscape and treeline
                 DistantTrees.Create(go.transform);
                 Motes.Create(go.transform);
                 // fireflies and lanterns only make sense once it's dark; day gets drifting blossom petals and birdsong instead
@@ -68,19 +66,20 @@ namespace Return.UI
             return env;
         }
 
-        /// <summary>Big grass disc (Return/WorldEdge, not Flat: Flat only fades alpha, and this needs a color-to-color
-        /// blend) under the viewer: soft spring green at the center, blended toward the sky's own horizon color by its
-        /// rim at radius 60, so it reads as meadow rather than a flat green disc. Replaces WaterFloor (left in the file,
-        /// unused, per the play-test note to drop the wave effect).</summary>
-        void BuildMeadowFloor(Transform parent, Color horizon)
+        /// <summary>Photo grass (Poly Haven leafy_grass, tinted to the HDRI's own ground color) tiled in world space under the
+        /// viewer, fading out between 8 and 24 m so it melts into the photographed meadow in the skybox instead of
+        /// ending at an edge. The tint is the sky's average ground color (rows ~20-35 degrees below the horizon) over the
+        /// grass photo's average, measured once when the assets were picked.</summary>
+        void BuildPhotoGround(Transform parent)
         {
             var floor = new GameObject("Floor"); floor.transform.SetParent(parent, false);
             floor.AddComponent<MeshFilter>().sharedMesh = SkyBackdrop.Quad();
-            floor.transform.localRotation = Quaternion.Euler(90, 0, 0); floor.transform.localPosition = new Vector3(0, -0.02f, 0); floor.transform.localScale = new Vector3(120, 120, 1);
-            _floor = WorldShaders.Create(WorldShaders.WorldEdge, "WorldEdge");
-            var grass = new Color(0.55f, 0.68f, 0.42f);
-            var edge = Color.Lerp(grass, horizon, 0.35f);
-            _floor.SetColor("_GroundColor", grass); _floor.SetColor("_EdgeColor", edge); _floor.SetFloat("_InnerRadius", 0.3f);
+            floor.transform.localRotation = Quaternion.Euler(90, 0, 0); floor.transform.localPosition = new Vector3(0, -0.02f, 0); floor.transform.localScale = new Vector3(60, 60, 1);
+            _floor = WorldShaders.Create(WorldShaders.Photo, "Photo");
+            var grass = Resources.Load<Texture2D>("ReturnUI/Ground/leafy-grass");
+            if (grass != null) _floor.SetTexture("_MainTex", grass);
+            _floor.SetColor("_Tint", new Color(0.42f, 0.6f, 0.4f, 1f));
+            _floor.SetFloat("_WorldTiling", 2.5f); _floor.SetFloat("_FadeInner", 8f); _floor.SetFloat("_FadeOuter", 24f);
             floor.AddComponent<MeshRenderer>().sharedMaterial = _floor;
         }
 

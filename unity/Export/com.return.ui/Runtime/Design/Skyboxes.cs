@@ -30,7 +30,8 @@ namespace Return.Design
                 case SceneKey.Painted:
                 case SceneKey.Home: return "sky-kloppenheim-06";
                 case SceneKey.Night: return "sky-belfast-sunset";
-                default: return "sky-kloofendal-48d-partly-cloudy"; // Hub, Meadow, Plain
+                case SceneKey.Meadow: return "sky-evening-meadow"; // photographed meadow with a real treeline: the photoreal daylight hub
+                default: return "sky-kloofendal-48d-partly-cloudy"; // Hub, Plain
             }
         }
 
@@ -49,6 +50,7 @@ namespace Return.Design
             m = ReturnShaders.Create(ReturnShaders.SkyboxEquirect);
             var tex = For(k);
             if (tex != null) m.SetTexture(MainTex, tex);
+            if (FileFor(k) == "sky-evening-meadow") m.SetFloat("_HazeStrength", 0f); // a photographed horizon: the painted-sky haze just fogs the real treeline
             MatCache[k] = m;
             return m;
         }

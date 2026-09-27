@@ -324,7 +324,7 @@ namespace Return.Design
         /// <summary>RoomPortal doorway height.</summary>
         public const float PortalHeight = 2.3f;
         /// <summary>Portals sit on an arc this far from the viewer, spaced further out to fit the larger doorways.</summary>
-        public const float PortalRingRadius = 4.0f;
+        public const float PortalRingRadius = 4.6f;
         /// <summary>Portal bob amplitude (2cm over 6s).</summary>
         public const float PortalBob = 0.02f;
         /// <summary>Nameplate height above the head.</summary>
