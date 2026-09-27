@@ -35,6 +35,23 @@ scene in Build Settings (Tab on desktop). APK `HackGTUnity/stupid house polished
 
 Colours assigned from scripts (materials, lights, ambient) are plain sRGB as in the Inspector; no `.linear` conversion.
 
+**Worlds hub + portals + letters (same morning, ~7:30 am):** the team hub in `unity/` (URP + XRI, URP-only shaders)
+cannot host the Built-in/Meta-ISDK rooms, so the hub was rebuilt inside HackGTUnity:
+- `Editor/RoomPolish/HubBuilder.cs` generates `Assets/SketchScape/Hub/WorldsHub.unity` from a copy of `bed.unity` (keeps the
+  finished Meta rig, locomotor, teleport floor + 5 hotspots; deletes the room), dusk plaza (`return-sky-dusk-hub.jpg` from
+  the team hub as the panorama), and three doorways on an arc (`PortalKit.Build`: doorway quad showing the room's HDRI,
+  emissive rim in the room's colour, floor glow pool, point light, TMP label, `PortalTrigger`). Walk your head through a
+  doorway -> `OVRScreenFade` fade-out -> `SceneManager.LoadScene(room)`. Each polished room gets a "Return Portal" behind
+  the spawn (turn around) that loads `WorldsHub`. `PortalTrigger` arms 2.5 s after load so you are not bounced back.
+- `Runtime/Shared/FakeLetter.cs` + `Editor/RoomPolish/FakeLetterKit.cs`: a stand with a wax-sealed envelope where the
+  Account Switcher pedestal stood (the pedestal is disabled: rooms show Account 1's view only). Poke / pinch-ray the
+  envelope (`SharedPokeButton`) and a `SharedLetterPage` unfolds 0.75 m in front of the head with a hardcoded heading +
+  body per room (`RoomPolish.StagingFor`); press again to fold it away. hackathon_spot's notes board is moved aside so
+  the return doorway sits directly behind the spawn.
+- Batch: `Unity.exe -batchmode -buildTarget Android -projectPath <proj> -executeMethod SketchScape.RoomPolish.PrepareBatch -quit`
+  = polish 3 rooms + build hub + Build Settings (hub first, then hackgt_workspace, bed, hackathon_spot). `ShipBatch`
+  also builds the APK; menu `SketchScape > Polish > ...` has every step.
+
 ## LATEST+6 (2026-09-27, ~3-4 am) — HackGT.jpg end to end, Quest 2 at 5 FPS fixed, faster NemoClaw builds
 
 Contract additions: **`docs/WEB_TO_QUEST_PIPELINE.md` §9** (build speed and Quest readiness).

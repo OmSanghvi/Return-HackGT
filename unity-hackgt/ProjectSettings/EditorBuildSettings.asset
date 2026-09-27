@@ -6,6 +6,9 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/SketchScape/Hub/WorldsHub.unity
+    guid: c972bd73ca422fc44a01f48653baf374
+  - enabled: 1
     path: Assets/SketchScape/AgentRooms/hackgt_workspace.unity
     guid: 611e35edcb7a06446b441a914c134954
   - enabled: 1
