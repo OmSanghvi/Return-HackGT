@@ -110,9 +110,20 @@ Shader "Return/SkyParallax"
                 float2 c = (luv - 0.5) * size;
                 float minSide = min(size.x, size.y);
                 float sd = _Arch > 0.5 ? sdArch(c, size * 0.5) : sdBox(c, size * 0.5, _Radius * minSide);
+                float aura = 0.0;
+                if (_Window > 0.5)
+                {
+                    // frameless doorway: the opening is inset from the quad so a soft glow can bleed past it, and its
+                    // edge wavers with slow noise, so it reads as a tear in the air rather than a cut-out picture
+                    const float margin = 0.14;
+                    float2 halfIn = size * 0.5 - margin;
+                    float wisp = (fbm(c * 3.0 + float2(0.0, _Time.y * 0.35)) - 0.5) * 0.07;
+                    sd = sdBox(c, halfIn, _Radius * minSide) + wisp;
+                    aura = exp(-max(sd, 0.0) * 22.0) * saturate(-sdBox(c, size * 0.5, 0.0) / 0.03); // fades to 0 before the quad's own edge
+                }
                 float px = max(fwidth(sd), 1e-5);
                 float inside = 1.0 - smoothstep(-px, px, sd);
-                if (inside <= 0.0) discard;
+                if (inside <= 0.0 && aura < 0.01) discard;
 
                 float3 col;
                 float mist = 0.0;
@@ -122,8 +133,14 @@ Shader "Return/SkyParallax"
                     // Return/SkyboxEquirect (u wraps atan2(x,z), v = 1 straight up), so the opening shifts with the
                     // viewer instead of reading as a flat picture.
                     float3 viewDir = normalize(i.worldPos - _WorldSpaceCameraPos);
-                    float2 skyUV = float2(atan2(viewDir.x, viewDir.z) / (2.0 * PI) + 0.5, 1.0 - acos(clamp(viewDir.y, -1.0, 1.0)) / PI);
+                    // the doorway sits at eye height, so half of it looks below the horizon, where the graded skies are a
+                    // flat white haze; mirror those rays back above it like still water so the whole opening shows sky
+                    float below = step(viewDir.y, 0.0);
+                    float3 d = normalize(float3(viewDir.x, abs(viewDir.y) * 0.8 + 0.03, viewDir.z));
+                    float2 skyUV = float2(atan2(d.x, d.z) / (2.0 * PI) + 0.5, 1.0 - acos(clamp(d.y, -1.0, 1.0)) / PI);
                     col = SAMPLE_TEXTURE2D(_SkyTex, sampler_SkyTex, skyUV).rgb;
+                    col = lerp(col, col * float3(0.82, 0.88, 0.95), below);                 // reflection reads a touch cooler and darker
+                    col = saturate(lerp(dot(col, float3(0.299, 0.587, 0.114)).xxx, col, 1.25)); // a little more color than the hazy sky behind
                 }
                 else
                 {
@@ -154,15 +171,22 @@ Shader "Return/SkyParallax"
                     col += ring * float3(1.0, 0.98, 0.9) * 0.4 * (1.0 - mist);
                 }
 
-                // inner rim glow: a warm band a few cm inside the edge, so the frame reads lit from within; stronger with _Light
-                float rimDist = abs(sd + 0.045);
-                float rim = exp(-rimDist * rimDist * 900.0);
-                col += rim * (0.2 + 0.8 * _Light) * float3(1.0, 0.82, 0.5);
+                // luminous edge: a bright band right on the (wavering) edge that brightens on hover
+                float rim = exp(-sd * sd * 2500.0);
+                float3 glow = lerp(float3(1.0, 0.93, 0.85), float3(1.0, 0.8, 0.88), 0.35); // warm white with a blossom tint
+                col += rim * (0.45 + 0.7 * _Light) * glow;
 
                 // hover glow centered on the actual hit point (_HoverUV), not the corner-clamped _Pointer
                 float2 dh = luv - _HoverUV.xy;
                 col += _Light * exp(-dot(dh, dh) * 9.0) * float3(1.0, 0.95, 0.85);
 
+                if (_Window > 0.5)
+                {
+                    // outside the opening only the aura draws: glow color, alpha falling off with distance
+                    float a = max(inside, aura * (0.55 + 0.35 * _Light) * (1.0 - inside));
+                    col = lerp(glow * (1.1 + 0.5 * _Light), col, inside);
+                    return half4(col, a * _Alpha);
+                }
                 float feather = 1.0;
                 if (_Edge > 0.0001) feather = smoothstep(0.0, _Edge, luv.x) * smoothstep(0.0, _Edge, 1.0 - luv.x) * smoothstep(0.0, _Edge * 1.4, 1.0 - luv.y);
                 // as the rim feathers out, tint it toward the surrounding sky's horizon color first, so it melts into

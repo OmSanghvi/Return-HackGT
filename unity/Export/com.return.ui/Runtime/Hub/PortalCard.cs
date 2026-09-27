@@ -25,7 +25,7 @@ namespace Return.UI
             c.portal.SetPresentation(0f, 1f); // clear window: the ring only ever holds rooms that are ready to enter
             c.portal.Activated += _ => onActivate(room, c.portal);
             c.label = SpatialPanel.Create("Label", 620, 200, anchor.transform);
-            c.label.transform.localPosition = new Vector3(0, ReturnSpatial.PortalHeight + 0.3f, 0); c.label.transform.localScale = Vector3.one * 0.003f;
+            c.label.transform.localPosition = new Vector3(0, ReturnSpatial.PortalHeight + 0.25f, 0); c.label.transform.localScale = Vector3.one * 0.003f;
             c.Refresh(store, true);
             return c;
         }

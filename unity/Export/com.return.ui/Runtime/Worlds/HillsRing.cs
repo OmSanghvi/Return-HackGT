@@ -23,7 +23,7 @@ namespace Return.UI
             go.transform.SetParent(parent, false);
             var mesh = BuildMesh(innerRadius, outerRadius, maxHeight, seed);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            var mat = BuildMaterial(color);
+            var mat = LitMaterial(color);
             var mr = go.AddComponent<MeshRenderer>();
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
@@ -76,7 +76,7 @@ namespace Return.UI
         /// <summary>URP Lit so fog and the sun shade the hills naturally; Shader.Find can come back null in a device build
         /// that never referenced the shader elsewhere, so this falls back to the package's own Flat (already in the build
         /// via its template material) rather than throwing.</summary>
-        static Material BuildMaterial(Color color)
+        public static Material LitMaterial(Color color)
         {
             var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Universal Render Pipeline/Simple Lit");
             if (shader != null)

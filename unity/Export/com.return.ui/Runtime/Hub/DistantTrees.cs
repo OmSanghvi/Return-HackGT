@@ -12,7 +12,7 @@ namespace Return.UI
     {
         static readonly string[] Names = { "tree_default", "tree_detailed", "tree_cone", "tree_fat", "tree_blocks" };
         static readonly Color Pink = new Color(1f, 0.72f, 0.82f);
-        static readonly int BaseColorId = Shader.PropertyToID("_BaseColor"), ColorId = Shader.PropertyToID("_Color");
+        static readonly int BaseColorId = Shader.PropertyToID("_BaseColor"), ColorId = Shader.PropertyToID("_Color"), GltfColorId = Shader.PropertyToID("baseColorFactor");
 
         static GameObject[] _prefabs;
         static bool _loggedMissing;
@@ -93,6 +93,7 @@ namespace Return.UI
                     block.Clear();
                     block.SetColor(BaseColorId, Pink);
                     block.SetColor(ColorId, Pink);
+                    block.SetColor(GltfColorId, Pink); // glTFast's shader graph names it baseColorFactor
                     r.SetPropertyBlock(block, i);
                 }
             }

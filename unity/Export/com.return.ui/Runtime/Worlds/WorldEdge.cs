@@ -65,7 +65,7 @@ namespace Return.UI
             if (_material.HasProperty("_InnerRadius")) _material.SetFloat("_InnerRadius", 0.9f); // nearly solid; no transparency left to hide a seam against the hills
             mr.sharedMaterial = _material;
 
-            var hillColor = Color.Lerp(ground, new Color(0.4f, 0.55f, 0.35f), 0.3f); // ground tone nudged green, so the ring reads as land, not just a darker fog wall
+            var hillColor = Color.Lerp(ground, new Color(0.42f, 0.58f, 0.36f), 0.65f); // ground tone nudged green, so the ring reads as land, not just a darker fog wall
             float maxHeight = Mathf.Clamp(worldRadius * 0.35f, 2f, 12f);
             var hills = HillsRing.Build(transform, hillsInner, hillsOuter, maxHeight, hillColor, Mathf.RoundToInt(worldRadius * 97f) + 13);
             hills.transform.position = disc.transform.position; // same height/center as the ground disc it continues

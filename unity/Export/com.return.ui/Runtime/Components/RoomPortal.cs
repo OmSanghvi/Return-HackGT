@@ -6,8 +6,8 @@ using UnityEngine;
 namespace Return.UI
 {
     /// <summary>
-    /// The doorway into a room for the VR hub: a real equirect sky seen through a rounded, 3-dimensional stone frame
-    /// (jambs, lintel, threshold), with motes drifting out toward the viewer and a warm light pool on the floor in
+    /// The doorway into a room for the VR hub: a real equirect sky seen through a frameless opening whose glowing edge
+    /// wavers and bleeds light into the air, with motes riding the edge and drifting out toward the viewer and a warm light pool on the floor in
     /// front of it. Grounded (no bob): callers place it so its bottom rests on the floor. Pinch or click it to step in.
     /// Rig-agnostic: an XR interactor calls Enter(), or a mouse/PhysicsRaycaster click on the collider does.
     /// </summary>
@@ -27,13 +27,12 @@ namespace Return.UI
         /// <summary>Raised the first time any portal is hovered or touched. HubIntro uses this to dismiss the guided nudge for good.</summary>
         public static event Action AnyHoverOrTouch;
         public Collider Collider => GetComponent<Collider>();
-        Material _m, _pool, _stone, _moteMat; Color _poolBase; float _hover; float _lastTouchSfx = -10f;
+        Material _m, _pool, _moteMat; Color _poolBase; float _hover; float _lastTouchSfx = -10f;
         Transform _head; AudioSource _hum; float _humBoost;
 
         const float BaseHumVolume = 0.05f;
         const float FacingBoost = 0.04f;    // small lift for the portal the head faces most directly
         const float DuckMultiplier = 0.15f; // hums nearly vanish while a room is being entered/occupied
-        const float FrameThickness = 0.14f, FrameDepth = 0.3f; // stone jambs/lintel/threshold, meters
 
         static bool _ducked;
         static int _facingFrame = -1;
@@ -72,47 +71,51 @@ namespace Return.UI
             var r = go.AddComponent<MeshRenderer>();
             p._m = ReturnShaders.Create(ReturnShaders.SkyParallax);
             p._m.SetTexture(SkyTex, Skyboxes.For(room.scene));
-            p._m.SetFloat(Window, 1f); p._m.SetFloat(Arch, 0f); p._m.SetFloat(Radius, 0.12f);
+            p._m.SetFloat(Window, 1f); p._m.SetFloat(Arch, 0f); p._m.SetFloat(Radius, 0.2f);
             p._m.SetVector(Size, new Vector4(ReturnSpatial.PortalWidth, ReturnSpatial.PortalHeight, 0, 0));
             var horizon = Skyboxes.Horizon(room.scene);
             p._m.SetFloat("_Edge", 0.06f); p._m.SetColor(HorizonTint, horizon); // feathered rim melts into the real sky behind instead of a hard cutout
             r.sharedMaterial = p._m;
             var col = go.GetComponent<BoxCollider>(); col.size = new Vector3(1, 1, 0.1f);
             p._hum = ReturnAudio.PortalHumSource(go.transform, room.scene, BaseHumVolume);
-            p.BuildFrame(go.transform, horizon);
+            p.BuildDressing(go.transform, horizon);
             Created?.Invoke(p);
             return p;
         }
 
-        /// <summary>3D stone frame (jambs, lintel, threshold), doorway motes and a floor light pool, all parented under
-        /// the portal's own (width/height-scaled) transform in its -0.5..0.5 quad space, so everything bloats and
-        /// shrinks with it exactly like PortalTransition and HomePortal already animate portal.transform.localScale.</summary>
-        void BuildFrame(Transform quad, Color horizon)
+        /// <summary>Doorway dressing (no frame: the shader draws a glowing, wavering edge instead): motes spilling out
+        /// of the opening, motes riding along its edge, and a floor light pool, all under the portal's own
+        /// (width/height-scaled) transform so they bloom and shrink with it like PortalTransition and HomePortal animate.</summary>
+        void BuildDressing(Transform quad, Color horizon)
         {
-            float w = ReturnSpatial.PortalWidth, h = ReturnSpatial.PortalHeight;
-            _stone = ReturnShaders.Create(ReturnShaders.Flat);
-            _stone.SetColor(ColorProp, new Color(0.93f, 0.89f, 0.82f));
-            var frame = new GameObject("Frame").transform; frame.SetParent(quad, false);
-            Bar(frame, FrameThickness, h + FrameThickness, FrameDepth, -(w * 0.5f + FrameThickness * 0.5f), FrameThickness * 0.5f, 0f, w, h, _stone); // left jamb
-            Bar(frame, FrameThickness, h + FrameThickness, FrameDepth, w * 0.5f + FrameThickness * 0.5f, FrameThickness * 0.5f, 0f, w, h, _stone);   // right jamb
-            Bar(frame, w + FrameThickness * 2f, FrameThickness, FrameDepth, 0f, h * 0.5f + FrameThickness * 0.5f, 0f, w, h, _stone);                 // lintel
-            Bar(frame, w + FrameThickness * 2f, FrameThickness * 0.6f, FrameDepth * 1.4f, 0f, -h * 0.5f + FrameThickness * 0.2f, -0.05f, w, h, _stone); // threshold
-
             BuildOverflow(quad, horizon);
-            BuildLightPool(quad, horizon, w, h);
+            BuildEdgeMotes(quad, horizon);
+            BuildLightPool(quad, horizon, ReturnSpatial.PortalWidth, ReturnSpatial.PortalHeight);
         }
 
-        /// <summary>A cube frame piece sized/positioned in real meters (cx,cy,cz, w,h,d), converted into the parent
-        /// quad's -0.5..0.5 local space by dividing x/y by the quad's own width/height (its z scale is always 1,
-        /// so depth needs no compensation).</summary>
-        static void Bar(Transform parent, float w, float h, float d, float cx, float cy, float cz, float quadW, float quadH, Material mat)
+        /// <summary>Tiny bright motes born on the opening's outline that rise and drift a few cm, so the edge shimmers
+        /// and reads as a volume in the air rather than a flat border.</summary>
+        void BuildEdgeMotes(Transform quad, Color horizon)
         {
-            var go = GameObject.CreatePrimitive(PrimitiveType.Cube); go.name = "Bar";
-            var col = go.GetComponent<Collider>(); if (col != null) Destroy(col);
-            go.GetComponent<MeshRenderer>().sharedMaterial = mat;
-            go.transform.SetParent(parent, false);
-            go.transform.localPosition = new Vector3(cx / quadW, cy / quadH, cz);
-            go.transform.localScale = new Vector3(w / quadW, h / quadH, d);
+            var go = new GameObject("EdgeMotes"); go.transform.SetParent(quad, false);
+            var ps = go.AddComponent<ParticleSystem>();
+            var main = ps.main;
+            main.loop = true; main.startLifetime = new ParticleSystem.MinMaxCurve(1.5f, 3f); main.startSpeed = 0f;
+            main.startSize = new ParticleSystem.MinMaxCurve(0.015f, 0.04f);
+            main.maxParticles = 90; main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.startColor = new ParticleSystem.MinMaxGradient(Color.Lerp(horizon, Color.white, 0.7f), new Color(1f, 0.82f, 0.9f));
+            var emission = ps.emission; emission.rateOverTime = 40f;
+            var shape = ps.shape; shape.shapeType = ParticleSystemShapeType.BoxEdge;
+            shape.scale = new Vector3(1f - 0.28f / ReturnSpatial.PortalWidth, 1f - 0.28f / ReturnSpatial.PortalHeight, 0f); // on the shader's inset opening
+            var vel = ps.velocityOverLifetime; vel.enabled = true; vel.space = ParticleSystemSimulationSpace.World;
+            vel.x = new ParticleSystem.MinMaxCurve(-0.03f, 0.03f); vel.y = new ParticleSystem.MinMaxCurve(0.02f, 0.08f); vel.z = new ParticleSystem.MinMaxCurve(-0.03f, 0.03f);
+            var col = ps.colorOverLifetime; col.enabled = true;
+            var grad = new Gradient();
+            grad.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.2f), new GradientAlphaKey(0f, 1f) });
+            col.color = grad;
+            var r = go.GetComponent<ParticleSystemRenderer>(); r.sharedMaterial = _moteMat != null ? _moteMat : Shapes.ParticleMaterial(additive: true);
+            ps.Play();
         }
 
         /// <summary>Soft glowing motes emitted from the doorway's opening, drifting slowly out along local -Z (the
@@ -229,7 +232,6 @@ namespace Return.UI
         {
             if (_m != null) Destroy(_m);
             if (_pool != null) Destroy(_pool);
-            if (_stone != null) Destroy(_stone);
             if (_moteMat != null) Destroy(_moteMat);
         }
     }

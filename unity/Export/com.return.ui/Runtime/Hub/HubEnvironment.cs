@@ -40,8 +40,13 @@ namespace Return.UI
             if (extras)
             {
                 var horizon = Skyboxes.Horizon(scene);
+                // soft warm sun so the hills, trees and portal frames shade as solid shapes instead of flat cutouts; it
+                // lives under the hub root, so it switches off with the hub while a world (with its own sun) is loaded
+                var sunGo = new GameObject("Sun"); sunGo.transform.SetParent(go.transform, false); sunGo.transform.localRotation = Quaternion.Euler(50f, -30f, 0f);
+                var sun = sunGo.AddComponent<Light>(); sun.type = LightType.Directional; sun.color = new Color(1f, 0.96f, 0.9f); sun.intensity = 1.1f; sun.shadows = LightShadows.None;
+                RenderSettings.sun = sun;
                 env.BuildMeadowFloor(go.transform, horizon);
-                var hillColor = Color.Lerp(new Color(0.5f, 0.55f, 0.45f), horizon, 0.4f); // green-grey, blended toward horizon so the ring doesn't jump out against the sky
+                var hillColor = Color.Lerp(new Color(0.42f, 0.58f, 0.36f), horizon, 0.25f); // green-grey, blended toward horizon so the ring doesn't jump out against the sky
                 HillsRing.Build(go.transform, 35f, 70f, 6f, hillColor, 11);
                 DistantTrees.Create(go.transform);
                 Motes.Create(go.transform);

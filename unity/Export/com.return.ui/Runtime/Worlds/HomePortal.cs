@@ -36,7 +36,7 @@ namespace Return.UI
             // RoomPortal), which would distort a child's local position, and the anchor is already floor-referenced
             // the same way PortalCard's anchor is.
             var label = SpatialPanel.Create("Label", 420, 140, anchor.transform);
-            label.transform.localPosition = new Vector3(0, ReturnSpatial.PortalHeight + 0.3f, -Distance);
+            label.transform.localPosition = new Vector3(0, ReturnSpatial.PortalHeight + 0.15f, -Distance);
             label.transform.localScale = Vector3.one * 0.0026f;
             var col = UI.V(label.rect, "Col", 0, UI.Pad(10), TextAnchor.MiddleCenter); UI.Stretch(col);
             UI.Bg(col, ColorRole.Glass, 24); UI.Border(col, ColorRole.GlassEdge, 24, 2);
