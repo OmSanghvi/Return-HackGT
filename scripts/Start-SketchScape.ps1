@@ -154,7 +154,7 @@ if (-not $ForceKey -and (Invoke-Wsl $routeCheck).Code -eq 0) {
 Step "OpenClaw skills in the sandbox"
 $skills = Invoke-Wsl "timeout 120 nemoclaw $Sandbox skill list 2>&1 | grep -o 'sketchscape-[a-z-]*' | sort -u"
 $have = @($skills.Output | Where-Object { $_ -like "sketchscape-*" })
-$wanted = @("sketchscape-scene-tools", "sketchscape-unity-room", "sketchscape-subject-labeler")
+$wanted = @("sketchscape-scene-tools", "sketchscape-unity-room", "sketchscape-subject-labeler", "sketchscape-room-tools")
 if (@($wanted | Where-Object { $have -notcontains $_ }).Count -eq 0) {
   Ok ($have -join ", ")
 } else {

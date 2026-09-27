@@ -17,9 +17,9 @@ trap 'rm -rf "$STAGE"' EXIT
 # Each skill gets its own copy of the tools, so a skill directory stays
 # self-contained. unity_room needs scene_tools; scene_tools needs the schema
 # at ../shared relative to backend/.
-BACKEND_FILES=(scene_tools.py scene_tools_cli.py unity_room.py unity_room_cli.py blueprint_to_unity.py blueprint_to_unity_cli.py nemoclaw_vision.py)
+BACKEND_FILES=(scene_tools.py scene_tools_cli.py unity_room.py unity_room_cli.py blueprint_to_unity.py blueprint_to_unity_cli.py nemoclaw_vision.py room_tools.py room_tools_cli.py)
 
-for skill in sketchscape-scene-tools sketchscape-unity-room sketchscape-subject-labeler; do
+for skill in sketchscape-scene-tools sketchscape-unity-room sketchscape-subject-labeler sketchscape-room-tools; do
   dir="$STAGE/$skill"
   mkdir -p "$dir/backend" "$dir/shared"
   sed "s|{baseDir}|$SKILLS_ROOT/$skill|g" "$REPO/config/nemoclaw/skills/$skill/SKILL.md" > "$dir/SKILL.md"

@@ -11,9 +11,13 @@ import argparse
 import json
 import re
 import shutil
+import sys
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sync_s3_assets_to_unity import repair_ply  # noqa: E402
 
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 
@@ -87,6 +91,11 @@ def export(api_url: str, project_id: str, unity_project: Path) -> None:
         if not path.endswith(".ply"):
             raise RuntimeError(f"Expected a PLY artifact for {object_id}: {resolved}")
         download(resolved, staging / f"{object_id}.ply", maximum_bytes=512 * 1024 * 1024)
+        # Older reconstructions can carry non-finite opacity, and Unity's Gsplat
+        # importer rejects the whole object on the first one.
+        repaired = repair_ply(staging / f"{object_id}.ply")["repaired_opacity"]
+        if repaired:
+            print(f"{object_id}: repaired {repaired} non-finite opacity value(s)")
 
     artifacts.mkdir(parents=True, exist_ok=True)
     for pattern in ARTIFACT_PATTERNS:

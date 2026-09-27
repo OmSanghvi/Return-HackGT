@@ -334,6 +334,31 @@ class PortalSettings(BaseModel):
     scale: list[float] = Field(default_factory=lambda: [1.0, 1.0, 1.0], min_length=3, max_length=3)
 
 
+class StagingMotif(BaseModel):
+    type: str = Field(default="light_path", max_length=40)
+    curve: str = Field(default="catmull_rom", max_length=40)
+    color: list[float] = Field(min_length=3, max_length=3)
+    control_points: list[list[float]] = Field(default_factory=list, max_length=210)
+
+
+class StagingNarration(BaseModel):
+    text: str = Field(max_length=1000)
+    voice: str = Field(default="narrator_default", max_length=80)
+    tts_engine: str | None = Field(default=None, max_length=80)
+
+
+class StagingPlan(BaseModel):
+    """The shape stage_immersive_reveal returns (scene_tools.py), which
+    Unity's StagingPlanParser reads from the compiled scene's meta.staging."""
+
+    reveal_order: list[str] = Field(default_factory=list, max_length=200)
+    lighting_preset: str = Field(default="neutral-glow", max_length=80)
+    connecting_motif: StagingMotif | None = None
+    narration: StagingNarration | None = None
+    haptic_signatures: dict[str, str] = Field(default_factory=dict, max_length=200)
+    summary: str | None = Field(default=None, max_length=1000)
+
+
 class NavigationSettings(BaseModel):
     vr: Literal["teleport", "smooth", "none"] = "none"
     ar: Literal["surface-placement", "world-anchor", "none"] = "none"
@@ -345,6 +370,10 @@ class ExperienceBlueprintInput(BaseModel):
     objects: list[BlueprintObject] = Field(min_length=1, max_length=200)
     portals: list[PortalSettings] = Field(default_factory=list, max_length=20)
     navigation: NavigationSettings = Field(default_factory=NavigationSettings)
+    # Optional immersive staging from NemoClaw's stage_immersive_reveal (Build
+    # Plan step 6). compile_blueprint passes it through as meta.staging, which
+    # Unity's ImmersiveStagingDirector applies; a room without it loads plain.
+    staging: StagingPlan | None = None
 
 
 class ExperienceBlueprint(ExperienceBlueprintInput):
@@ -986,6 +1015,7 @@ def compile_blueprint(blueprint: ExperienceBlueprint) -> SceneDocument:
             "navigation": blueprint.navigation.model_dump(),
             "portals": [portal.model_dump() for portal in blueprint.portals],
             "social": compile_social_manifest(blueprint),
+            **({"staging": blueprint.staging.model_dump()} if blueprint.staging else {}),
         },
     )
 

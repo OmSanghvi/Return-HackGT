@@ -8,6 +8,75 @@ The last session (`65c057b2-388a-42b5-a56f-ed1265d08877`) ran on a different
 Claude account, so it can't be resumed from the next one. This file is the
 handoff.
 
+## LATEST+3 (2026-09-26, late night) — 1C + 4A: agent rooms go through the backend into `unity/`
+
+The pipeline is **built and unit-tested; the live run is waiting on one
+step the user runs**:
+
+```bash
+# in WSL, from the repo
+bash scripts/start_local_backend.sh
+```
+
+My run of it was blocked by the permission check as "Unauthorized
+Persistence". The script:
+- starts a long-running server;
+- adds a sandbox egress policy;
+- writes a token into the sandbox.
+
+The user runs it themselves, or grants the permission.
+
+**Flow once it's running:**
+1. Muse Spark's `draft_room(project_id, connection_insight)` (skill
+   `sketchscape-room-tools`, `backend/room_tools.py`) reads the project's
+   ready scans and contributions, then lays them out and stages them.
+   - Real scans get a **uniform** scale equal to their label's size, and
+     sit at y = 0.
+   - Every object is grabbable and attributed.
+   - The room is drafted as a new blueprint revision (with the new
+     `staging` block) through NemoClaw's **service identity: it can read
+     and draft, never publish**.
+2. A member publishes: `python scripts/publish_room.py --project-id <id>`
+   (publishes as `demo-alice` by default). The web app has no publish
+   button yet.
+3. `python scripts/export_unity_experience.py --api-url <url> --project-id <id> --unity-project unity`
+   downloads the compiled scene and PLYs, repairing any non-finite opacity.
+4. In `unity/`: *Tools → SketchScape → Authoring → Build Offline Experience
+   Scene*. The builder now stands Z-up scans upright on a child named
+   `Splat`, with the base on the object's origin and the collider fitted.
+   `meta.staging` drives `ImmersiveStagingDirector`.
+
+**Backend and contract changes:**
+- `ExperienceBlueprintInput.staging` is optional (`StagingPlan` in
+  `main.py`, plus `shared/experience-blueprint.schema.json`), and the
+  compiled scene carries it as `meta.staging`.
+- `propose_room_edit` keeps staging when it edits a room.
+- The room tools read the backend URL and token from env, or from
+  `~/.config/sketchscape/{api-url,nemoclaw-token}`, which
+  `start_local_backend.sh` writes into the sandbox with mode 600. OpenShell
+  has no generic env injection for skill shells.
+
+**`start_local_backend.sh` details:**
+- It runs uvicorn on WSL `eth0:8000`, with DynamoDB `sketchscape-authoring`,
+  S3 artifacts, demo auth, `PIPELINE_MODE=aws-local`, and the NemoClaw
+  labeler.
+- The `sketchscape-backend` policy preset
+  (`config/nemoclaw/policies/*.template`) lets only `python3` reach only
+  the five room-tool routes.
+- The venv needed `botocore[crt]` so `aws login` credentials work. It's
+  installed locally; add it to `requirements.txt` if the team wants it
+  everywhere.
+
+**Demo project:** `02b682878bc045d5a5eadc9837f01865` ("browser e2e"). It
+has a cat, a pink blanket and a remote control, all with contributions.
+`demo-alice` is its member.
+
+**Tests:**
+- `test_room_tools.py`: 12 tests, including 4 for `draft_room` and the
+  config fallback.
+- `test_api.py`: a staging round-trip test.
+- 119 tests pass across the touched suites.
+
 ## LATEST+2 (2026-09-26, night) — one-command startup, and live auto-labeling
 
 - **`scripts/Start-SketchScape.ps1`** brings the whole stack up after a

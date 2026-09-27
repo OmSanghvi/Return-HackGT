@@ -36,6 +36,7 @@ python3 -m py_compile \
   "$ROOT/backend/nemoclaw_vision.py" \
   "$ROOT/backend/test_nemoclaw_vision.py" \
   "$ROOT/scripts/sync_s3_assets_to_unity.py" \
+  "$ROOT/scripts/publish_room.py" \
   "$ROOT/backend/test_auth.py" \
   "$ROOT/backend/test_jobs.py" \
   "$ROOT/backend/test_gpu_worker.py" \
