@@ -4769,8 +4769,8 @@ MonoBehaviour:
   m_legacyRelightingEnabled: 0
   m_legacyRelightingProxy: {fileID: 0}
   m_legacyRelightingSource: {fileID: 0}
-  SortMode: 1
-  SortRefreshRate: 3
+  SortMode: 0
+  SortRefreshRate: 1
   CutoutsRefreshRate: 1
   m_assetGuid: f37f97cc0b2d4084aa52e93d8ba7db06
 --- !u!1 &503602242
@@ -7732,8 +7732,8 @@ MonoBehaviour:
   m_legacyRelightingEnabled: 0
   m_legacyRelightingProxy: {fileID: 0}
   m_legacyRelightingSource: {fileID: 0}
-  SortMode: 1
-  SortRefreshRate: 3
+  SortMode: 0
+  SortRefreshRate: 1
   CutoutsRefreshRate: 1
   m_assetGuid: 3c27807aa90646fb8d21f44938d9ac24
 --- !u!1 &922229803
@@ -9698,8 +9698,8 @@ MonoBehaviour:
   m_legacyRelightingEnabled: 0
   m_legacyRelightingProxy: {fileID: 0}
   m_legacyRelightingSource: {fileID: 0}
-  SortMode: 1
-  SortRefreshRate: 3
+  SortMode: 0
+  SortRefreshRate: 1
   CutoutsRefreshRate: 1
   m_assetGuid: 718b1c903e4741d09eef4644b1390064
 --- !u!1 &1157325726
@@ -12841,8 +12841,8 @@ MonoBehaviour:
   m_legacyRelightingEnabled: 0
   m_legacyRelightingProxy: {fileID: 0}
   m_legacyRelightingSource: {fileID: 0}
-  SortMode: 1
-  SortRefreshRate: 3
+  SortMode: 0
+  SortRefreshRate: 1
   CutoutsRefreshRate: 1
   m_assetGuid: b792e2131df748ccb8a764db4e944a2b
 --- !u!1 &1196801426
@@ -14943,8 +14943,8 @@ MonoBehaviour:
   m_legacyRelightingEnabled: 0
   m_legacyRelightingProxy: {fileID: 0}
   m_legacyRelightingSource: {fileID: 0}
-  SortMode: 1
-  SortRefreshRate: 3
+  SortMode: 0
+  SortRefreshRate: 1
   CutoutsRefreshRate: 1
   m_assetGuid: 861ffe05643a4feeb85bac50b2d3bcf5
 --- !u!1 &1356262080
@@ -18919,8 +18919,8 @@ MonoBehaviour:
   m_legacyRelightingEnabled: 0
   m_legacyRelightingProxy: {fileID: 0}
   m_legacyRelightingSource: {fileID: 0}
-  SortMode: 1
-  SortRefreshRate: 3
+  SortMode: 0
+  SortRefreshRate: 1
   CutoutsRefreshRate: 1
   m_assetGuid: add4918ed71a4ca7a5370477fa9c392c
 --- !u!1 &1841348295
@@ -20490,8 +20490,8 @@ MonoBehaviour:
   m_legacyRelightingEnabled: 0
   m_legacyRelightingProxy: {fileID: 0}
   m_legacyRelightingSource: {fileID: 0}
-  SortMode: 1
-  SortRefreshRate: 3
+  SortMode: 0
+  SortRefreshRate: 1
   CutoutsRefreshRate: 1
   m_assetGuid: ba3513535ed84174b61bbb67d4e63045
 --- !u!1 &1977323552
