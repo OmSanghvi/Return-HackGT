@@ -1,6 +1,7 @@
 """Small contract checks; run with `python -m unittest test_api.py`."""
 
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -1868,6 +1869,222 @@ class RoomApiTests(unittest.TestCase):
             self.assertEqual(state_after["live_revision"], room["revision"])
             still_original = next(o for o in state_after["objects"] if o["id"] == "obj_alice")
             self.assertEqual(still_original["position"], [0.0, 0.0, 1.0])
+
+class UploadObjectsDefaultTests(unittest.TestCase):
+    """docs/IMMERSIVE_SCENE_PIPELINE.md 2: an upload with no typed names can
+    ask for every object in the photo (detect), one selection each,
+    deduplicated and capped, queued like typed names and then reconstructed."""
+
+    def _project(self, client) -> str:
+        return client.post("/v1/projects", json={"name": "Whole photo"}).json()["project_id"]
+
+    def _upload(self, client, project_id: str, **data):
+        return client.post(
+            f"/v1/projects/{project_id}/uploads",
+            data=data,
+            files={"image": ("IMG_0001.png", io.BytesIO(_png_bytes(64, 48)), "image/png")},
+        )
+
+    def test_plain_upload_is_unchanged(self) -> None:
+        with TestClient(app) as client:
+            project_id = self._project(client)
+            response = self._upload(client, project_id)
+            self.assertEqual(response.status_code, 201, response.text)
+            body = response.json()
+            self.assertEqual(body["objects_mode"], "none")
+            self.assertIsNone(body["job_id"])
+            upload = client.get(f"/v1/projects/{project_id}/uploads/{body['upload_id']}").json()
+            self.assertEqual(upload["selections"], [])
+
+    def test_detect_with_no_names_reconstructs_every_object(self) -> None:
+        from unittest.mock import patch
+
+        import subject_labeler as sl
+
+        label = sl.SubjectLabel(
+            label="tabby cat", backend="gpu:test",
+            alternatives=["pink blanket", "Tabby Cat", "red sofa", "tv remote"],
+        )
+        with TestClient(app) as client, patch.object(
+            main.subject_labeler, "identify_subject", return_value=label
+        ), patch.dict(os.environ, {"SKETCHSCAPE_MAX_OBJECTS_PER_UPLOAD": "3"}):
+            project_id = self._project(client)
+            response = self._upload(client, project_id, detect="true")
+            self.assertEqual(response.status_code, 201, response.text)
+            body = response.json()
+            self.assertEqual(body["objects_mode"], "detected")
+            self.assertEqual(body["label_backend"], "gpu:test")
+            self.assertEqual([s["label"] for s in body["selections"]], ["tabby cat", "pink blanket", "red sofa"])
+            self.assertTrue(all(s["origin"] == "suggested" for s in body["selections"]))
+            # Mock pipeline: segment -> auto-generate -> reconstruct, all done.
+            upload = client.get(f"/v1/projects/{project_id}/uploads/{body['upload_id']}").json()
+            self.assertEqual({s["status"] for s in upload["selections"]}, {"generated"})
+            assets = client.get(f"/v1/projects/{project_id}/assets").json()
+            self.assertEqual(sorted(a["label"] for a in assets), ["pink blanket", "red sofa", "tabby cat"])
+            self.assertEqual({a["status"] for a in assets}, {"ready"})
+            self.assertEqual({a["views"][0]["upload_id"] for a in assets}, {body["upload_id"]})
+
+    def test_typed_names_at_upload_time(self) -> None:
+        with TestClient(app) as client:
+            project_id = self._project(client)
+            response = self._upload(client, project_id, objects='["vase", "Vase", "lamp"]', generate="false")
+            self.assertEqual(response.status_code, 201, response.text)
+            body = response.json()
+            self.assertEqual(body["objects_mode"], "typed")
+            self.assertEqual([s["prompt"]["text"] for s in body["selections"]], ["vase", "lamp"])
+            self.assertTrue(all(s["origin"] == "person" for s in body["selections"]))
+            # generate=false: segmented, waiting for the person's /generate.
+            upload = client.get(f"/v1/projects/{project_id}/uploads/{body['upload_id']}").json()
+            self.assertEqual({s["status"] for s in upload["selections"]}, {"segmented"})
+            self.assertEqual(client.get(f"/v1/projects/{project_id}/assets").json(), [])
+
+            comma = self._upload(client, project_id, objects="chair, table\nrug").json()
+            self.assertEqual([s["prompt"]["text"] for s in comma["selections"]], ["chair", "table", "rug"])
+
+    def test_bad_typed_names_are_422(self) -> None:
+        with TestClient(app) as client:
+            project_id = self._project(client)
+            too_many = json.dumps([f"thing {i}" for i in range(20)])
+            self.assertEqual(self._upload(client, project_id, objects=too_many).status_code, 422)
+            self.assertEqual(self._upload(client, project_id, objects='["x" ').status_code, 422)
+            self.assertEqual(self._upload(client, project_id, objects="[1, 2]").status_code, 422)
+            self.assertEqual(self._upload(client, project_id, objects="y" * 101).status_code, 422)
+
+    def test_detect_finding_nothing_still_stores_the_photo(self) -> None:
+        from unittest.mock import patch
+
+        with TestClient(app) as client, patch.object(main.subject_labeler, "identify_subject", return_value=None):
+            project_id = self._project(client)
+            response = self._upload(client, project_id, detect="true")
+            self.assertEqual(response.status_code, 201, response.text)
+            self.assertEqual(response.json()["objects_mode"], "nothing_detected")
+            self.assertEqual(
+                client.get(f"/v1/projects/{project_id}/uploads/{response.json()['upload_id']}/image").status_code, 200
+            )
+
+    def _auto_env(self, **extra):
+        from unittest.mock import patch
+
+        return patch.dict(
+            os.environ,
+            {"SKETCHSCAPE_UPLOAD_AUTO_DETECT": "1", "SKETCHSCAPE_AUTO_DETECT_GRACE_SECONDS": "0", **extra},
+        )
+
+    def test_no_names_detects_every_object_by_default(self) -> None:
+        from unittest.mock import patch
+
+        import subject_labeler as sl
+
+        label = sl.SubjectLabel(
+            label="left striped cat", backend="gpu:test",
+            alternatives=["right striped cat", "pink blanket", "tv remote"],
+        )
+        with TestClient(app) as client, patch.object(
+            main.subject_labeler, "identify_subject", return_value=label
+        ) as identify, self._auto_env(SKETCHSCAPE_MAX_OBJECTS_PER_UPLOAD="3"):
+            project_id = self._project(client)
+            response = self._upload(client, project_id)  # only the photo
+            self.assertEqual(response.status_code, 201, response.text)
+            body = response.json()
+            self.assertEqual(body["objects_mode"], "auto_detect")
+            self.assertIsNone(body["job_id"])
+            self.assertEqual(identify.call_count, 1)
+            # The background default ran (TestClient runs it before returning):
+            # one selection per object, capped, then segmented and reconstructed.
+            upload = client.get(f"/v1/projects/{project_id}/uploads/{body['upload_id']}").json()
+            self.assertEqual(
+                [s["label"] for s in upload["selections"]],
+                ["left striped cat", "right striped cat", "pink blanket"],
+            )
+            self.assertEqual({s["status"] for s in upload["selections"]}, {"generated"})
+            assets = client.get(f"/v1/projects/{project_id}/assets").json()
+            self.assertEqual(len(assets), 3)
+            self.assertEqual({a["status"] for a in assets}, {"ready"})
+            jobs = [main.store.get_job(a["reconstruction_job_id"]) for a in assets]
+            self.assertTrue(all(job is not None and job.kind == "reconstruct" for job in jobs))
+
+            # detect=false opts out; typed names never trigger detection.
+            identify.reset_mock()
+            opted_out = self._upload(client, project_id, detect="false").json()
+            self.assertEqual(opted_out["objects_mode"], "none")
+            typed = self._upload(client, project_id, objects="vase").json()
+            self.assertEqual(typed["objects_mode"], "typed")
+            identify.assert_not_called()
+
+    def test_auto_default_follows_the_labeler(self) -> None:
+        from unittest.mock import patch
+
+        import subject_labeler as sl
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SKETCHSCAPE_UPLOAD_AUTO_DETECT", None)
+            with patch.object(main, "subject_labeler", sl.MockSubjectLabeler()):
+                self.assertFalse(main.upload_auto_detect_enabled())
+            with patch.object(main, "subject_labeler", sl.GpuSubjectLabeler(url="http://127.0.0.1:9")):
+                self.assertTrue(main.upload_auto_detect_enabled())
+                with patch.dict(os.environ, {"SKETCHSCAPE_UPLOAD_AUTO_DETECT": "0"}):
+                    self.assertFalse(main.upload_auto_detect_enabled())
+
+    def test_auto_default_retries_a_restarting_vision_server(self) -> None:
+        from unittest.mock import patch
+
+        import subject_labeler as sl
+
+        label = sl.SubjectLabel(label="green sofa", backend="gpu:test", alternatives=["rug"])
+        down = sl.SubjectLabelError("vision server unavailable: connection refused")
+        with TestClient(app) as client, self._auto_env(SKETCHSCAPE_AUTO_DETECT_RETRY_SECONDS="0,0"):
+            project_id = self._project(client)
+            with patch.object(main.subject_labeler, "identify_subject", side_effect=[down, down, label]) as identify:
+                recovered = self._upload(client, project_id).json()
+                self.assertEqual(identify.call_count, 3)
+            upload = client.get(f"/v1/projects/{project_id}/uploads/{recovered['upload_id']}").json()
+            self.assertEqual([s["label"] for s in upload["selections"]], ["green sofa", "rug"])
+            with patch.object(main.subject_labeler, "identify_subject", side_effect=down) as identify:
+                gave_up = self._upload(client, project_id)
+                self.assertEqual(gave_up.status_code, 201, gave_up.text)
+                self.assertEqual(identify.call_count, 3)
+            upload = client.get(f"/v1/projects/{project_id}/uploads/{gave_up.json()['upload_id']}").json()
+            self.assertEqual(upload["selections"], [])
+
+    def test_auto_default_stands_down_when_the_client_acts(self) -> None:
+        import asyncio
+        from unittest.mock import patch
+
+        import subject_labeler as sl
+
+        label = sl.SubjectLabel(label="lamp", backend="gpu:test", alternatives=["rug"])
+        with TestClient(app) as client, patch.object(
+            main.subject_labeler, "identify_subject", return_value=label
+        ) as identify, self._auto_env():
+            project_id = self._project(client)
+            # The web app names its objects right after uploading.
+            named = self._upload(client, project_id, detect="false").json()["upload_id"]
+            client.post(
+                f"/v1/projects/{project_id}/uploads/{named}/selections",
+                json={"selections": [{"selection_id": "s1", "prompt": {"type": "text", "text": "mug"}}]},
+            )
+            asyncio.run(main.auto_detect_upload(project_id, named, True))
+            identify.assert_not_called()
+            upload = client.get(f"/v1/projects/{project_id}/uploads/{named}").json()
+            self.assertEqual([s["prompt"]["text"] for s in upload["selections"]], ["mug"])
+
+            # ... or asks /detect itself, which is still labeling.
+            asked = self._upload(client, project_id, detect="false").json()["upload_id"]
+            with main.detecting_upload(asked):
+                asyncio.run(main.auto_detect_upload(project_id, asked, True))
+            identify.assert_not_called()
+            self.assertEqual(client.get(f"/v1/projects/{project_id}/uploads/{asked}").json()["selections"], [])
+
+            # A labeler that finds nothing (or fails) leaves the photo as is.
+            identify.return_value = None
+            quiet = self._upload(client, project_id).json()
+            self.assertEqual(quiet["objects_mode"], "auto_detect")
+            self.assertEqual(
+                client.get(f"/v1/projects/{project_id}/uploads/{quiet['upload_id']}").json()["selections"], []
+            )
+            identify.side_effect = RuntimeError("labeler bug")
+            broken = self._upload(client, project_id)
+            self.assertEqual(broken.status_code, 201, broken.text)
 
 
 if __name__ == "__main__":

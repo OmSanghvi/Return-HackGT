@@ -1,0 +1,43 @@
+# NemoClaw policy preset: lets the sandbox's room tools (python3 only) search
+# openly licensed web media for a Shared Room - read-only.
+#
+#   api.openverse.org  - CC-licensed images and audio (search + detail JSON)
+#   api.polyhaven.com  - CC0 HDRIs and textures (asset lists + file URLs)
+#
+# Only the search/metadata JSON is fetched from inside the sandbox
+# (backend/web_media.py). The media files themselves (dl.polyhaven.org,
+# live.staticflickr.com, cdn.freesound.org, ...) are downloaded later by the
+# Unity Editor's RoomKit on the host, so they need no sandbox egress.
+#
+# Apply (in WSL):
+#   nemoclaw sketchscape policy add --from-file config/nemoclaw/policies/sketchscape-web-media.yaml --yes
+preset:
+  name: sketchscape-web-media
+  description: "Read-only Openverse and Poly Haven search for SketchScape room media"
+
+network_policies:
+  sketchscape_web_media:
+    name: sketchscape_web_media
+    endpoints:
+      - host: api.openverse.org
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/v1/images/**" }
+          - allow: { method: HEAD, path: "/v1/images/**" }
+          - allow: { method: GET, path: "/v1/audio/**" }
+          - allow: { method: HEAD, path: "/v1/audio/**" }
+      - host: api.polyhaven.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET, path: "/assets" }
+          - allow: { method: GET, path: "/assets/**" }
+          - allow: { method: GET, path: "/files/**" }
+          - allow: { method: GET, path: "/info/**" }
+          - allow: { method: GET, path: "/categories/**" }
+    binaries:
+      - { path: /usr/bin/python3* }
+      - { path: /usr/local/bin/python3* }

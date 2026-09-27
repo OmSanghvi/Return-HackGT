@@ -8,6 +8,46 @@ The last session (`65c057b2-388a-42b5-a56f-ed1265d08877`) ran on a different
 Claude account, so it can't be resumed from the next one. This file is the
 handoff.
 
+## LATEST+4 (2026-09-26, near midnight) — one photo → an immersive room you stand inside (NemoClaw + RoomKit)
+
+Contract: **`docs/IMMERSIVE_SCENE_PIPELINE.md`** (kept current, incl. every convention found this round).
+Session `7f1700fc` (continued `7c8cd2df`, whose 7 workstream agents died on a usage limit) finished it.
+
+**The chain (all live and verified):**
+1. Upload a photo with **no names** (`POST /v1/projects/{p}/uploads`, image only) → the GPU vision model
+   (`sketchscape-vlm` :8003, Qwen3-VL-4B) detects up to 8 objects with boxes → SAM 3.1 → Fast-SAM3D → each job
+   gets a **pose.json v2** whose `splat_to_cam` is refined against the photo's metric depth and written only when
+   verified (mask IoU ≥ 0.6, depth residual ≤ 15%).
+2. The worker captures the **whole photo** (`sketchscape-scene` :8004: Apple SHARP splat + MoGe-2 + GeoCalib,
+   metric scale = SHARP's) plus a VLM scene analysis → backend stores `artifacts/scenes/<upload_id>/`.
+3. `python scripts/sync_s3_assets_to_unity.py --project-id <p>` (and `--scene-id <id>` for standalone scenes):
+   cuts the verified objects out of the scene splat (patching the surface under them), prunes floaters, colour-
+   matches scans, writes HackGTUnity `Assets/SketchScape/{Scenes,AssetLibrary}` + the catalog. Unverified objects
+   stay in the photo splat. Then refresh the Unity AssetDatabase and `bash scripts/nemoclaw-deploy-skills.sh` (WSL).
+4. Muse Spark: `nemoclaw sketchscape agent --agent main --session-id <new id> -m "Build ... from scene <id>"` →
+   `compose_room` (photo layout at real scale; HDRI/lights/fog/particles/sounds from the analysis; fire, embers,
+   hearth glow and window sounds **anchored to where the analysis boxed them in the photo**) → `build_code`
+   (big rooms come in **parts** staged in the Editor's SessionState, FNV-checked) → RoomKit 1.0.14 builds →
+   Meta XR rig / grabbables / teleport → `finalize_code`.
+
+**Demo data:** E2E cabin project `674a8bcb39d7442d8d2a381e105c86e5`, upload/scene `3ae525c11c0b4163b2829c9951fbb1fd`
+(6 verified grabbable scans: 2 green armchairs, green sofa, stone fireplace, curtains, rug; table + chair stay in the
+photo). Cats project `02b682878bc045d5a5eadc9837f01865`, scene `b0949bf0…` (cat + remote grabbable, blanket in the
+splat). Standalone eye-level scene `testroom1`. Rooms in HackGTUnity `Assets/SketchScape/AgentRooms/`:
+`Cabin_Afternoon` (built live by Muse Spark), `Parts_Check` (E2E cabin via the parts path), `Cats_Test`, `Cabin_Real`.
+
+**Gotchas found this round:**
+- GPU host `sketchscape-auto-stop.service` = `shutdown -h +30` at every boot; extending it needs the user's OK.
+- Unity Run Command refuses file I/O over MCP ("User interactions are not supported"): stage data in `SessionState`.
+- Muse Spark can't copy ~8 KB verbatim into one tool call (a 4 KB build works): `build_code` splits specs > 3000
+  chars into ~2.4 KB parts; `build_code <slug> <k>` prints part k.
+- `worker/gpu_dispatcher.py` claims jobs while the worker is still loading (503) → jobs sit leased 900 s. After any
+  worker restart, restart `sketchscape-dispatcher` too.
+- Host disk ~5 GB free (96%); the scene cache and `/opt/sketchscape/data/jobs` never shrink.
+- SHARP weights are research-only (fine for the hackathon, not a product).
+- The segmenter ignores the VLM boxes the backend now passes (same-kind objects can collide); VLM detections vary
+  between uncached runs; flat objects seen obliquely (rugs) reconstruct as thick blobs.
+
 ## LATEST+3 (2026-09-26, late night) — 1C + 4A: agent rooms go through the backend into `unity/`
 
 The pipeline is **built and unit-tested; the live run is waiting on one

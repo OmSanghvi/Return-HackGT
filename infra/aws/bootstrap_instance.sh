@@ -267,3 +267,70 @@ echo "Bootstrap complete. Check readiness:"
 echo "  curl http://127.0.0.1:8002/health          # SAM 3.1 (warm)"
 echo "  curl http://127.0.0.1:8001/worker/health   # Fast-SAM3D"
 echo "  journalctl -u sketchscape-dispatcher -f    # step 27 claim/lease loop"
+
+# >>> gpu-scene: whole-photo scene capture (SHARP + MoGe-2 + GeoCalib) >>>
+# Own venv under $RUNTIME_DIR/scene (Python 3.13 via uv); installs and starts
+# sketchscape-scene.service on loopback :8004 (docs/IMMERSIVE_SCENE_PIPELINE.md 1b).
+# Needs ~12 GB disk and <= 12 GB VRAM. Non-fatal: the rest of the stack works
+# without it (scenes are simply not produced).
+if SCENE_ROOT="$RUNTIME_DIR/scene" APP_USER="$APP_USER" APP_DIR="$APP_DIR" ENV_FILE=/etc/sketchscape.env \
+     bash "$APP_DIR/worker/bootstrap_scene_capture.sh" --install-service; then
+  echo "  curl http://127.0.0.1:8004/health          # scene capture (SHARP + MoGe-2)"
+else
+  echo "WARNING: scene capture bootstrap failed; see journalctl -u sketchscape-scene" >&2
+fi
+# <<< gpu-scene <<<
+
+# ---- BEGIN gpu-vlm: sketchscape-vlm (Qwen3-VL vision server, loopback :8003) ----
+# Names every object in a photo (auto-detect for uploads with no typed names)
+# and writes the scene analysis (lighting, materials, mood). Own venv; ~9 GB
+# VRAM resident (peak ~9.8 GB) next to Fast-SAM3D, SAM 3.1 and the scene
+# service on the L40S. Clients: backend POST /v1/detect (SKETCHSCAPE_VLM_URL,
+# default http://127.0.0.1:8003), worker POST /v1/analyze.
+export VLM_PERSIST_ROOT="$RUNTIME_DIR/vlm"
+export VLM_MODEL_ID="${VLM_MODEL_ID:-Qwen/Qwen3-VL-4B-Instruct}"
+VLM_MODEL_DIR="$VLM_PERSIST_ROOT/models/$(basename "$VLM_MODEL_ID")"
+# Host RAM safety: the resident GPU services use most of the 32 GB, so give
+# the kernel a swapfile (keeping >= 5 GB of disk free) rather than let the OOM
+# killer pick a service; the VLM itself is the preferred OOM victim below.
+if [ -z "$(swapon --show --noheadings)" ] && [ ! -e /swapfile ]; then
+  VLM_FREE_GB=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)
+  VLM_SWAP_GB=$(( VLM_FREE_GB - 5 )); [ "$VLM_SWAP_GB" -gt 6 ] && VLM_SWAP_GB=6
+  if [ "$VLM_SWAP_GB" -ge 2 ]; then
+    fallocate -l "${VLM_SWAP_GB}G" /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
+    grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  fi
+fi
+install -d -o "$APP_USER" -g "$APP_USER" "$VLM_PERSIST_ROOT"
+sudo -E -u "$APP_USER" bash "$APP_DIR/worker/bootstrap_vlm.sh"
+cat >/etc/systemd/system/sketchscape-vlm.service <<EOF_VLM
+[Unit]
+Description=SketchScape GPU vision-language server (Qwen3-VL, loopback :8003)
+After=network-online.target sketchscape-sam31.service sketchscape-worker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$APP_USER
+WorkingDirectory=$APP_DIR/worker
+EnvironmentFile=$ENV_FILE
+Environment=HF_HUB_OFFLINE=1
+Environment=HF_HOME=$VLM_PERSIST_ROOT/huggingface-cache
+Environment=TRANSFORMERS_VERBOSITY=error
+Environment=PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+Environment=VLM_MODEL_ID=$(basename "$VLM_MODEL_ID")
+ExecStart=$VLM_PERSIST_ROOT/venv/bin/python $APP_DIR/worker/vlm_server.py --serve --host 127.0.0.1 --port 8003 --model $VLM_MODEL_DIR
+Restart=on-failure
+RestartSec=10
+OOMScoreAdjust=800
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF_VLM
+systemctl daemon-reload
+systemctl enable sketchscape-vlm.service
+systemctl restart sketchscape-vlm.service
+echo "  curl http://127.0.0.1:8003/health          # Qwen3-VL vision server (loads in ~1-3 min)"
+# ---- END gpu-vlm ----

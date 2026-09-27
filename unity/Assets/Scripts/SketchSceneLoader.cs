@@ -489,4 +489,7 @@ public class SketchSceneObject
     public string source;
     public string[] actions;
     public bool grabbable;
+    // "upright" (default): stand the Z-up scan on the floor at the origin.
+    // "pose": the transform already carries the scan's pose from its photo.
+    public string placement;
 }

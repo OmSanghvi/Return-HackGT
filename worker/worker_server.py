@@ -40,6 +40,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from gaussian_ply_safety import sanitize_ply_opacity_file
+import scene_pose
 
 logging.basicConfig(
     level=logging.INFO,
@@ -98,6 +99,15 @@ GPU_CONCURRENCY = max(1, int(os.environ.get("SKETCHSCAPE_GPU_CONCURRENCY", "1"))
 # (default) preserves the legacy same-host push path, whose jobs never have
 # a lease_owner, so the API's ownership check is a no-op either way.
 WORKER_ID = os.environ.get("SKETCHSCAPE_WORKER_ID", "").strip() or None
+# Whole-photo scene capture (gpu-scene) and vision analysis (gpu-vlm), both
+# loopback and optional: pose.json v2 uses the scene's metric geometry when
+# it is up, and each upload's scene is captured once after its first object.
+SCENE_URL = os.environ.get("SKETCHSCAPE_SCENE_URL", "http://127.0.0.1:8004").strip().rstrip("/")
+VLM_URL = os.environ.get("SKETCHSCAPE_VLM_URL", "http://127.0.0.1:8003").strip().rstrip("/")
+HEALTH_TIMEOUT = float(os.environ.get("SKETCHSCAPE_SIDECAR_HEALTH_TIMEOUT", "3"))
+PLACEMENT_TIMEOUT = float(os.environ.get("SKETCHSCAPE_PLACEMENT_TIMEOUT", "60"))
+SCENE_TIMEOUT = float(os.environ.get("SKETCHSCAPE_SCENE_TIMEOUT", "180"))
+ANALYZE_TIMEOUT = float(os.environ.get("SKETCHSCAPE_ANALYZE_TIMEOUT", "120"))
 
 # ---------------------------------------------------------------------------
 # Global pipeline (loaded once at startup)
@@ -223,15 +233,321 @@ def _load_pipeline():
 # Job runner (runs in a dedicated thread, one job at a time)
 # ---------------------------------------------------------------------------
 
-def _run_one_job(job_id: str, subject_hint: str) -> None:
+def _move(names):
+    if KEEP_ON_GPU:
+        return
+    import torch
+    gpu = torch.device("cuda:0")
+    for n in names:
+        try:
+            m = _pipeline.models[n]
+            if m is not None:
+                m.to(gpu)
+        except (KeyError, AttributeError):
+            pass
+        conditioner_key = {"ss_generator": "ss_condition_embedder",
+                           "slat_generator": "slat_condition_embedder"}.get(n, "")
+        try:
+            c = _pipeline.condition_embedders[conditioner_key]
+            if c is not None:
+                c.to(gpu)
+        except (KeyError, AttributeError):
+            pass
+
+
+def _offload(names):
+    if KEEP_ON_GPU:
+        return
+    import torch
+    cpu = torch.device("cpu")
+    for n in names:
+        try:
+            m = _pipeline.models[n]
+            if m is not None:
+                m.to(cpu)
+        except (KeyError, AttributeError):
+            pass
+        conditioner_key = {"ss_generator": "ss_condition_embedder",
+                           "slat_generator": "slat_condition_embedder"}.get(n, "")
+        try:
+            c = _pipeline.condition_embedders[conditioner_key]
+            if c is not None:
+                c.to(cpu)
+        except (KeyError, AttributeError):
+            pass
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
+def _reconstruct(image_path: Path, mask_path: Path, output_dir: Path, tag: str, *, debug: bool = False) -> tuple[Path, Path | None]:
+    """Fast-SAM3D on one image + mask with the resident pipeline. Writes
+    ``fastsam3d_reconstruction.ply`` and ``pose.json`` (v2, scene_pose.py) in
+    ``output_dir``; returns their paths (pose None if it could not be built;
+    pose metadata never fails a reconstruction)."""
     import numpy as np
     import torch
     from PIL import Image
 
+    gpu, cpu = torch.device("cuda:0"), torch.device("cpu")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log.info(f"[{tag}] Running Fast-SAM3D (models already in memory)...")
+    t0 = time.time()
+    amp = torch.autocast(
+        "cuda",
+        dtype=torch.bfloat16 if AMP_DTYPE == "bf16" else torch.float16,
+        enabled=USE_FP16,
+    )
+
+    image = np.asarray(Image.open(image_path).convert("RGB"))
+    mask = np.asarray(Image.open(mask_path).convert("L")) > 127
+    if image.shape[:2] != mask.shape[:2]:
+        raise ValueError("Image and mask dimensions must match.")
+    if not mask.any():
+        raise ValueError("Segmentation mask is empty.")
+    full_mask = mask
+    h, w = image.shape[:2]
+    full_size = (w, h)
+    if max(h, w) > MAX_SIDE:
+        scale = MAX_SIDE / max(h, w)
+        size = (round(w * scale), round(h * scale))
+        image = np.asarray(Image.fromarray(image).resize(size, Image.Resampling.LANCZOS))
+        mask = np.asarray(
+            Image.fromarray(mask.astype(np.uint8) * 255).resize(size, Image.Resampling.NEAREST)
+        ) > 127
+    rgba = np.concatenate([image, (mask.astype(np.uint8) * 255)[..., None]], axis=-1)
+
+    # MoGe depth — autocast only around the ViT forward pass, not
+    # around pytorch3d's look_at_view_transform which creates float32
+    # tensors internally and breaks under autocast context.
+    _pipeline.depth_model.model.to(gpu)
+    _pipeline.depth_model.device = gpu
+    t_moge = time.time()
+    with torch.inference_mode():
+        pointmap = _pipeline.compute_pointmap(rgba)["pointmap"]
+    if not KEEP_ON_GPU:
+        _pipeline.depth_model.model.to(cpu)
+        gc.collect()
+        torch.cuda.empty_cache()
+    log.info(f"[{tag}] MoGe done {time.time()-t_moge:.1f}s")
+
+    # Sparse structure
+    ss_input = _pipeline.preprocess_image(rgba, _pipeline.ss_preprocessor, pointmap=pointmap)
+    # SAM 3D's own camera-frame pointmap (OpenCV axes) for the pose
+    # verification, before the pointmap is freed.
+    try:
+        pointmap_cv = scene_pose.p3d_pointmap_to_cv(pointmap).astype(np.float32)
+        floor_stats = scene_pose.pointmap_stats(pointmap)
+    except Exception:  # never fail a reconstruction over layout metadata
+        log.exception("[%s] Could not read the pointmap", tag)
+        pointmap_cv, floor_stats = None, None
+    del pointmap
+    _move(("ss_generator", "ss_decoder"))
+    torch.manual_seed(SEED)
+    t1 = time.time()
+    with torch.inference_mode(), amp:
+        ss_return, map_tokens, coords_scores = _pipeline.sample_sparse_structure(
+            ss_input, inference_steps=STAGE1_STEPS)
+    log.info(f"[{tag}] SS done {time.time()-t1:.1f}s")
+    with torch.inference_mode():
+        ss_return.update(_pipeline.pose_decoder(
+            ss_return,
+            scene_scale=ss_input.get("pointmap_scale"),
+            scene_shift=ss_input.get("pointmap_shift"),
+        ))
+    ss_return["scale"] = ss_return["scale"].clone() * ss_return["downsample_factor"]
+    coords = ss_return["coords"]
+    try:
+        raw_pose = scene_pose.pose_record(ss_return, image_size=(rgba.shape[1], rgba.shape[0]))
+        if floor_stats is not None:
+            raw_pose["pointmap"] = floor_stats
+    except Exception:
+        log.exception("[%s] Could not record the pose", tag)
+        raw_pose = None
+    _offload(("ss_generator", "ss_decoder"))
+    del ss_input, ss_return
+
+    # SLaT
+    slat_input = _pipeline.preprocess_image(rgba, _pipeline.slat_preprocessor)
+    _move(("slat_generator",))
+    t1 = time.time()
+    with torch.inference_mode(), amp:
+        slat = _pipeline.sample_slat(
+            slat_input,
+            coords,
+            inference_steps=STAGE2_STEPS,
+            map_tokens=map_tokens,
+            coords_scores=coords_scores,
+        )
+    log.info(f"[{tag}] SLaT done {time.time()-t1:.1f}s")
+    _offload(("slat_generator",))
+    del slat_input, coords, map_tokens, coords_scores
+
+    # Decode
+    _move(("slat_decoder_gs",))
+    with torch.inference_mode(), amp:
+        gaussian = _pipeline.decode_slat(None, slat, ["gaussian"])["gaussian"][0]
+    _offload(("slat_decoder_gs",))
+
+    ply_path = output_dir / "fastsam3d_reconstruction.ply"
+    gaussian.save_ply(ply_path)
+    # save_ply writes get_xyz: exactly the points the pose transform applies to.
+    xyz = gaussian.get_xyz.detach().float().cpu().numpy()
+    opacity = gaussian.get_opacity.detach().float().cpu().numpy().reshape(-1)
+    fixed = sanitize_ply_opacity_file(ply_path)
+    if fixed:
+        log.warning("[%s] Repaired %d non-finite opacity value(s) in %s", tag, fixed, ply_path)
+    del gaussian, slat
+    gc.collect()
+    torch.cuda.empty_cache()
+    log.info(
+        "[%s] Total Fast-SAM3D: %.1fs PLY: %sKB idle_cuda=%.2fGB",
+        tag,
+        time.time() - t0,
+        ply_path.stat().st_size // 1024,
+        torch.cuda.memory_allocated() / 2**30,
+    )
+
+    pose_path: Path | None = output_dir / "pose.json"
+    try:
+        if raw_pose is None or pointmap_cv is None:
+            raise ValueError("no raw pose / pointmap")
+        record = _pose_v2(raw_pose, xyz, opacity, pointmap_cv, full_size, full_mask,
+                          image_path, mask_path, tag,
+                          debug_path=(output_dir / "pose_debug.npz") if debug else None)
+        pose_path.write_text(json.dumps(record, indent=1))
+    except Exception:
+        log.exception("[%s] Could not build pose v2", tag)
+        try:
+            if raw_pose is not None:
+                pose_path.write_text(json.dumps(raw_pose, indent=1))  # v1 fallback
+            else:
+                pose_path = None
+        except Exception:
+            pose_path = None
+    return ply_path, pose_path
+
+
+def _http_json(url: str, body: dict | None = None, *, timeout: float = 10.0) -> dict:
+    data = None if body is None else json.dumps(body).encode()
+    request = Request(url, data=data, headers={"Content-Type": "application/json"} if data else {},
+                      method="POST" if data is not None else "GET")
+    with urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read())
+
+
+def _service_healthy(base: str) -> bool:
+    try:
+        _http_json(f"{base}/health", timeout=HEALTH_TIMEOUT)
+        return True
+    except Exception:
+        return False
+
+
+def _placement(image_path: Path, mask_path: Path, tag: str) -> dict | None:
+    """gpu-scene /v1/placement (MoGe-2 metric geometry + the object block)
+    for the full-resolution photo; None when the service is unavailable."""
+    if not SCENE_URL or not _service_healthy(SCENE_URL):
+        log.info("[%s] Scene service unavailable; pose stays in SAM 3D units", tag)
+        return None
+    try:
+        return _http_json(f"{SCENE_URL}/v1/placement",
+                          {"image_path": str(image_path), "mask_path": str(mask_path)},
+                          timeout=PLACEMENT_TIMEOUT)
+    except Exception as exc:
+        log.warning("[%s] Placement failed: %s", tag, exc)
+        return None
+
+
+def _pose_v2(raw_pose: dict, xyz, opacity, pointmap_cv, full_size: tuple[int, int], full_mask,
+             image_path: Path, mask_path: Path, tag: str, *, debug_path: Path | None = None) -> dict:
+    """pose.json v2: the pose decoder's transform in the OpenCV camera frame,
+    verified by reprojection, re-based onto the scene's metric camera."""
+    import numpy as np
+
+    points = xyz[opacity > scene_pose.MIN_OPACITY]
+    if len(points) < 50:
+        points = xyz
+    sim_sam = scene_pose.sam3d_splat_to_cam(raw_pose["rotation"], raw_pose["translation"], raw_pose["scale"])
+    k_sam = scene_pose.intrinsics_from_pointmap(pointmap_cv, image_size=full_size)
+    iou_sam = scene_pose.reprojection_iou(points, sim_sam, k_sam, full_mask)
+    verification: dict = {"iou_sam3d_camera": round(iou_sam, 4),
+                          "sam3d_intrinsics": {k: round(v, 3) for k, v in k_sam.items()},
+                          "sam3d_splat_to_cam": scene_pose.round_similarity(sim_sam)}
+    sim, k, iou, metric = sim_sam, k_sam, iou_sam, False
+
+    placement = _placement(image_path, mask_path, tag)
+    if placement and placement.get("intrinsics"):
+        k_scene = {key: float(placement["intrinsics"][key]) for key in ("fx", "fy", "cx", "cy")}
+        p_size = placement.get("image_size") or list(full_size)
+        if tuple(int(v) for v in p_size) != tuple(full_size):
+            k_scene = scene_pose.scale_intrinsics(k_scene, (int(p_size[0]), int(p_size[1])), full_size)
+            placement = dict(placement, intrinsics=k_scene, image_size=list(full_size))
+        ratio, scene_pm = None, None
+        pm_path = placement.get("pointmap_npy")
+        if pm_path and Path(pm_path).is_file():
+            try:
+                scene_pm = np.load(pm_path)
+                ratio = scene_pose.depth_ratio(pointmap_cv, scene_pm, full_mask)
+            except Exception:
+                log.exception("[%s] Could not compare depths", tag)
+        if ratio is None:
+            centroid = (placement.get("object") or {}).get("centroid_cam")
+            sam_pts = scene_pose._sample_at_mask(pointmap_cv, full_mask)
+            sam_z = sam_pts[:, 2][np.isfinite(sam_pts[:, 2]) & (sam_pts[:, 2] > 0)]
+            if centroid and len(sam_z):
+                ratio = float(centroid[2]) / float(np.median(sam_z))
+        sim, iou, k, metric = None, None, k_scene, True  # geometry is metric from here on
+        residual = None
+        prior = None
+        if ratio and np.isfinite(ratio) and ratio > 0:
+            prior = scene_pose.rebase_similarity(sim_sam, points, k_sam, k_scene, ratio)
+            sim, iou = prior, scene_pose.reprojection_iou(points, prior, k_scene, full_mask)
+            verification["depth_scale_to_scene"] = round(ratio, 6)
+            verification["iou_rebased"] = round(iou, 4)
+        if scene_pm is not None:
+            # Register the splat to the scene's metric pointmap inside the mask
+            # (silhouette + depth), starting from SAM 3D's pose and from
+            # principal-axis hypotheses; see scene_pose.refine_pose.
+            try:
+                t_ref = time.time()
+                refined, report = scene_pose.refine_pose(points, full_mask, scene_pm, k_scene, prior=prior,
+                                                         up=placement.get("gravity_up_cam"))
+                report["seconds"] = round(time.time() - t_ref, 2)
+                verification["refine"] = report
+                if refined is not None and (iou is None or report["iou"] >= iou):
+                    sim, iou, residual = refined, float(report["iou"]), report.get("depth_residual")
+            except Exception:
+                log.exception("[%s] Pose refinement failed", tag)
+        placement = {key: v for key, v in placement.items() if key != "pointmap_npy"}
+    else:
+        # Without the scene's metric camera nothing is in the scene.json
+        # frame: no splat_to_cam; the object block comes from SAM 3D's pose.
+        sim, iou, residual = None, None, None
+
+    block_sim = sim if sim is not None else (None if metric else sim_sam)
+    sample = points if len(points) <= 20000 else points[np.random.default_rng(0).choice(len(points), 20000, replace=False)]
+    points_cam = scene_pose.apply_similarity(sample, block_sim) if block_sim is not None else None
+    record = scene_pose.pose_record_v2(
+        raw=raw_pose, image_size=full_size, intrinsics=k, mask=full_mask,
+        splat_to_cam=sim, reprojection_iou=iou, placement=placement,
+        points_cam=points_cam, metric=metric, extra={"verification": verification},
+        depth_residual=residual,
+    )
+    log.info("[%s] pose v2: iou_sam3d=%.3f iou_final=%s metric=%s verified=%s refine=%s", tag, iou_sam,
+             None if iou is None else round(iou, 3), record["metric"],
+             record["object"].get("splat_to_cam") is not None,
+             {key: (verification.get("refine") or {}).get(key) for key in ("chosen", "iou", "depth_residual", "seconds")})
+    if debug_path is not None:
+        np.savez_compressed(debug_path, pointmap_cv=pointmap_cv, xyz=xyz, opacity=opacity, mask=full_mask)
+    return record
+
+
+def _run_one_job(job_id: str, subject_hint: str) -> None:
+    import torch
+
     with _job_lock:
         _job_status[job_id] = {"status": "running"}
 
-    gpu, cpu = torch.device("cuda:0"), torch.device("cpu")
     work = WORK_DIR / job_id
     work.mkdir(parents=True, exist_ok=True)
     image_path = work / "image.png"
@@ -239,6 +555,7 @@ def _run_one_job(job_id: str, subject_hint: str) -> None:
     output_dir = work / "output"
     output_dir.mkdir(exist_ok=True)
     restart_after_job = False
+    completed = False
 
     try:
         # 1. Pull image and an optional user-provided mask from the API.
@@ -276,148 +593,15 @@ def _run_one_job(job_id: str, subject_hint: str) -> None:
                 raise RuntimeError(f"SAM 3.1 exited with status {returncode}.")
 
         # 3. Fast-SAM3D reconstruction using the already-loaded pipeline
-        log.info(f"[{job_id[:8]}] Running Fast-SAM3D (models already in memory)...")
-        t0 = time.time()
-        amp = torch.autocast(
-            "cuda",
-            dtype=torch.bfloat16 if AMP_DTYPE == "bf16" else torch.float16,
-            enabled=USE_FP16,
-        )
-
-        image = np.asarray(Image.open(image_path).convert("RGB"))
-        mask = np.asarray(Image.open(mask_path).convert("L")) > 127
-        if image.shape[:2] != mask.shape[:2]:
-            raise ValueError("Image and mask dimensions must match.")
-        if not mask.any():
-            raise ValueError("Segmentation mask is empty.")
-        h, w = image.shape[:2]
-        if max(h, w) > MAX_SIDE:
-            scale = MAX_SIDE / max(h, w)
-            size = (round(w * scale), round(h * scale))
-            image = np.asarray(Image.fromarray(image).resize(size, Image.Resampling.LANCZOS))
-            mask = np.asarray(
-                Image.fromarray(mask.astype(np.uint8) * 255).resize(size, Image.Resampling.NEAREST)
-            ) > 127
-        rgba = np.concatenate([image, (mask.astype(np.uint8) * 255)[..., None]], axis=-1)
-
-        def move(names):
-            if KEEP_ON_GPU:
-                return
-            for n in names:
-                try:
-                    m = _pipeline.models[n]
-                    if m is not None:
-                        m.to(gpu)
-                except (KeyError, AttributeError):
-                    pass
-                conditioner_key = {"ss_generator": "ss_condition_embedder",
-                                   "slat_generator": "slat_condition_embedder"}.get(n, "")
-                try:
-                    c = _pipeline.condition_embedders[conditioner_key]
-                    if c is not None:
-                        c.to(gpu)
-                except (KeyError, AttributeError):
-                    pass
-
-        def offload(names):
-            if KEEP_ON_GPU:
-                return
-            for n in names:
-                try:
-                    m = _pipeline.models[n]
-                    if m is not None:
-                        m.to(cpu)
-                except (KeyError, AttributeError):
-                    pass
-                conditioner_key = {"ss_generator": "ss_condition_embedder",
-                                   "slat_generator": "slat_condition_embedder"}.get(n, "")
-                try:
-                    c = _pipeline.condition_embedders[conditioner_key]
-                    if c is not None:
-                        c.to(cpu)
-                except (KeyError, AttributeError):
-                    pass
-            gc.collect()
-            torch.cuda.empty_cache()
-
-        # MoGe depth — autocast only around the ViT forward pass, not
-        # around pytorch3d's look_at_view_transform which creates float32
-        # tensors internally and breaks under autocast context.
-        _pipeline.depth_model.model.to(gpu)
-        _pipeline.depth_model.device = gpu
-        t_moge = time.time()
-        with torch.inference_mode():
-            pointmap = _pipeline.compute_pointmap(rgba)["pointmap"]
-        if not KEEP_ON_GPU:
-            _pipeline.depth_model.model.to(cpu)
-            gc.collect()
-            torch.cuda.empty_cache()
-        log.info(f"[{job_id[:8]}] MoGe done {time.time()-t_moge:.1f}s")
-
-        # Sparse structure
-        ss_input = _pipeline.preprocess_image(rgba, _pipeline.ss_preprocessor, pointmap=pointmap)
-        del pointmap
-        move(("ss_generator", "ss_decoder"))
-        torch.manual_seed(SEED)
-        t1 = time.time()
-        with torch.inference_mode(), amp:
-            ss_return, map_tokens, coords_scores = _pipeline.sample_sparse_structure(
-                ss_input, inference_steps=STAGE1_STEPS)
-        log.info(f"[{job_id[:8]}] SS done {time.time()-t1:.1f}s")
-        with torch.inference_mode():
-            ss_return.update(_pipeline.pose_decoder(
-                ss_return,
-                scene_scale=ss_input.get("pointmap_scale"),
-                scene_shift=ss_input.get("pointmap_shift"),
-            ))
-        ss_return["scale"] = ss_return["scale"].clone() * ss_return["downsample_factor"]
-        coords = ss_return["coords"]
-        offload(("ss_generator", "ss_decoder"))
-        del ss_input, ss_return
-
-        # SLaT
-        slat_input = _pipeline.preprocess_image(rgba, _pipeline.slat_preprocessor)
-        move(("slat_generator",))
-        t1 = time.time()
-        with torch.inference_mode(), amp:
-            slat = _pipeline.sample_slat(
-                slat_input,
-                coords,
-                inference_steps=STAGE2_STEPS,
-                map_tokens=map_tokens,
-                coords_scores=coords_scores,
-            )
-        log.info(f"[{job_id[:8]}] SLaT done {time.time()-t1:.1f}s")
-        offload(("slat_generator",))
-        del slat_input, coords, map_tokens, coords_scores
-
-        # Decode
-        move(("slat_decoder_gs",))
-        with torch.inference_mode(), amp:
-            gaussian = _pipeline.decode_slat(None, slat, ["gaussian"])["gaussian"][0]
-        offload(("slat_decoder_gs",))
-
-        ply_path = output_dir / "fastsam3d_reconstruction.ply"
-        gaussian.save_ply(ply_path)
-        fixed = sanitize_ply_opacity_file(ply_path)
-        if fixed:
-            log.warning("[%s] Repaired %d non-finite opacity value(s) in %s", job_id[:8], fixed, ply_path)
-        del gaussian, slat
-        gc.collect()
-        torch.cuda.empty_cache()
-        log.info(
-            "[%s] Total Fast-SAM3D: %.1fs PLY: %sKB idle_cuda=%.2fGB",
-            job_id[:8],
-            time.time() - t0,
-            ply_path.stat().st_size // 1024,
-            torch.cuda.memory_allocated() / 2**30,
-        )
+        ply_path, pose_path = _reconstruct(image_path, mask_path, output_dir, job_id[:8])
 
         _report(job_id, "complete",
                 label=subject_hint or "gaussian_splat",
-                files={"ply": ply_path, "mask": mask_path})
+                files={"ply": ply_path, "mask": mask_path,
+                       **({"pose": pose_path} if pose_path and pose_path.is_file() else {})})
         with _job_lock:
             _job_status[job_id] = {"status": "complete"}
+        completed = True
 
     except Exception as exc:
         restart_after_job = isinstance(exc, torch.cuda.OutOfMemoryError)
@@ -429,35 +613,164 @@ def _run_one_job(job_id: str, subject_hint: str) -> None:
         with _job_lock:
             _job_status[job_id] = {"status": "failed", "error": str(exc)[:500]}
     finally:
-        # Return every model to CPU even when a stage fails midway. A CUDA OOM
-        # can leave library state unreliable, so restart after reporting it.
-        try:
-            if _pipeline is not None and not (KEEP_ON_GPU and not restart_after_job):
-                _pipeline.depth_model.model.to(cpu)
-                _pipeline.depth_model.device = cpu
-                for model in _pipeline.models.values():
-                    if model is not None:
-                        model.to(cpu)
-                for name in list(getattr(_pipeline, "condition_embedders", {}).keys()):
-                        try:
-                            c = _pipeline.condition_embedders[name]
-                            if c is not None:
-                                c.to(cpu)
-                        except (KeyError, AttributeError):
-                            pass
-            gc.collect()
-            torch.cuda.empty_cache()
-            log.info(
-                "[%s] GPU cleanup complete; allocated=%.2fGB",
-                job_id[:8],
-                torch.cuda.memory_allocated() / 2**30,
-            )
-        except Exception:
-            log.exception("[%s] GPU cleanup failed", job_id[:8])
-            restart_after_job = True
+        restart_after_job = _cleanup_gpu(job_id[:8], restart_after_job)
         if restart_after_job:
             log.error("[%s] Restarting worker after CUDA failure", job_id[:8])
             os._exit(1)
+    if completed:
+        # The photo's whole-scene capture, after the object is reported and
+        # off the job thread: never fails or delays the object job.
+        threading.Thread(target=_ensure_scene, args=(job_id, image_path), daemon=True,
+                         name=f"scene-{job_id[:8]}").start()
+
+
+def _run_local_job(local_id: str, spec: dict) -> None:
+    """Loopback-only reconstruction from files on this host (backfill_objects.py):
+    no API callbacks, results left in spec["output_dir"]."""
+    import torch
+
+    with _job_lock:
+        _job_status[local_id] = {"status": "running"}
+    restart_after_job = False
+    try:
+        ply_path, pose_path = _reconstruct(Path(spec["image_path"]), Path(spec["mask_path"]),
+                                           Path(spec["output_dir"]), local_id[:14], debug=bool(spec.get("debug")))
+        with _job_lock:
+            _job_status[local_id] = {"status": "complete", "ply": str(ply_path),
+                                     "pose": str(pose_path) if pose_path else None}
+    except Exception as exc:
+        restart_after_job = isinstance(exc, torch.cuda.OutOfMemoryError)
+        log.exception("[%s] Local job failed: %s", local_id, exc)
+        with _job_lock:
+            _job_status[local_id] = {"status": "failed", "error": str(exc)[:500]}
+    finally:
+        if _cleanup_gpu(local_id[:14], restart_after_job):
+            os._exit(1)
+
+
+def _cleanup_gpu(tag: str, restart_after_job: bool) -> bool:
+    """Return every model to CPU even when a stage fails midway. A CUDA OOM
+    can leave library state unreliable, so restart after reporting it."""
+    import torch
+
+    cpu = torch.device("cpu")
+    try:
+        if _pipeline is not None and not (KEEP_ON_GPU and not restart_after_job):
+            _pipeline.depth_model.model.to(cpu)
+            _pipeline.depth_model.device = cpu
+            for model in _pipeline.models.values():
+                if model is not None:
+                    model.to(cpu)
+            for name in list(getattr(_pipeline, "condition_embedders", {}).keys()):
+                try:
+                    c = _pipeline.condition_embedders[name]
+                    if c is not None:
+                        c.to(cpu)
+                except (KeyError, AttributeError):
+                    pass
+        gc.collect()
+        torch.cuda.empty_cache()
+        log.info("[%s] GPU cleanup complete; allocated=%.2fGB", tag, torch.cuda.memory_allocated() / 2**30)
+    except Exception:
+        log.exception("[%s] GPU cleanup failed", tag)
+        restart_after_job = True
+    return restart_after_job
+
+
+# ---------------------------------------------------------------------------
+# Whole-photo scene (gpu-scene :8004 + optional vision analysis :8003)
+# ---------------------------------------------------------------------------
+
+_scene_uploads: set[str] = set()  # uploads captured (or being captured) by this process
+_scene_lock = threading.Lock()
+
+
+def _ensure_scene(job_id: str, image_path: Path) -> None:
+    tag = job_id[:8]
+    try:
+        request = Request(f"{API_URL}/v1/internal/reconstructions/{job_id}/scene",
+                          headers={"X-SketchScape-Worker-Token": WORKER_TOKEN})
+        try:
+            with urlopen(request, timeout=10) as response:
+                info = json.loads(response.read())
+        except HTTPError as error:
+            if error.code != 404:
+                raise
+            info = {}  # older backend: no scene routes
+        if info.get("exists"):
+            return
+        upload_id = str(info.get("upload_id") or job_id)
+        with _scene_lock:
+            if upload_id in _scene_uploads:
+                return
+            _scene_uploads.add(upload_id)
+        if not SCENE_URL or not _service_healthy(SCENE_URL):
+            log.info("[%s] Scene service unavailable; no scene capture", tag)
+            with _scene_lock:
+                _scene_uploads.discard(upload_id)
+            return
+        out_dir = WORK_DIR / "scenes" / upload_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        t0 = time.time()
+        result = _http_json(f"{SCENE_URL}/v1/scene",
+                            {"image_path": str(image_path), "out_dir": str(out_dir), "upload_id": upload_id,
+                             "photo": str(info.get("image_key") or "")},
+                            timeout=SCENE_TIMEOUT)
+        scene_json, scene_ply = _scene_files(result, out_dir)
+        log.info("[%s] Scene captured in %.1fs: %s %s", tag, time.time() - t0, scene_json, scene_ply)
+        files = {"scene_json": scene_json, "scene_ply": scene_ply}
+        analysis = _analyze(image_path, out_dir, tag)
+        if analysis is not None:
+            files["analysis_json"] = analysis
+        _post_multipart(f"/v1/internal/reconstructions/{job_id}/scene",
+                        {"worker_token": WORKER_TOKEN, **({"worker_id": WORKER_ID} if WORKER_ID else {})},
+                        {k: v for k, v in files.items() if v is not None})
+        log.info("[%s] Scene stored for upload %s", tag, upload_id)
+    except Exception as exc:
+        log.warning("[%s] Scene capture skipped: %s", tag, exc)
+        with _scene_lock:
+            _scene_uploads.discard(str(locals().get("upload_id", "")))
+
+
+def _scene_files(result: dict, out_dir: Path) -> tuple[Path, Path | None]:
+    """scene.json / scene.ply from a /v1/scene response: paths it names
+    (``scene_json``/``scene_ply``, optionally ``*_path``), or the files in
+    ``out_dir``; an inline scene document is written out."""
+    def path_of(*keys):
+        for key in keys:
+            value = result.get(key)
+            if isinstance(value, str) and Path(value).is_file():
+                return Path(value)
+        return None
+
+    scene_json = path_of("scene_json_path", "scene_json", "json_path")
+    if scene_json is None and isinstance(result.get("scene"), dict):
+        scene_json = out_dir / "scene.json"
+        scene_json.write_text(json.dumps(result["scene"]))
+    if scene_json is None and (out_dir / "scene.json").is_file():
+        scene_json = out_dir / "scene.json"
+    if scene_json is None:
+        raise RuntimeError(f"scene service returned no scene.json ({sorted(result)})")
+    scene_ply = path_of("scene_ply_path", "scene_ply", "ply_path")
+    if scene_ply is None and (out_dir / "scene.ply").is_file():
+        scene_ply = out_dir / "scene.ply"
+    return scene_json, scene_ply
+
+
+def _analyze(image_path: Path, out_dir: Path, tag: str) -> Path | None:
+    if not VLM_URL or not _service_healthy(VLM_URL):
+        return None
+    try:
+        import base64
+        doc = _http_json(f"{VLM_URL}/v1/analyze",
+                         {"image_b64": base64.b64encode(image_path.read_bytes()).decode()},
+                         timeout=ANALYZE_TIMEOUT)
+        path = out_dir / "analysis.json"
+        path.write_text(json.dumps(doc))
+        return path
+    except Exception as exc:
+        log.warning("[%s] Scene analysis skipped: %s", tag, exc)
+        return None
 
 
 def _segment_via_server(image_path: Path, mask_path: Path, prompt: str) -> int | None:
@@ -495,11 +808,16 @@ def _segment_via_subprocess(image_path: Path, mask_path: Path, prompt: str) -> i
     ).returncode
 
 
+
+
 def _job_worker_thread():
     while True:
-        job_id, hint = _job_queue.get()
+        job_id, hint, local_spec = _job_queue.get()
         try:
-            _run_one_job(job_id, hint)
+            if local_spec is not None:
+                _run_local_job(job_id, local_spec)
+            else:
+                _run_one_job(job_id, hint)
         except Exception as exc:
             log.error(f"Unhandled error in job {job_id}: {exc}")
         finally:
@@ -509,7 +827,22 @@ def _job_worker_thread():
 def _report(job_id: str, status: str, *, label: str = "gaussian_splat",
              error: str | None = None, files: dict | None = None) -> None:
     """Stream callbacks so a large PLY is never duplicated in host memory."""
-    target = urlparse(f"{API_URL}/v1/internal/reconstructions/{job_id}/result")
+    payload = json.dumps({
+        "status": status,
+        "object_label": label,
+        **({"error": error} if error else {}),
+    })
+    fields = {"worker_token": WORKER_TOKEN, "result": payload}
+    if WORKER_ID:
+        # Required when the job was claimed through the lease queue (Build
+        # Plan step 27's dispatcher); harmless for the legacy same-host push
+        # path, whose jobs have no lease_owner for the API to check against.
+        fields["worker_id"] = WORKER_ID
+    _post_multipart(f"/v1/internal/reconstructions/{job_id}/result", fields, files or {})
+
+
+def _post_multipart(path: str, fields: dict[str, str], files: dict[str, Path]) -> None:
+    target = urlparse(f"{API_URL}{path}")
     if target.scheme not in {"http", "https"} or not target.hostname:
         raise RuntimeError(f"Invalid API URL: {API_URL}")
 
@@ -522,33 +855,20 @@ def _report(job_id: str, status: str, *, label: str = "gaussian_splat",
             f"{value}\r\n"
         ).encode()
 
-    payload = json.dumps({
-        "status": status,
-        "object_label": label,
-        **({"error": error} if error else {}),
-    })
-    pieces: list[tuple[bytes, Path | None]] = [
-        (field("worker_token", WORKER_TOKEN), None),
-        (field("result", payload), None),
-    ]
-    if WORKER_ID:
-        # Required when the job was claimed through the lease queue (Build
-        # Plan step 27's dispatcher); harmless for the legacy same-host push
-        # path, whose jobs have no lease_owner for the API to check against.
-        pieces.append((field("worker_id", WORKER_ID), None))
-    for name, path in (files or {}).items():
-        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    pieces: list[tuple[bytes, Path | None]] = [(field(k, v), None) for k, v in fields.items()]
+    for name, file_path in files.items():
+        content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
         prefix = (
             f"--{boundary}\r\n"
-            f"Content-Disposition: form-data; name=\"{name}\"; filename=\"{path.name}\"\r\n"
+            f"Content-Disposition: form-data; name=\"{name}\"; filename=\"{file_path.name}\"\r\n"
             f"Content-Type: {content_type}\r\n\r\n"
         ).encode()
-        pieces.append((prefix, path))
+        pieces.append((prefix, file_path))
 
     closing = f"--{boundary}--\r\n".encode()
     content_length = sum(
-        len(prefix) + (path.stat().st_size + 2 if path else 0)
-        for prefix, path in pieces
+        len(prefix) + (p.stat().st_size + 2 if p else 0)
+        for prefix, p in pieces
     ) + len(closing)
     connection_type = (
         http.client.HTTPSConnection if target.scheme == "https"
@@ -560,10 +880,10 @@ def _report(job_id: str, status: str, *, label: str = "gaussian_splat",
         connection.putheader("Content-Type", f"multipart/form-data; boundary={boundary}")
         connection.putheader("Content-Length", str(content_length))
         connection.endheaders()
-        for prefix, path in pieces:
+        for prefix, p in pieces:
             connection.send(prefix)
-            if path:
-                with path.open("rb") as source:
+            if p:
+                with p.open("rb") as source:
                     while block := source.read(1024 * 1024):
                         connection.send(block)
                 connection.send(b"\r\n")
@@ -596,6 +916,7 @@ class Handler(BaseHTTPRequestHandler):
                 "queue_size": _job_queue.qsize(),
                 "gpu_concurrency": GPU_CONCURRENCY,
                 "worker_id": WORKER_ID,
+                "pose_version": 2,
             }).encode()
             self._respond(200, body)
         elif path.startswith("/worker/status/"):
@@ -607,7 +928,7 @@ class Handler(BaseHTTPRequestHandler):
             self._respond(404, b"not found")
 
     def do_POST(self):
-        if self.path != "/worker/jobs":
+        if self.path not in ("/worker/jobs", "/worker/local"):
             self._respond(404, b"not found")
             return
         try:
@@ -618,8 +939,24 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError):
             self._respond(400, b'{"error":"invalid JSON request"}')
             return
-        job_id = str(body.get("job_id", "")).strip()
-        hint = str(body.get("subject_hint", "") or "").strip()
+        local_spec = None
+        if self.path == "/worker/local":
+            # Loopback backfill (worker/backfill_objects.py): files on this host.
+            try:
+                local_spec = {
+                    "image_path": str(Path(body["image_path"]).resolve(strict=True)),
+                    "mask_path": str(Path(body["mask_path"]).resolve(strict=True)),
+                    "output_dir": str(Path(body["output_dir"]).resolve()),
+                    "debug": bool(body.get("debug")),
+                }
+            except (KeyError, TypeError, OSError):
+                self._respond(400, b'{"error":"image_path, mask_path (existing) and output_dir are required"}')
+                return
+            job_id = f"local-{uuid.uuid4().hex[:12]}"
+            hint = ""
+        else:
+            job_id = str(body.get("job_id", "")).strip()
+            hint = str(body.get("subject_hint", "") or "").strip()
         if not job_id:
             self._respond(400, b'{"error":"missing job_id"}')
             return
@@ -631,7 +968,7 @@ class Handler(BaseHTTPRequestHandler):
             self._respond(503, b'{"error":"models not ready"}')
             return
         try:
-            _job_queue.put_nowait((job_id, hint))
+            _job_queue.put_nowait((job_id, hint, local_spec))
             with _job_lock:
                 _job_status[job_id] = {"status": "queued"}
             self._respond(202, json.dumps({"status": "queued", "job_id": job_id}).encode())
@@ -653,7 +990,7 @@ def main():
     # Job execution: always exactly one runner thread. GPU_CONCURRENCY only
     # sizes the accept queue above (how many jobs may sit queued instead of
     # getting 429); `_run_one_job` mutates the shared `_pipeline`'s GPU/CPU
-    # placement (`move`/`offload`) with no lock, so actually running two
+    # placement (`_move`/`_offload`) with no lock, so actually running two
     # reconstructions at once needs a benchmarked, pipeline-isolated change
     # this server does not yet have (Hard Rule 5) -- raising the queue size
     # alone is safe (jobs still run one at a time) but gives no throughput
@@ -661,7 +998,7 @@ def main():
     threading.Thread(target=_job_worker_thread, daemon=True, name="job-runner").start()
     log.info(
         "Worker server on 127.0.0.1:%s; profile=%spx/%s/%s amp=%s(%s) resident=%s sam31=%s "
-        "gpu_concurrency=%s(queue only) worker_id=%s — waiting for model load...",
+        "gpu_concurrency=%s(queue only) worker_id=%s scene=%s vlm=%s — waiting for model load...",
         WORKER_PORT,
         MAX_SIDE,
         STAGE1_STEPS,
@@ -672,6 +1009,8 @@ def main():
         SAM31_SERVER_URL or "subprocess",
         GPU_CONCURRENCY,
         WORKER_ID or "(none, legacy push mode)",
+        SCENE_URL or "(off)",
+        VLM_URL or "(off)",
     )
     server = HTTPServer(("127.0.0.1", WORKER_PORT), Handler)
     server.serve_forever()
