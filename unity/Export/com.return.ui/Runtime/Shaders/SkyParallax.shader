@@ -141,6 +141,10 @@ Shader "Return/SkyParallax"
                     col = SAMPLE_TEXTURE2D(_SkyTex, sampler_SkyTex, skyUV).rgb;
                     col = lerp(col, col * float3(0.82, 0.88, 0.95), below);                 // reflection reads a touch cooler and darker
                     col = saturate(lerp(dot(col, float3(0.299, 0.587, 0.114)).xxx, col, 1.25)); // a little more color than the hazy sky behind
+                    // some rooms share the hub's own hazy daylight sky, so the opening has to read as somewhere else:
+                    // deeper contrast, a touch darker, and shaded inward from the edge like a hole rather than a patch of sky
+                    col = saturate((col - 0.5) * 1.3 + 0.42);
+                    col *= lerp(0.6, 1.0, smoothstep(0.0, 0.28, -sd));
                 }
                 else
                 {
@@ -182,9 +186,10 @@ Shader "Return/SkyParallax"
 
                 if (_Window > 0.5)
                 {
-                    // outside the opening only the aura draws: glow color, alpha falling off with distance
-                    float a = max(inside, aura * (0.55 + 0.35 * _Light) * (1.0 - inside));
-                    col = lerp(glow * (1.1 + 0.5 * _Light), col, inside);
+                    // outside the opening: a dark shadow fading out with distance, so the edge still reads against a
+                    // bright sky (a pale glow on its own melted into the daylight hub)
+                    float a = max(inside, aura * (0.75 + 0.25 * _Light) * (1.0 - inside));
+                    col = lerp(float3(0.05, 0.06, 0.09), col, inside);
                     return half4(col, a * _Alpha);
                 }
                 float feather = 1.0;

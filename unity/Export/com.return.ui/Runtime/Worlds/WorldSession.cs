@@ -14,6 +14,10 @@ namespace Return.UI
         readonly IWorldLoader _loader; readonly ScreenFade _fade; readonly Transform _head; readonly Action<bool> _hubVisible;
         readonly PortalTransition _transition;
         public float fadeSeconds = 1.1f;
+        /// <summary>How long the chosen portal swells toward you before the wash-out starts. The fade then runs alongside
+        /// the rest of the bloom instead of waiting for the portal to arrive, so stepping in takes about this plus
+        /// fadeSeconds rather than the whole bloom plus the whole fade.</summary>
+        public float fadeLeadSeconds = 0.3f;
         public SessionState State { get; private set; } = SessionState.Hub;
         public Room Current { get; private set; }
         public event Action<SessionState> StateChanged;
@@ -70,10 +74,12 @@ namespace Return.UI
         /// second arrival card) since this one started.</summary>
         static async void AutoUnlockAfter(float seconds)
         {
-            int gen = _lockGen; float t = 0;
-            while (t < seconds) { t += Time.unscaledDeltaTime; await Task.Yield(); }
+            int gen = _lockGen;
+            await Wait(seconds);
             if (gen == _lockGen && IsMovementLocked) { IsMovementLocked = false; MovementLocked?.Invoke(false); }
         }
+
+        static async Task Wait(float seconds) { for (float t = 0; t < seconds; t += Time.unscaledDeltaTime) await Task.Yield(); }
 
         /// <summary>Slide the rig so the head's XZ lands back on the hub center (world origin), keeping current yaw:
         /// Recenter (fired by HubVisible(true)) lays the ring out around whatever way the viewer is now facing.</summary>
@@ -91,9 +97,10 @@ namespace Return.UI
             Current = room; Progress = 0; Set(SessionState.Loading);
             try
             {
-                if (_transition != null) await _transition.EnterStep(portal, _head); // the chosen portal blooms toward the head; no rig movement
                 _fade.SetColor(FadeColor(room));
-                await _fade.FadeTo(1f, fadeSeconds);
+                var bloom = _transition != null ? _transition.EnterStep(portal, _head) : Task.CompletedTask; // the chosen portal blooms toward the head; no rig movement
+                if (_transition != null) await Wait(fadeLeadSeconds);
+                await Task.WhenAll(bloom, _fade.FadeTo(1f, fadeSeconds)); // the wash-out overlaps the bloom instead of waiting for the portal to arrive
                 _transition?.Restore(); // snap the portal back to its ring spot while the screen is opaque, so it's invisible
                 _hubVisible(false);
                 await _loader.LoadAsync(room, _head, p => Progress = p);

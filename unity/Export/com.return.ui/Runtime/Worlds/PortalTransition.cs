@@ -7,8 +7,8 @@ namespace Return.UI
 {
     /// <summary>
     /// Step through a portal instead of a plain cut: the rig never moves. The chosen portal swells toward the viewer
-    /// over ~1s, filling the view, with a comfort vignette rising alongside it, then the screen fades to opaque.
-    /// WorldSession calls EnterStep before the fade, Restore right after the fade goes opaque (while the screen hides
+    /// over ~1s, filling the view, with a comfort vignette rising alongside it, while the screen fades to opaque.
+    /// WorldSession starts the fade partway through EnterStep, calls Restore right after the fade goes opaque (while the screen hides
     /// it), and ExitStep on the way back for the whoosh only. This file owns just the bloom and vignette.
     /// </summary>
     public class PortalTransition
