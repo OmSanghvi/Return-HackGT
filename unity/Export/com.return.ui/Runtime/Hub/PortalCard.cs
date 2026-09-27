@@ -24,7 +24,7 @@ namespace Return.UI
             c.portal = RoomPortal.Create(anchor.transform, room, new Vector3(0, ReturnSpatial.PortalHeight / 2f, 0)); // bottom rests on the floor
             c.portal.SetPresentation(0f, 1f); // clear window: the ring only ever holds rooms that are ready to enter
             c.portal.Activated += _ => onActivate(room, c.portal);
-            c.label = SpatialPanel.Create("Label", 720, 220, anchor.transform);
+            c.label = SpatialPanel.Create("Label", 620, 200, anchor.transform);
             c.label.transform.localPosition = new Vector3(0, ReturnSpatial.PortalHeight + 0.25f, 0); c.label.transform.localScale = Vector3.one * 0.003f;
             c.Refresh(store, true);
             return c;
@@ -44,14 +44,10 @@ namespace Return.UI
             foreach (Transform t in label.rect) Destroy(t.gameObject);
             var col = UI.V(label.rect, "Col", 6, new RectOffset(18, 18, 14, 14), TextAnchor.MiddleCenter); UI.Stretch(col);
             UI.Bg(col, ColorRole.Glass, 32); UI.Border(col, ColorRole.GlassEdge, 32, 2);
-            // title in the web's accent serif italic (Cormorant), faux-bolded so its hairlines survive VR distance
-            var title = UI.Text(col, room.title, TextStyle.H1, ColorRole.OnGlass, TextAlignmentOptions.Center);
-            title.font = UIAssets.Font(FontFace.Accent); title.fontSize = 66; title.fontStyle = FontStyles.Bold; title.characterSpacing = 1;
-            title.overflowMode = TextOverflowModes.Ellipsis; title.maxVisibleLines = 1;
-            // who's inside as widely tracked small caps, dot-separated, like an engraved plaque
-            var names = string.Join("  ·  ", room.members.Select(m => m.name.Split(' ')[0]));
-            var who = UI.Text(col, names, TextStyle.Kicker, ColorRole.OnGlass, TextAlignmentOptions.Center);
-            who.fontSize = 26; who.characterSpacing = 7; who.fontStyle = FontStyles.SmallCaps | FontStyles.Bold; who.alpha = 1f;
+            var title = UI.Text(col, room.title, TextStyle.H1, ColorRole.OnGlass, TextAlignmentOptions.Center); // Hanken SemiBold: less crowded than the display face
+            title.fontSize = 44; title.characterSpacing = 2; title.overflowMode = TextOverflowModes.Ellipsis; title.maxVisibleLines = 1;
+            var names = string.Join(", ", room.members.Select(m => m.name.Split(' ')[0]));
+            var who = UI.Text(col, names, TextStyle.Caption, ColorRole.OnGlass, TextAlignmentOptions.Center); who.fontSize = 24; who.characterSpacing = 1;
         }
     }
 }

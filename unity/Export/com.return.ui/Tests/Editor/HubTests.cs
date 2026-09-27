@@ -15,6 +15,24 @@ namespace Return.UI.Tests
         }
 
         [Test]
+        public void HallSlots_TwoFacingRows_OpenAtBothEnds()
+        {
+            const int n = 4;
+            var s = new UnityEngine.Vector3[n];
+            for (int i = 0; i < n; i++) s[i] = HubController.HallSlot(i, n);
+            Assert.Less(s[0].x, 0); Assert.Less(s[1].x, 0); Assert.Greater(s[2].x, 0); Assert.Greater(s[3].x, 0); // left row, right row
+            Assert.AreEqual(-s[0].x, s[3].x, 1e-4f); Assert.AreEqual(s[0].z, s[3].z, 1e-4f);                     // mirror pairs
+            for (int i = 0; i < n; i++)
+            {
+                Assert.Greater(s[i].z, 1.5f, "nothing crowds spawn");
+                for (int j = i + 1; j < n; j++) Assert.Greater(UnityEngine.Vector3.Distance(s[i], s[j]), 3f, "portals well apart");
+                var fwd = HubController.FacingIn(s[i]) * UnityEngine.Vector3.forward;
+                Assert.Less(UnityEngine.Vector3.Dot(fwd, new UnityEngine.Vector3(0, 0, HubController.HallCenter) - s[i]), 0, "opens into the hall (forward points away from center)");
+                Assert.Less(UnityEngine.Vector3.Angle(-fwd, -s[i]), 45f, "readable from spawn, not edge-on");
+            }
+        }
+
+        [Test]
         public void WorldSceneRoot_ArrivesUnderTheViewer()
         {
             var head = new UnityEngine.GameObject("Head").transform;
