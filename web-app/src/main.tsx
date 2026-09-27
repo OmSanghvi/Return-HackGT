@@ -6,9 +6,10 @@ import './design-system/bundle.css';
 import './app.css';
 import App from './App';
 import { useRooms } from './data/store';
+import { useMockBuilds } from './real/vrBuild';
 
-// /?reset puts the demo back to its seeded rooms.
-if (new URLSearchParams(location.search).has('reset')) { useRooms.getState().reset(); history.replaceState(null, '', location.pathname); }
+// /?reset puts the demo back to its seeded rooms (and forgets simulated VR builds).
+if (new URLSearchParams(location.search).has('reset')) { useRooms.getState().reset(); useMockBuilds.setState({ builds: {} }); history.replaceState(null, '', location.pathname); }
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode><BrowserRouter><App /></BrowserRouter></StrictMode>,

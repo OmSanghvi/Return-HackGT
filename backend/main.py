@@ -13,6 +13,7 @@ import contextlib
 import hashlib
 import io
 import json
+import logging
 import math
 import mimetypes
 import os
@@ -48,12 +49,21 @@ import upload_pipeline
 from auth import (
     Identity,
     author_from_identity,
+    demo_accounts,
     require_identity,
     require_mock_mode,
+    require_service,
     run_startup_checks,
     web_origins,
 )
-from storage import RevisionConflict, create_store
+from storage import (
+    ROOM_BUILD_TERMINAL_STATUSES,
+    RevisionConflict,
+    RoomBuildConflict,
+    create_store,
+    iso_z,
+)
+from storage import _room_build_is_stale as room_build_is_stale
 from artifact_store import create_artifact_store
 from subject_labeler import GpuSubjectLabeler, SubjectLabel, SubjectLabelError, create_subject_labeler
 from letters import LetterSceneRef, RoomLetterView, room_letter_views
@@ -530,6 +540,9 @@ class UploadRecord(BaseModel):
     height: int = Field(ge=1)
     created_at: datetime
     original_filename: str = ""
+    # The uploader's personal note about this photo (docs/WEB_TO_QUEST_PIPELINE.md
+    # 1b): shown next to their objects in the VR room. "" when none.
+    note: str = Field(default="", max_length=1000)
     selections: list[UploadSelection] = Field(default_factory=list)
     # The whole photo as a scene (docs/IMMERSIVE_SCENE_PIPELINE.md 1b), stored
     # by the GPU host under artifacts/scenes/<upload_id>/. Storage keys.
@@ -2900,6 +2913,10 @@ async def create_upload(
         bool | None,
         Form(description="Queue the 3D reconstructions once segmented (default: on when objects are named or detected)"),
     ] = None,
+    note: Annotated[
+        str | None,
+        Form(max_length=1000, description="The uploader's personal note about this photo (shown in the VR room)."),
+    ] = None,
     identity: Identity = Depends(require_project_write),
 ) -> UploadCreateResponse:
     """Store a photo and, by default, every object in it
@@ -2942,6 +2959,7 @@ async def create_upload(
         height=height,
         created_at=utc_now(),
         original_filename=image.filename or "image",
+        note=(note or "").strip(),
     )
     store.save_upload_record(upload)
     response = UploadCreateResponse(
@@ -3206,6 +3224,28 @@ async def list_uploads(project_id: str) -> list[UploadRecord]:
 )
 async def get_upload(project_id: str, upload_id: str) -> UploadRecord:
     return get_upload_or_404(project_id, upload_id)
+
+
+class UploadUpdateRequest(BaseModel):
+    note: str | None = Field(default=None, max_length=1000)
+
+
+@app.patch("/v1/projects/{project_id}/uploads/{upload_id}", response_model=UploadRecord)
+async def update_upload(
+    project_id: str,
+    upload_id: str,
+    request: UploadUpdateRequest,
+    identity: Identity = Depends(require_project_write),
+) -> UploadRecord:
+    """The uploader sets or edits their photo's personal note
+    (docs/WEB_TO_QUEST_PIPELINE.md 1b). Prefer the upload's own `note` field
+    for new photos: this rewrites the upload record."""
+    upload = get_upload_or_404(project_id, upload_id)
+    require_upload_owner(upload, identity)
+    if request.note is not None:
+        upload.note = request.note.strip()
+        store.save_upload_record(upload)
+    return upload
 
 
 @app.get(
@@ -3578,11 +3618,54 @@ async def claim_internal_job(
     """Worker-only (skill item 9): claim the oldest queued job of a given kind."""
     if not worker_is_authorized(worker_token):
         raise HTTPException(401, "Invalid GPU worker token.")
+    sweep_expired_job_leases()
     lease_seconds = int(os.environ.get("SKETCHSCAPE_JOB_LEASE_SECONDS", "900"))
     job = store.claim_next_job(request.worker_id, list(request.kinds), lease_seconds)
     if job is None:
         return Response(status_code=204)
     return JSONResponse(content=json.loads(job.model_dump_json()))
+
+
+logger = logging.getLogger("sketchscape.jobs")
+_last_lease_sweep = 0.0
+
+
+def sweep_expired_job_leases(*, force: bool = False) -> int:
+    """Re-queue jobs whose lease ran out (a dispatcher that died mid-job leaves
+    them `running`), at most once a minute (SKETCHSCAPE_LEASE_SWEEP_SECONDS).
+    Runs on the claim path, so a live dispatcher always finds them again."""
+    global _last_lease_sweep
+    interval = float(os.environ.get("SKETCHSCAPE_LEASE_SWEEP_SECONDS", "60"))
+    now = time.monotonic()
+    if not force and now - _last_lease_sweep < interval:
+        return 0
+    _last_lease_sweep = now
+    try:
+        released = store.release_expired_leases()
+    except Exception as error:  # noqa: BLE001 - a sweep failure must never block claims
+        logger.warning("expired-lease sweep failed: %s", error)
+        return 0
+    if released:
+        logger.info("expired-lease sweep re-queued %d job(s)", released)
+    return released
+
+
+@app.post("/v1/internal/jobs/{job_id}/release")
+async def release_internal_job(
+    job_id: str,
+    worker_id: Annotated[str, Form()],
+    worker_token: Annotated[str | None, Form()] = None,
+    reason: Annotated[str | None, Form(max_length=500)] = None,
+) -> dict[str, bool]:
+    """Worker-only: put a claimed job back in the queue after the dispatcher
+    couldn't hand it over (worker loading, 503, restart). Only the lease owner
+    of a running job can release it; `attempts` is not incremented."""
+    if not worker_is_authorized(worker_token):
+        raise HTTPException(401, "Invalid GPU worker token.")
+    released = store.release_job(job_id, worker_id)
+    if released:
+        logger.info("job %s released by %s: %s", job_id, worker_id, (reason or "")[:200])
+    return {"released": released}
 
 
 @app.post("/v1/internal/jobs/{job_id}/lease")
@@ -4045,6 +4128,526 @@ async def legacy_sketch(sketch: UploadFile = File(...)) -> SceneResponse:
     global current_scene
     current_scene = placeholder_scene(sketch.filename or "sketch.png")
     return SceneResponse(scene=current_scene)
+
+
+# -- Room builds and the headset's shared view (docs/WEB_TO_QUEST_PIPELINE.md 1, 1b) --
+
+RoomBuildStatus = Literal["requested", "claimed", "syncing", "building", "packaging", "ready", "failed"]
+# Forward order of a build's progress; `failed` may follow any active status.
+ROOM_BUILD_PROGRESS: tuple[str, ...] = ("requested", "claimed", "syncing", "building", "packaging", "ready")
+
+
+class RoomBuild(BaseModel):
+    """A request to turn a project's photos into a VR room. All strings,
+    `""` when unknown (JsonUtility-friendly)."""
+
+    build_id: str
+    project_id: str
+    requested_by: str = ""
+    prompt: str = ""
+    # The upload (photo) whose stored scene the room is built from.
+    scene_id: str = ""
+    status: RoomBuildStatus = "requested"
+    message: str = ""
+    slug: str = ""
+    scene_path: str = ""
+    apk_path: str = ""
+    runner_id: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class RoomBuildCreateRequest(BaseModel):
+    prompt: str | None = Field(default=None, max_length=1000)
+    scene_id: str | None = Field(default=None, max_length=80)
+
+
+class RoomBuildClaimRequest(BaseModel):
+    runner_id: str = Field(min_length=1, max_length=120)
+
+
+class RoomBuildStatusRequest(BaseModel):
+    runner_id: str = Field(min_length=1, max_length=120)
+    status: Literal["claimed", "syncing", "building", "packaging", "ready", "failed"]
+    message: str | None = Field(default=None, max_length=1000)
+    slug: str | None = Field(default=None, max_length=200)
+    scene_path: str | None = Field(default=None, max_length=500)
+    apk_path: str | None = Field(default=None, max_length=500)
+
+
+def room_build_lease_seconds() -> float:
+    """How long a runner may go without reporting before its build is re-queued."""
+    return max(1.0, float(os.environ.get("SKETCHSCAPE_ROOM_BUILD_LEASE_SECONDS", "1800")))
+
+
+def upload_has_scene(upload: UploadRecord) -> bool:
+    """True when the photo's whole-scene capture is stored. A scene put
+    straight into storage (worker/backfill_scenes.py) has no key on its
+    record yet, so that case costs one HEAD (as in `with_scene_info`)."""
+    if upload.scene_key:
+        return True
+    return bool(_SCENE_ID.match(upload.upload_id)) and artifact_store.exists(
+        scene_artifact_dir(upload.upload_id), "scene.json"
+    )
+
+
+def newest_scene_upload_id(project_id: str) -> str | None:
+    uploads = sorted(store.list_upload_records(project_id), key=lambda upload: upload.created_at, reverse=True)
+    for upload in uploads:
+        if upload_has_scene(upload):
+            return upload.upload_id
+    return None
+
+
+def current_room_builds(project_id: str) -> list[RoomBuild]:
+    """The project's builds, newest first, after re-queuing any whose runner
+    stopped reporting (so a poll never shows a dead runner as `building`)."""
+    builds = store.list_room_builds(project_id)
+    now = utc_now()
+    lease = room_build_lease_seconds()
+    if any(room_build_is_stale(build, now, lease) for build in builds):
+        store.release_stale_room_builds(lease, now, project_id=project_id)
+        builds = store.list_room_builds(project_id)
+    return builds
+
+
+@app.post("/v1/projects/{project_id}/room-builds", response_model=RoomBuild, status_code=201)
+async def create_room_build(
+    project_id: str,
+    request: RoomBuildCreateRequest | None = None,
+    identity: Identity = Depends(require_project_write),
+) -> RoomBuild:
+    """"Build room in VR": queue a build for the runner on the Unity machine.
+    One active build per project (409). Default `scene_id`: the newest photo
+    with a stored scene (409 when there is none)."""
+    get_project(project_id)
+    body = request or RoomBuildCreateRequest()
+    current_room_builds(project_id)  # re-queue a dead runner's build first
+    scene_id = (body.scene_id or "").strip()
+    if scene_id:
+        upload = store.get_upload_record(project_id, scene_id)
+        if upload is None:
+            raise HTTPException(422, f"scene_id {scene_id!r} is not a photo in this project.")
+        if not upload_has_scene(upload):
+            raise HTTPException(409, "That photo has no stored scene yet; wait for its reconstruction to finish.")
+    else:
+        scene_id = newest_scene_upload_id(project_id) or ""
+        if not scene_id:
+            raise HTTPException(
+                409,
+                "No photo in this project has a stored scene yet; add a photo and wait for its "
+                "reconstruction to finish before building the room.",
+            )
+    stamp = iso_z(utc_now())
+    build = RoomBuild(
+        build_id=uuid.uuid4().hex,
+        project_id=project_id,
+        requested_by=identity.user_id,
+        prompt=(body.prompt or "").strip(),
+        scene_id=scene_id,
+        status="requested",
+        created_at=stamp,
+        updated_at=stamp,
+    )
+    try:
+        store.create_room_build(build)
+    except RoomBuildConflict as conflict:
+        active = conflict.active
+        raise HTTPException(
+            409, f"This project already has a room build in progress ({active.build_id}, {active.status})."
+        ) from None
+    return build
+
+
+@app.get("/v1/projects/{project_id}/room-builds", response_model=list[RoomBuild])
+async def list_room_builds(
+    project_id: str, identity: Identity = Depends(require_project_read)
+) -> list[RoomBuild]:
+    get_project(project_id)
+    return current_room_builds(project_id)[:20]
+
+
+@app.get("/v1/projects/{project_id}/room-builds/{build_id}", response_model=RoomBuild)
+async def get_room_build(
+    project_id: str, build_id: str, identity: Identity = Depends(require_project_read)
+) -> RoomBuild:
+    get_project(project_id)
+    for build in current_room_builds(project_id):
+        if build.build_id == build_id:
+            return build
+    raise HTTPException(404, "Unknown room build.")
+
+
+@app.post("/v1/projects/{project_id}/room-builds/{build_id}/cancel", response_model=RoomBuild)
+async def cancel_room_build(
+    project_id: str, build_id: str, identity: Identity = Depends(require_project_write)
+) -> RoomBuild:
+    """A member gives up on an active build (it becomes `failed`), e.g. when
+    no runner is up. A runner still working on it gets 409 on its next report."""
+    get_project(project_id)
+    build = store.get_room_build(build_id, project_id)
+    if build is None:
+        raise HTTPException(404, "Unknown room build.")
+    if build.status in ROOM_BUILD_TERMINAL_STATUSES:
+        raise HTTPException(409, f"This room build is already {build.status}.")
+    cancelled = build.model_copy(
+        update={"status": "failed", "message": f"Cancelled by {identity.user_id}.", "updated_at": iso_z(utc_now())}
+    )
+    if not store.update_room_build(
+        cancelled,
+        expected_status=build.status,
+        expected_runner_id=build.runner_id,
+        expected_updated_at=build.updated_at,
+    ):
+        raise HTTPException(409, "The room build changed meanwhile; re-read it and retry.")
+    return cancelled
+
+
+@app.post("/v1/internal/room-builds/claim")
+async def claim_room_build(
+    request: RoomBuildClaimRequest, identity: Identity = Depends(require_service)
+) -> Response:
+    """Runner-only (NemoClaw service token): the oldest `requested` build,
+    now `claimed` by this runner; 204 when there is none."""
+    now = utc_now()
+    store.release_stale_room_builds(room_build_lease_seconds(), now)
+    build = store.claim_next_room_build(request.runner_id, now)
+    if build is None:
+        return Response(status_code=204)
+    return JSONResponse(content=build.model_dump(mode="json"))
+
+
+@app.post("/v1/internal/room-builds/{build_id}/status", response_model=RoomBuild)
+async def report_room_build_status(
+    build_id: str, request: RoomBuildStatusRequest, identity: Identity = Depends(require_service)
+) -> RoomBuild:
+    """Runner-only: report progress. Every report (even the same status) is a
+    heartbeat; report at least every 30 min or the build is re-queued.
+    Statuses only move forward (`failed` from anywhere active); `ready`/
+    `failed` are final (a retried identical final report is a no-op); 409
+    when another runner holds the build."""
+    build = store.get_room_build(build_id)
+    if build is None:
+        raise HTTPException(404, "Unknown room build.")
+    if build.status in ROOM_BUILD_TERMINAL_STATUSES:
+        if request.status == build.status and request.runner_id == build.runner_id:
+            return build
+        raise HTTPException(409, f"This room build is already {build.status}; terminal states are final.")
+    if build.runner_id != request.runner_id:
+        raise HTTPException(
+            409,
+            "Another runner holds this room build."
+            if build.runner_id
+            else "This room build isn't claimed yet; claim it first.",
+        )
+    # A build re-queued after its runner went quiet keeps that runner's id: a
+    # report from it (before anyone else claims the build) re-attaches it.
+    if (
+        request.status != "failed"
+        and build.status != "requested"
+        and ROOM_BUILD_PROGRESS.index(request.status) < ROOM_BUILD_PROGRESS.index(build.status)
+    ):
+        raise HTTPException(409, f"A room build can't go back from {build.status} to {request.status}.")
+    updates: dict[str, Any] = {"status": request.status, "updated_at": iso_z(utc_now())}
+    if request.message is not None:
+        updates["message"] = request.message.strip()
+    elif request.status != build.status:
+        updates["message"] = ""
+    for field in ("slug", "scene_path", "apk_path"):
+        value = getattr(request, field)
+        if value is not None:
+            updates[field] = value.strip()
+    updated = build.model_copy(update=updates)
+    if not store.update_room_build(
+        updated,
+        expected_status=build.status,
+        expected_runner_id=build.runner_id,
+        expected_updated_at=build.updated_at,
+    ):
+        raise HTTPException(409, "The room build changed while this report was saved; re-read it and retry.")
+    return updated
+
+
+# GET /v1/rooms/{project_id}/shared (docs/WEB_TO_QUEST_PIPELINE.md 1b): everything
+# the headset's shared layer shows, as seen by one account. JsonUtility-friendly:
+# no nulls, no dicts, no nested arrays.
+SHARED_ACCOUNT_COLORS = ("#e8a33d", "#4aa3df")
+
+
+class SharedAccount(BaseModel):
+    id: str
+    label: str
+    display_name: str
+    color: str
+
+
+class SharedNote(BaseModel):
+    note_id: str
+    author: str
+    text: str
+    upload_id: str = ""
+    asset_ids: list[str] = Field(default_factory=list)
+    created_at: str = ""
+
+
+class SharedLetter(BaseModel):
+    letter_id: str
+    author: str
+    recipients: list[str]
+    title: str
+    # Nobody has opened it yet (same as GET /letters' `sealed`).
+    sealed: bool
+    # The viewer is a recipient who hasn't opened it (POST /v1/rooms/{p}/letters/{id}/open).
+    can_open: bool
+    # Somebody opened it (same as /v1/rooms/{p}/state's `opened`).
+    opened: bool
+    # Filled only when the viewer may read it: its author, or a recipient
+    # who has opened it.
+    body: str = ""
+    texture_url: str = ""
+
+
+class SharedObject(BaseModel):
+    asset_id: str
+    label: str
+    contributor: str = ""
+    editable_by_me: bool = False
+
+
+class SharedBuildRef(BaseModel):
+    build_id: str = ""
+    status: str = ""
+    slug: str = ""
+    scene_path: str = ""
+    apk_path: str = ""
+
+
+class SharedRoomView(BaseModel):
+    project_id: str
+    title: str
+    viewer: str
+    viewer_label: str
+    accounts: list[SharedAccount]
+    notes: list[SharedNote]
+    letters: list[SharedLetter]
+    objects: list[SharedObject]
+    latest_build: SharedBuildRef
+
+
+def shared_account_ids() -> list[str]:
+    try:
+        return demo_accounts()
+    except RuntimeError:  # only reachable in mock mode with a bad SKETCHSCAPE_DEMO_USERS
+        return ["demo-alice", "demo-bob"]
+
+
+def shared_viewer(identity: Identity, request: Request) -> str:
+    """Whose view to build. A service caller (the runner writing the
+    headset's offline snapshot) may name a demo account with
+    X-SketchScape-Dev-User -- it can already read every project; without
+    one it sees what a non-member would (no letter bodies)."""
+    if identity.kind == "service":
+        requested = (request.headers.get("X-SketchScape-Dev-User") or "").strip()
+        return requested if requested in shared_account_ids() else ""
+    return identity.user_id
+
+
+def _iso(value: datetime | None) -> str:
+    return iso_z(value) if value is not None else ""
+
+
+def build_shared_view(project: ProjectRecord, viewer: str) -> SharedRoomView:
+    project_id = project.project_id
+    accounts = shared_account_ids()
+    labels = {account: f"Account {index + 1}" for index, account in enumerate(accounts)}
+    contributors = store.list_contributors(project_id)
+    by_contributor = {item.contributor_id: item for item in contributors}
+    by_account = {item.clerk_user_id: item for item in contributors if item.clerk_user_id}
+
+    def account_of(contributor_id: str) -> str:
+        contributor = by_contributor.get(contributor_id)
+        if contributor is None:
+            return contributor_id
+        return contributor.clerk_user_id or contributor.contributor_id
+
+    def name_of(contributor_id: str) -> str:
+        contributor = by_contributor.get(contributor_id)
+        if contributor is None:
+            return contributor_id
+        return contributor.display_name or labels.get(contributor.clerk_user_id or "", contributor_id)
+
+    account_views = [
+        SharedAccount(
+            id=account,
+            label=labels[account],
+            display_name=by_account[account].display_name if account in by_account else labels[account],
+            color=SHARED_ACCOUNT_COLORS[index % len(SHARED_ACCOUNT_COLORS)],
+        )
+        for index, account in enumerate(accounts)
+    ]
+    viewer_contributor = by_account.get(viewer) if viewer else None
+    viewer_cid = viewer_contributor.contributor_id if viewer_contributor else None
+
+    # Notes: an upload's own note, else the memory text typed for its objects
+    # (the web app's per-object note), then any other contribution's memory
+    # text. Letters are excluded: their inner note is sealed.
+    uploads = sorted(store.list_upload_records(project_id), key=lambda upload: upload.created_at)
+    contributions = sorted(store.list_contributions(project_id), key=lambda item: item.created_at)
+    notes: list[SharedNote] = []
+    covered: set[tuple[str, str]] = set()
+    for upload in uploads:
+        upload_note = upload.note.strip()
+        if upload_note:
+            asset_ids = [item.asset_id for item in upload.selections if item.asset_id]
+            notes.append(
+                SharedNote(
+                    note_id=f"upload-{upload.upload_id}",
+                    author=upload.uploader_user_id,
+                    text=upload_note,
+                    upload_id=upload.upload_id,
+                    asset_ids=asset_ids,
+                    created_at=_iso(upload.created_at),
+                )
+            )
+            covered.update((asset_id, upload_note) for asset_id in asset_ids)
+        groups: dict[str, list[UploadSelection]] = {}
+        for selection in upload.selections:
+            text = selection.memory_text.strip()
+            if text and text != upload_note:
+                groups.setdefault(text, []).append(selection)
+        for text, selections in groups.items():
+            asset_ids = [item.asset_id for item in selections if item.asset_id]
+            notes.append(
+                SharedNote(
+                    note_id=f"selection-{selections[0].selection_id}",
+                    author=upload.uploader_user_id,
+                    text=text,
+                    upload_id=upload.upload_id,
+                    asset_ids=asset_ids,
+                    created_at=_iso(upload.created_at),
+                )
+            )
+            covered.update((asset_id, text) for asset_id in asset_ids)
+
+    assets: dict[str, ProjectAsset] = {}
+    for asset_id in project_asset_ids(project):
+        asset = store.get_asset(asset_id)
+        if asset is not None:
+            assets[asset_id] = asset
+
+    def upload_id_of(asset: ProjectAsset | None) -> str:
+        if asset is None:
+            return ""
+        for view in asset.views:
+            if view.upload_id:
+                return view.upload_id
+        return ""
+
+    for contribution in contributions:
+        text = contribution.memory_text.strip()
+        if contribution.source_type == "letter" or not text or (contribution.asset_id, text) in covered:
+            continue
+        notes.append(
+            SharedNote(
+                note_id=f"contribution-{contribution.contribution_id}",
+                author=account_of(contribution.contributor_id),
+                text=text,
+                upload_id=upload_id_of(assets.get(contribution.asset_id)),
+                asset_ids=[contribution.asset_id],
+                created_at=_iso(contribution.created_at),
+            )
+        )
+        covered.add((contribution.asset_id, text))
+    notes.sort(key=lambda note: note.created_at)
+
+    # Objects: every non-letter asset, attributed like room-state ownership
+    # (the asset's contribution), else to the person whose photo it came from.
+    first_contributor: dict[str, str] = {}
+    for contribution in contributions:
+        first_contributor.setdefault(contribution.asset_id, contribution.contributor_id)
+    viewer_assets = {item.asset_id for item in contributions if viewer_cid and item.contributor_id == viewer_cid}
+    uploader_of = {upload.upload_id: upload.uploader_user_id for upload in uploads}
+    uploader_by_image = {upload.image_key: upload.uploader_user_id for upload in uploads}
+
+    def asset_order(asset: ProjectAsset) -> tuple[str, str]:
+        recorded = asset.views[0].recorded_at.isoformat() if asset.views else ""
+        return (recorded, asset.asset_id)
+
+    objects: list[SharedObject] = []
+    for asset in sorted(assets.values(), key=asset_order):
+        if asset.kind == "letter":
+            continue
+        if asset.asset_id in first_contributor:
+            contributor = account_of(first_contributor[asset.asset_id])
+            editable = asset.asset_id in viewer_assets
+        else:
+            contributor = uploader_of.get(upload_id_of(asset), "") or next(
+                (uploader_by_image[view.image_key] for view in asset.views if view.image_key in uploader_by_image),
+                "",
+            )
+            editable = bool(viewer) and contributor == viewer
+        objects.append(
+            SharedObject(asset_id=asset.asset_id, label=asset.label, contributor=contributor, editable_by_me=editable)
+        )
+
+    letters: list[SharedLetter] = []
+    for letter in sorted(store.list_letters(project_id), key=lambda item: item.created_at):
+        opened_by = _opened_by(project_id, letter.letter_id)
+        is_author = viewer_cid is not None and viewer_cid == letter.author_contributor_id
+        is_recipient = viewer_cid is not None and viewer_cid in letter.recipient_contributor_ids
+        viewer_opened = is_recipient and viewer_cid in opened_by
+        readable = is_author or viewer_opened
+        recipient_names = " & ".join(name_of(item) for item in letter.recipient_contributor_ids)
+        letters.append(
+            SharedLetter(
+                letter_id=letter.letter_id,
+                author=account_of(letter.author_contributor_id),
+                recipients=[account_of(item) for item in letter.recipient_contributor_ids],
+                title=f"From {name_of(letter.author_contributor_id)} to {recipient_names}",
+                sealed=not opened_by,
+                can_open=is_recipient and not viewer_opened,
+                opened=bool(opened_by),
+                body=letter.note_text if readable else "",
+                texture_url=f"/v1/projects/{project_id}/letters/{letter.letter_id}/texture" if readable else "",
+            )
+        )
+
+    builds = current_room_builds(project_id)
+    latest = builds[0] if builds else None
+    latest_build = (
+        SharedBuildRef(
+            build_id=latest.build_id,
+            status=latest.status,
+            slug=latest.slug,
+            scene_path=latest.scene_path,
+            apk_path=latest.apk_path,
+        )
+        if latest is not None
+        else SharedBuildRef()
+    )
+    return SharedRoomView(
+        project_id=project_id,
+        title=project.name,
+        viewer=viewer,
+        viewer_label=labels.get(viewer, ""),
+        accounts=account_views,
+        notes=notes,
+        letters=letters,
+        objects=objects,
+        latest_build=latest_build,
+    )
+
+
+@app.get("/v1/rooms/{project_id}/shared", response_model=SharedRoomView)
+async def get_shared_room(
+    project_id: str, request: Request, identity: Identity = Depends(require_project_read)
+) -> SharedRoomView:
+    """One call for the headset's shared layer (and the runner's offline
+    snapshot), as seen by the X-SketchScape-Dev-User account. Needs no
+    published blueprint. Members only (403), unknown project 404."""
+    check_room_state_rate_limit(identity.user_id)
+    project = get_project(project_id)
+    return build_shared_view(project, shared_viewer(identity, request))
 
 
 # Build Plan step 28: letters routes (backend/letter_routes.py). Imported

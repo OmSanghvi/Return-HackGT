@@ -11,6 +11,7 @@ import { memberRows } from './RoomUpload';
 import './room.css';
 import { REAL_MODE } from '../config';
 import * as backend from '../real/rooms';
+import VrBuildPanel from '../real/VrBuildPanel';
 
 export default function RoomPage() {
   const { id } = useParams();
@@ -86,7 +87,7 @@ function Waiting({ room }: { room: Room }) {
               <Stepper current={2} />
               <DevelopProgress src={coverOf(room)} title={room.title} progress={room.progress} photo={!!room.cover}
                 actions={<><Button variant="ghost" icon="back" onClick={() => navigate('/rooms')}>Back to rooms</Button>
-                  {REAL_MODE && <Button variant="text" onClick={() => navigate(`/rooms/${room.id}/studio`)}>See each object</Button>}</>} />
+                  {REAL_MODE && <Button variant="ghost" onClick={() => navigate(`/rooms/${room.id}/studio`)}>See each object</Button>}</>} />
             </motion.div>
           ) : (
             <motion.div key="wait" className="rt-glass-strong app-panel app-panel-wide" {...reveal(0)} exit={{ opacity: 0, filter: 'blur(12px)' }}>
@@ -144,12 +145,8 @@ function Ready({ room }: { room: Room }) {
               <PortalWindow src={coverOf(room)} depth={room.cover ? undefined : SCENES[room.scene].depth} entering={entering} onClick={peek} label={`Look into ${room.title}`} />
               <p className="app-portal-hint rt-on-image"><Icon name="headset" size={18} />Put on your headset to step inside</p>
             </motion.div>
-            <motion.div className="rt-glass-strong app-panel app-headset" {...reveal(4)}>
-              <h2 className="title" style={{ margin: 0 }}>On your <em>headset</em></h2>
-              <ol className="app-steps">
-                <li><Icon name="headset" size={18} />Open return on your Quest</li>
-                <li><Icon name="lock" size={18} />Sign in with this same account</li>
-              </ol>
+            <motion.div className="rt-glass-strong app-panel app-headset vr-host" {...reveal(4)}>
+              <VrBuildPanel projectId={room.id} title={room.title} />
             </motion.div>
           </div>
         </div>

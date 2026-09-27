@@ -101,7 +101,9 @@ class SpecShapeTests(_Base):
     def test_spec_matches_contract_and_is_jsonutility_safe(self) -> None:
         spec = self.compose(scene_id=_SCENE_ID, room_name="Lazy Sunday")["spec"]
         self.assertEqual(set(spec), {"version", "slug", "scene_path", "root", "player", "photo_scene", "objects", "environment",
-                                     "lights", "images", "audio", "particles", "staging", "teleport", "credits"})
+                                     "lights", "images", "audio", "particles", "staging", "teleport", "credits", "shared"})
+        self.assertEqual(set(spec["shared"]), {"enabled", "project_id", "api_base", "accounts", "labels", "default_account",
+                                               "snapshot_resource"})
         self.assertEqual(spec["slug"], "Lazy_Sunday")
         self.assertEqual(spec["scene_path"], "Assets/SketchScape/AgentRooms/Lazy_Sunday.unity")
         self.assertEqual(spec["root"], "SharedRoom_Lazy_Sunday")
@@ -355,6 +357,62 @@ class PhotoAnchorTests(unittest.TestCase):
         with mock.patch.object(ur, "_scene_layout", scene_layout):
             spec = ur.compose_room({"scene_id": "cabin0001", "room_name": "Cabin"}, catalog=catalog)["spec"]
         self.assertFalse(any(l["name"].startswith("Hearth glow") for l in spec["lights"]))
+
+
+class SharedBlockTests(_Base):
+    """docs/WEB_TO_QUEST_PIPELINE.md section 3: the shared layer block."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        env = mock.patch.dict(os.environ, {}, clear=False)
+        env.start()
+        self.addCleanup(env.stop)
+        for key in ("SKETCHSCAPE_PUBLIC_API_BASE", "SKETCHSCAPE_DEMO_USERS"):
+            os.environ.pop(key, None)
+
+    def test_project_scene_turns_the_shared_layer_on_with_defaults(self) -> None:
+        result = self.compose(scene_id=_SCENE_ID, room_name="Shared Cabin")
+        shared = result["spec"]["shared"]
+        self.assertEqual(shared, {
+            "enabled": True, "project_id": "p1", "api_base": "https://returnweb-hazel.vercel.app/api",
+            "accounts": ["demo-alice", "demo-bob"], "labels": ["Account 1", "Account 2"],
+            "default_account": "demo-alice", "snapshot_resource": "SharedSnapshots/p1",
+        })
+        self.assertEqual(result["plan"]["shared"], {"enabled": True, "project_id": "p1"})
+        self.assertIn("Shared layer on", result["plan"]["summary"])
+        # The build parts still carry the whole spec (incl. the block) verbatim.
+        self.assertIn('"snapshot_resource":"SharedSnapshots/p1"', "".join(result["build_parts"]).replace('""', '"'))
+
+    def test_env_overrides_api_base_and_accounts(self) -> None:
+        os.environ["SKETCHSCAPE_PUBLIC_API_BASE"] = "http://100.63.32.83:8000/"
+        os.environ["SKETCHSCAPE_DEMO_USERS"] = " ann , ben "
+        shared = self.compose(scene_id=_SCENE_ID, room_name="R")["spec"]["shared"]
+        self.assertEqual(shared["api_base"], "http://100.63.32.83:8000")
+        self.assertEqual(shared["accounts"], ["ann", "ben"])
+        self.assertEqual(shared["labels"], ["Account 1", "Account 2"])
+        self.assertEqual(shared["default_account"], "ann")
+        os.environ["SKETCHSCAPE_DEMO_USERS"] = "only-one"  # auth.py needs exactly two -> defaults
+        self.assertEqual(self.compose(scene_id=_SCENE_ID, room_name="R")["spec"]["shared"]["accounts"], ["demo-alice", "demo-bob"])
+
+    def _off(self, shared) -> None:
+        self.assertEqual(shared, {"enabled": False, "project_id": "", "api_base": "", "accounts": [], "labels": [],
+                                  "default_account": "", "snapshot_resource": ""})
+
+    def test_scene_without_project_and_objects_only_room_have_it_off(self) -> None:
+        catalog = {"assets": [], "scenes": [dict(_CATALOG["scenes"][0], project_id="", asset_ids=[], cut_asset_ids=[])]}
+        result = ur.compose_room({"scene_id": _SCENE_ID, "room_name": "No Project"}, catalog=catalog)
+        self._off(result["spec"]["shared"])
+        self.assertNotIn("Shared layer on", result["plan"]["summary"])
+        ur._check_jsonutility(result["spec"])
+        arc = ur.compose_room({"objects": [{"label": "tomato"}], "room_name": "Arc"}, catalog={"assets": _CATALOG["assets"][3:], "scenes": []})
+        self._off(arc["spec"]["shared"])
+
+    def test_scans_of_one_project_and_opt_out(self) -> None:
+        assets = [dict(a, project_id="p9") for a in _CATALOG["assets"][3:4]]
+        spec = ur.compose_room({"objects": [{"label": "tomato"}], "room_name": "Arc"}, catalog={"assets": assets, "scenes": []})["spec"]
+        self.assertEqual(spec["shared"]["project_id"], "p9")
+        self._off(self.compose(scene_id=_SCENE_ID, room_name="R", shared=False)["spec"]["shared"])
+        self._off(ur.shared_block("../escape"))
 
 
 class NoSceneFallbackTests(_Base):

@@ -48,6 +48,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a circular import.
         ProjectRecord,
         PublicationRecord,
         ReconstructionJob,
+        RoomBuild,
         UploadRecord,
     )
     from letters import Letter, LetterOpenRecord
@@ -70,6 +71,65 @@ class RevisionConflict(Exception):
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+# -- room builds (docs/WEB_TO_QUEST_PIPELINE.md 1) ----------------------------
+#
+# A room build moves requested -> claimed -> syncing -> building -> packaging
+# -> ready | failed. "Active" = not terminal; a project has at most one.
+# "Leased" = held by a runner, which must keep reporting (each report bumps
+# ``updated_at``) or the build goes back to ``requested``.
+ROOM_BUILD_ACTIVE_STATUSES = ("requested", "claimed", "syncing", "building", "packaging")
+ROOM_BUILD_LEASED_STATUSES = ("claimed", "syncing", "building", "packaging")
+ROOM_BUILD_TERMINAL_STATUSES = ("ready", "failed")
+ROOM_BUILD_REQUEUED_MESSAGE = "The Unity machine stopped reporting; waiting for a runner to pick it up again."
+
+
+class RoomBuildConflict(Exception):
+    """A project already has an active (non-terminal) room build."""
+
+    def __init__(self, active) -> None:
+        super().__init__(f"Project already has an active room build: {active.build_id} ({active.status}).")
+        self.active = active
+
+
+def iso_z(value: datetime) -> str:
+    """UTC ISO 8601 with a ``Z`` suffix -- the same shape Pydantic gives datetimes."""
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _parse_iso(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _room_builds_newest_first(builds) -> list:
+    return sorted(builds, key=lambda build: (build.created_at, build.build_id), reverse=True)
+
+
+def _newest_active_room_build(builds):
+    for build in _room_builds_newest_first(builds):
+        if build.status in ROOM_BUILD_ACTIVE_STATUSES:
+            return build
+    return None
+
+
+def _room_build_is_stale(build, now: datetime, lease_seconds: float) -> bool:
+    if build.status not in ROOM_BUILD_LEASED_STATUSES:
+        return False
+    reported = _parse_iso(build.updated_at)
+    return reported is None or reported <= now - timedelta(seconds=lease_seconds)
+
+
+def _requeued_room_build(build, now: datetime):
+    # ``runner_id`` is kept: if that runner was only slow (a long agent build)
+    # and reports again before anyone else claims the build, it re-attaches.
+    return build.model_copy(
+        update={"status": "requested", "message": ROOM_BUILD_REQUEUED_MESSAGE, "updated_at": iso_z(now)}
+    )
 
 
 def _model_types() -> tuple[type, type, type, type]:
@@ -141,6 +201,12 @@ def _letter_model_types() -> tuple[type, type]:
     from letters import Letter, LetterOpenRecord
 
     return Letter, LetterOpenRecord
+
+
+def _room_build_type() -> type:
+    from main import RoomBuild
+
+    return RoomBuild
 
 
 _ACTIVE_JOB_STATUSES = ("queued", "running", "mask_review")
@@ -244,6 +310,12 @@ class AuthoringStore(ABC):
     def release_expired_leases(self) -> int: ...
 
     @abstractmethod
+    def release_job(self, job_id: str, lease_owner: str) -> bool:
+        """Put a running job its owner couldn't hand over back in the queue
+        (lease cleared, ``attempts`` unchanged). False unless ``lease_owner``
+        holds the lease of a running job."""
+
+    @abstractmethod
     def link_asset(self, project_id: str, asset_id: str) -> None: ...
 
     @abstractmethod
@@ -288,6 +360,42 @@ class AuthoringStore(ABC):
 
     def persist_all(self) -> None:  # pragma: no cover - default no-op
         """Force a full flush. Backends that write eagerly need not override."""
+
+    # -- room builds (docs/WEB_TO_QUEST_PIPELINE.md 1) -----------------------
+
+    @abstractmethod
+    def create_room_build(self, build: "RoomBuild") -> None:
+        """Store a new build; raises ``RoomBuildConflict`` (carrying the active
+        build) when the project already has a non-terminal one."""
+
+    @abstractmethod
+    def get_room_build(self, build_id: str, project_id: str | None = None) -> "RoomBuild | None": ...
+
+    @abstractmethod
+    def list_room_builds(self, project_id: str) -> list["RoomBuild"]:
+        """Every build of the project, newest first."""
+
+    @abstractmethod
+    def claim_next_room_build(self, runner_id: str, now: datetime) -> "RoomBuild | None":
+        """The oldest ``requested`` build (any project), now ``claimed`` by ``runner_id``."""
+
+    @abstractmethod
+    def update_room_build(
+        self,
+        build: "RoomBuild",
+        *,
+        expected_status: str,
+        expected_runner_id: str,
+        expected_updated_at: str,
+    ) -> bool:
+        """Compare-and-set write of the whole build. False (never raises) when
+        the stored build no longer matches the expected status/runner/time."""
+
+    @abstractmethod
+    def release_stale_room_builds(
+        self, lease_seconds: float, now: datetime, project_id: str | None = None
+    ) -> int:
+        """Put leased builds whose runner stopped reporting back to ``requested``."""
 
     # -- guided tours (Build Plan step 30) -----------------------------------
 
@@ -386,6 +494,8 @@ class LocalJsonStore(AuthoringStore):
         # -> contributor_id -> LetterOpenRecord.
         self.letters: dict[str, dict[str, Letter]] = {}
         self.letter_opens: dict[str, dict[str, dict[str, LetterOpenRecord]]] = {}
+        # project_id -> build_id -> RoomBuild (docs/WEB_TO_QUEST_PIPELINE.md 1).
+        self.room_builds: dict[str, dict[str, "RoomBuild"]] = {}
 
         self.tours: dict[str, list["GuidedTour"]] = {}
         self.tour_live: dict[str, int] = {}
@@ -419,6 +529,7 @@ class LocalJsonStore(AuthoringStore):
             self.asset_links = {}
             self.letters = {}
             self.letter_opens = {}
+            self.room_builds = {}
 
             self.tours = {}
             self.tour_live = {}
@@ -487,6 +598,13 @@ class LocalJsonStore(AuthoringStore):
                     }
                     for letter_id, records in by_letter.items()
                 }
+
+            if raw.get("room_builds"):
+                RoomBuild = _room_build_type()
+                for project_id, records in raw.get("room_builds", {}).items():
+                    self.room_builds[project_id] = {
+                        item["build_id"]: RoomBuild.model_validate(item) for item in records
+                    }
 
             GuidedTour = _tour_model_type()
             for project_id, versions in raw.get("tours", {}).items():
@@ -563,6 +681,10 @@ class LocalJsonStore(AuthoringStore):
                     for letter_id, records in by_letter.items()
                 }
                 for project_id, by_letter in self.letter_opens.items()
+            },
+            "room_builds": {
+                project_id: [build.model_dump(mode="json") for build in builds.values()]
+                for project_id, builds in self.room_builds.items()
             },
 
             "tours": {
@@ -798,6 +920,19 @@ class LocalJsonStore(AuthoringStore):
                 self._flush()
         return released
 
+    def release_job(self, job_id: str, lease_owner: str) -> bool:
+        JobStatus = _job_status_type()
+        with self._lock:
+            job = self.jobs.get(job_id)
+            if job is None or job.status != "running" or job.lease_owner != lease_owner:
+                return False
+            job.status = JobStatus.QUEUED
+            job.lease_owner = None
+            job.lease_expires_at = None
+            job.updated_at = datetime.now(UTC)
+            self._flush()
+            return True
+
     # -- project -> asset links (Build Plan step 26) ------------------------
 
     def link_asset(self, project_id: str, asset_id: str) -> None:
@@ -855,6 +990,89 @@ class LocalJsonStore(AuthoringStore):
 
     def letters_version(self, project_id: str) -> int:
         return sum(len(opens) for opens in self.letter_opens.get(project_id, {}).values())
+
+    # -- room builds (docs/WEB_TO_QUEST_PIPELINE.md 1) -----------------------
+    # Copies go in and out, so a caller mutating a returned build can never
+    # change stored state behind update_room_build's compare-and-set.
+
+    def create_room_build(self, build: "RoomBuild") -> None:
+        with self._lock:
+            builds = self.room_builds.setdefault(build.project_id, {})
+            active = _newest_active_room_build(builds.values())
+            if active is not None:
+                raise RoomBuildConflict(active.model_copy())
+            builds[build.build_id] = build.model_copy()
+            self._flush()
+
+    def get_room_build(self, build_id: str, project_id: str | None = None) -> "RoomBuild | None":
+        with self._lock:
+            pools = [self.room_builds.get(project_id, {})] if project_id is not None else self.room_builds.values()
+            for builds in pools:
+                if build_id in builds:
+                    return builds[build_id].model_copy()
+            return None
+
+    def list_room_builds(self, project_id: str) -> list["RoomBuild"]:
+        with self._lock:
+            builds = self.room_builds.get(project_id, {}).values()
+            return [build.model_copy() for build in _room_builds_newest_first(builds)]
+
+    def claim_next_room_build(self, runner_id: str, now: datetime) -> "RoomBuild | None":
+        with self._lock:
+            requested = [
+                build
+                for builds in self.room_builds.values()
+                for build in builds.values()
+                if build.status == "requested"
+            ]
+            if not requested:
+                return None
+            oldest = min(requested, key=lambda build: (build.created_at, build.build_id))
+            claimed = oldest.model_copy(
+                update={"status": "claimed", "runner_id": runner_id, "message": "", "updated_at": iso_z(now)}
+            )
+            self.room_builds[claimed.project_id][claimed.build_id] = claimed
+            self._flush()
+            return claimed.model_copy()
+
+    def update_room_build(
+        self,
+        build: "RoomBuild",
+        *,
+        expected_status: str,
+        expected_runner_id: str,
+        expected_updated_at: str,
+    ) -> bool:
+        with self._lock:
+            current = self.room_builds.get(build.project_id, {}).get(build.build_id)
+            if (
+                current is None
+                or current.status != expected_status
+                or current.runner_id != expected_runner_id
+                or current.updated_at != expected_updated_at
+            ):
+                return False
+            self.room_builds[build.project_id][build.build_id] = build.model_copy()
+            self._flush()
+            return True
+
+    def release_stale_room_builds(
+        self, lease_seconds: float, now: datetime, project_id: str | None = None
+    ) -> int:
+        with self._lock:
+            if project_id is not None:
+                pools = [self.room_builds.get(project_id, {})]
+            else:
+                pools = list(self.room_builds.values())
+            released = 0
+            for builds in pools:
+                for build_id, build in list(builds.items()):
+                    if _room_build_is_stale(build, now, lease_seconds):
+                        builds[build_id] = _requeued_room_build(build, now)
+                        released += 1
+            if released:
+                self._flush()
+            return released
 
     # -- guided tours (Build Plan step 30) -----------------------------------
 
@@ -1101,7 +1319,7 @@ class DynamoDbStore(AuthoringStore):
 
     # -- blueprints --------------------------------------------------------
 
-    def _query_children(self, project_id: str, sk_prefix: str) -> list[dict]:
+    def _query_children(self, project_id: str, sk_prefix: str, *, consistent: bool = False) -> list[dict]:
         from boto3.dynamodb.conditions import Key  # noqa: PLC0415
 
         table = self._require_table()
@@ -1111,6 +1329,8 @@ class DynamoDbStore(AuthoringStore):
             & Key("sk").begins_with(f"{sk_prefix}#"),
             "ScanIndexForward": True,
         }
+        if consistent:
+            kwargs["ConsistentRead"] = True
         while True:
             response = table.query(**kwargs)
             items.extend(response.get("Items", []))
@@ -1501,6 +1721,35 @@ class DynamoDbStore(AuthoringStore):
                     raise
         return released
 
+    def release_job(self, job_id: str, lease_owner: str) -> bool:
+        JobStatus = _job_status_type()
+        ReconstructionJob, _ = _job_upload_types()
+        table = self._require_table()
+        with self._lock:
+            response = table.get_item(Key={"pk": f"JOB#{job_id}", "sk": "META"}, ConsistentRead=True)
+            item = response.get("Item")
+            if item is None:
+                return False
+            job = ReconstructionJob.model_validate_json(item["document"])
+            if job.status != "running" or job.lease_owner != lease_owner:
+                return False
+            job.status = JobStatus.QUEUED
+            job.lease_owner = None
+            job.lease_expires_at = None
+            job.updated_at = datetime.now(UTC)
+            try:
+                table.put_item(
+                    Item=self._job_item(job),
+                    ConditionExpression="#lo = :owner AND #s = :running",
+                    ExpressionAttributeNames={"#lo": "lease_owner", "#s": "status"},
+                    ExpressionAttributeValues={":owner": lease_owner, ":running": "running"},
+                )
+            except Exception as error:  # noqa: BLE001 - narrowed below
+                if self._is_conditional_check_failure(error):
+                    return False
+                raise
+            return True
+
     # -- project -> asset links (Build Plan step 26) -------------------------
     #
     # Replaces `ProjectRecord.asset_ids` (a list-in-a-blob) as the write path
@@ -1625,6 +1874,141 @@ class DynamoDbStore(AuthoringStore):
 
     def letters_version(self, project_id: str) -> int:
         return len(self._query_children(project_id, "LETTEROPEN"))
+
+    # -- room builds (docs/WEB_TO_QUEST_PIPELINE.md 1) ------------------------
+    #
+    # RoomBuild = PK "PROJECT#<project_id>" / SK "ROOMBUILD#<build_id>", with
+    # gsi2pk="ROOMBUILDQ#<status>" / gsi2sk="<created_at>#<build_id>" so the
+    # runner's claim is a Query (never a Scan). A tiny pointer item
+    # PK "ROOMBUILD#<build_id>" / SK "META" holds the project id, because the
+    # runner's status route only knows the build id. Per-project reads are
+    # strongly consistent (base table), so a double-clicked "Build room in
+    # VR" sees the first build and gets its 409.
+
+    def _room_build_item(self, build: "RoomBuild") -> dict:
+        return {
+            "pk": f"PROJECT#{build.project_id}",
+            "sk": f"ROOMBUILD#{build.build_id}",
+            "document": build.model_dump_json(),
+            "status": build.status,
+            "runner_id": build.runner_id,
+            "updated_at": build.updated_at,
+            "gsi2pk": f"ROOMBUILDQ#{build.status}",
+            "gsi2sk": f"{build.created_at}#{build.build_id}",
+        }
+
+    def _project_room_builds(self, project_id: str) -> list["RoomBuild"]:
+        RoomBuild = _room_build_type()
+        return [
+            RoomBuild.model_validate_json(item["document"])
+            for item in self._query_children(project_id, "ROOMBUILD", consistent=True)
+        ]
+
+    def create_room_build(self, build: "RoomBuild") -> None:
+        table = self._require_table()
+        with self._lock:
+            active = _newest_active_room_build(self._project_room_builds(build.project_id))
+            if active is not None:
+                raise RoomBuildConflict(active)
+            table.put_item(
+                Item={"pk": f"ROOMBUILD#{build.build_id}", "sk": "META", "project_id": build.project_id}
+            )
+            table.put_item(Item=self._room_build_item(build), ConditionExpression="attribute_not_exists(sk)")
+
+    def get_room_build(self, build_id: str, project_id: str | None = None) -> "RoomBuild | None":
+        RoomBuild = _room_build_type()
+        table = self._require_table()
+        if project_id is None:
+            pointer = table.get_item(
+                Key={"pk": f"ROOMBUILD#{build_id}", "sk": "META"}, ConsistentRead=True
+            ).get("Item")
+            if pointer is None:
+                return None
+            project_id = pointer["project_id"]
+        item = table.get_item(
+            Key={"pk": f"PROJECT#{project_id}", "sk": f"ROOMBUILD#{build_id}"}, ConsistentRead=True
+        ).get("Item")
+        return RoomBuild.model_validate_json(item["document"]) if item else None
+
+    def list_room_builds(self, project_id: str) -> list["RoomBuild"]:
+        return _room_builds_newest_first(self._project_room_builds(project_id))
+
+    def claim_next_room_build(self, runner_id: str, now: datetime) -> "RoomBuild | None":
+        from boto3.dynamodb.conditions import Key  # noqa: PLC0415
+
+        RoomBuild = _room_build_type()
+        with self._lock:
+            items = self._query_index("gsi2", Key("gsi2pk").eq("ROOMBUILDQ#requested"), scan_index_forward=True)
+            for item in items:
+                indexed = RoomBuild.model_validate_json(item["document"])
+                # The GSI is eventually consistent: re-read the base item.
+                current = self.get_room_build(indexed.build_id, indexed.project_id)
+                if current is None or current.status != "requested":
+                    continue
+                claimed = current.model_copy(
+                    update={"status": "claimed", "runner_id": runner_id, "message": "", "updated_at": iso_z(now)}
+                )
+                if self.update_room_build(
+                    claimed,
+                    expected_status=current.status,
+                    expected_runner_id=current.runner_id,
+                    expected_updated_at=current.updated_at,
+                ):
+                    return claimed
+        return None
+
+    def update_room_build(
+        self,
+        build: "RoomBuild",
+        *,
+        expected_status: str,
+        expected_runner_id: str,
+        expected_updated_at: str,
+    ) -> bool:
+        with self._lock:
+            try:
+                self._require_table().put_item(
+                    Item=self._room_build_item(build),
+                    ConditionExpression="#s = :s AND #r = :r AND #u = :u",
+                    ExpressionAttributeNames={"#s": "status", "#r": "runner_id", "#u": "updated_at"},
+                    ExpressionAttributeValues={
+                        ":s": expected_status,
+                        ":r": expected_runner_id,
+                        ":u": expected_updated_at,
+                    },
+                )
+            except Exception as error:  # noqa: BLE001 - narrowed below
+                if self._is_conditional_check_failure(error):
+                    return False
+                raise
+            return True
+
+    def release_stale_room_builds(
+        self, lease_seconds: float, now: datetime, project_id: str | None = None
+    ) -> int:
+        from boto3.dynamodb.conditions import Key  # noqa: PLC0415
+
+        RoomBuild = _room_build_type()
+        if project_id is not None:
+            candidates = self._project_room_builds(project_id)
+        else:
+            candidates = [
+                RoomBuild.model_validate_json(item["document"])
+                for status in ROOM_BUILD_LEASED_STATUSES
+                for item in self._query_index("gsi2", Key("gsi2pk").eq(f"ROOMBUILDQ#{status}"))
+            ]
+        released = 0
+        for build in candidates:
+            if not _room_build_is_stale(build, now, lease_seconds):
+                continue
+            if self.update_room_build(
+                _requeued_room_build(build, now),
+                expected_status=build.status,
+                expected_runner_id=build.runner_id,
+                expected_updated_at=build.updated_at,
+            ):
+                released += 1
+        return released
 
     # -- guided tours (Build Plan step 30) -----------------------------------
     #

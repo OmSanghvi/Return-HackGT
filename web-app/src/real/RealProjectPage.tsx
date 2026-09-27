@@ -17,6 +17,7 @@ import {
   listUploads,
   refineSelection,
   updateProject,
+  updateUploadNote,
 } from '../api/client';
 import { pollProjectJobs, type JobPollHandle } from '../api/polling';
 import type { Contributor, ProjectAsset, ProjectRecord, UploadSelection } from '../api/types';
@@ -24,6 +25,7 @@ import { rememberProject } from './localProjects';
 import { useAuthedImage } from './useAuthedImage';
 import { useAccount } from '../api/account';
 import LetterSection from './LetterSection';
+import VrBuildPanel from './VrBuildPanel';
 
 interface UploadEntry {
   upload_id: string;
@@ -31,6 +33,10 @@ interface UploadEntry {
   width: number;
   height: number;
   selections: UploadSelection[];
+  /** Account id of whoever uploaded it; only they may edit its note. */
+  uploader: string;
+  /** Their personal note for this photo (what the headset shows next to it). */
+  note: string;
 }
 
 const newSelectionId = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
@@ -122,16 +128,93 @@ function SelectionRow({
   );
 }
 
+/** The photo's personal note: editable by whoever uploaded it, read-only for everyone else. */
+function UploadNote({
+  projectId,
+  upload,
+  mine,
+  uploaderName,
+  onSaved,
+}: {
+  projectId: string;
+  upload: UploadEntry;
+  mine: boolean;
+  uploaderName: string;
+  onSaved: (note: string) => void;
+}) {
+  const [draft, setDraft] = useState(upload.note ?? "");
+  const [saving, setSaving] = useState(false);
+  const [state, setState] = useState<'idle' | 'saved' | 'error'>('idle');
+  const [error, setError] = useState('');
+  useEffect(() => setDraft(upload.note ?? ""), [upload.note]);
+  if (!mine) {
+    return upload.note ? (
+      <p className="rt-field-hint" style={{ margin: 0 }}>
+        {uploaderName}&rsquo;s note: <em style={{ whiteSpace: 'pre-line' }}>&ldquo;{upload.note}&rdquo;</em>
+      </p>
+    ) : null;
+  }
+  const save = async () => {
+    setSaving(true);
+    setState('idle');
+    try {
+      const rec = await updateUploadNote(projectId, upload.upload_id, draft);
+      onSaved(rec.note ?? draft.trim());
+      setState('saved');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not save your note.');
+      setState('error');
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <Field
+        label="Your note for this photo"
+        multiline
+        rows={2}
+        maxLength={1000}
+        placeholder="What do you remember about being here?"
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setState('idle');
+        }}
+        hint="It hangs next to this photo's objects in VR."
+      />
+      <div className="app-actions" style={{ marginTop: 0 }}>
+        <Button size="sm" variant="secondary" loading={saving} disabled={draft.trim() === (upload.note ?? "").trim()} onClick={save}>
+          Save note
+        </Button>
+        {state === 'saved' && <span className="rt-field-hint">Saved.</span>}
+        {state === 'error' && (
+          <span className="rt-field-error">
+            <Icon name="alert" size={16} />
+            {error}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function UploadCard({
   projectId,
   upload,
   assets,
+  mine,
+  uploaderName,
   onChanged,
+  onNoteSaved,
 }: {
   projectId: string;
   upload: UploadEntry;
   assets: ProjectAsset[];
+  mine: boolean;
+  uploaderName: string;
   onChanged: (uploadId: string) => void;
+  onNoteSaved: (uploadId: string, note: string) => void;
 }) {
   const [pendingNames, setPendingNames] = useState<{ text: string; memory: string }[]>([]);
   const [draft, setDraft] = useState('');
@@ -220,6 +303,7 @@ function UploadCard({
       <div style={{ display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
         {image.url && <img src={image.url} alt="Uploaded photo" style={{ width: 180, height: 180, objectFit: 'cover', borderRadius: 12 }} />}
         <div style={{ flex: 1, minWidth: 240, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <UploadNote projectId={projectId} upload={upload} mine={mine} uploaderName={uploaderName} onSaved={(note) => onNoteSaved(upload.upload_id, note)} />
           <p className="rt-field-hint" style={{ margin: 0 }}>
             Type a name for each object you want in 3D (e.g. "blue vase"), add an optional memory or reason, then find them.
           </p>
@@ -350,7 +434,7 @@ export default function RealProjectPage() {
       const rec = await getUpload(id, uploadId);
       setUploads((prev) => ({
         ...prev,
-        [uploadId]: { upload_id: rec.upload_id, image_url: `/v1/projects/${id}/uploads/${uploadId}/image`, width: rec.width, height: rec.height, selections: rec.selections },
+        [uploadId]: { upload_id: rec.upload_id, image_url: `/v1/projects/${id}/uploads/${uploadId}/image`, width: rec.width, height: rec.height, selections: rec.selections, uploader: rec.uploader_user_id, note: rec.note ?? '' },
       }));
     },
     [id],
@@ -396,7 +480,7 @@ export default function RealProjectPage() {
         Object.fromEntries(
           uploadList.map((rec) => [
             rec.upload_id,
-            { upload_id: rec.upload_id, image_url: `/v1/projects/${id}/uploads/${rec.upload_id}/image`, width: rec.width, height: rec.height, selections: rec.selections },
+            { upload_id: rec.upload_id, image_url: `/v1/projects/${id}/uploads/${rec.upload_id}/image`, width: rec.width, height: rec.height, selections: rec.selections, uploader: rec.uploader_user_id, note: rec.note ?? '' },
           ]),
         ),
       );
@@ -424,7 +508,7 @@ export default function RealProjectPage() {
       setUploadingCount((n) => n + 1);
       try {
         const res = await createUpload(id, file);
-        setUploads((prev) => ({ ...prev, [res.upload_id]: { upload_id: res.upload_id, image_url: res.image_url, width: res.width, height: res.height, selections: [] } }));
+        setUploads((prev) => ({ ...prev, [res.upload_id]: { upload_id: res.upload_id, image_url: res.image_url, width: res.width, height: res.height, selections: [], uploader: account, note: '' } }));
         setUploadOrder((prev) => [res.upload_id, ...prev]);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : `Could not upload ${file.name}.`);
@@ -524,6 +608,10 @@ export default function RealProjectPage() {
             </div>
           </div>
 
+          <div className="app-panel rt-glass-strong" style={{ margin: 0 }}>
+            <VrBuildPanel projectId={id} title={project.name} defaultPrompt={project.room_prompt ?? ''} variant="wide" />
+          </div>
+
           <div className="app-section">
             <div className="app-actions" style={{ marginTop: 0 }}>
               <h2 className="title" style={{ margin: 0 }}>
@@ -535,7 +623,21 @@ export default function RealProjectPage() {
               <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={(e) => { void onFiles(e.target.files); e.target.value = ''; }} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-              {uploadOrder.map((uid) => uploads[uid] && <UploadCard key={uid} projectId={id} upload={uploads[uid]} assets={assets} onChanged={onChanged} />)}
+              {uploadOrder.map(
+                (uid) =>
+                  uploads[uid] && (
+                    <UploadCard
+                      key={uid}
+                      projectId={id}
+                      upload={uploads[uid]}
+                      assets={assets}
+                      mine={uploads[uid].uploader === account}
+                      uploaderName={contributors.find((c) => c.clerk_user_id === uploads[uid].uploader)?.display_name ?? 'Someone'}
+                      onChanged={onChanged}
+                      onNoteSaved={(uploadId, note) => setUploads((prev) => (prev[uploadId] ? { ...prev, [uploadId]: { ...prev[uploadId], note } } : prev))}
+                    />
+                  ),
+              )}
               {uploadOrder.length === 0 && <p className="rt-field-hint">No photos yet. Add one to start.</p>}
             </div>
           </div>

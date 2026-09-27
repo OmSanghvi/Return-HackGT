@@ -397,6 +397,25 @@ class StorageContractMixin:
         self.assertEqual(claimed.status, "running")
         self.assertEqual(claimed.lease_owner, "worker-1")
 
+    def test_release_job_requeues_only_for_the_lease_owner_without_counting_an_attempt(self) -> None:
+        now = main.utc_now()
+        self.store.save_job(main.ReconstructionJob(
+            job_id="handover", status=main.JobStatus.RUNNING, poll_url="/x",
+            created_at=now, updated_at=now, project_id="p1", kind="reconstruct",
+            lease_owner="gpu-1", lease_expires_at=now + timedelta(seconds=600), attempts=1,
+        ))
+        self.assertFalse(self.store.release_job("handover", "gpu-2"))
+        self.assertEqual(self.store.get_job("handover").status, "running")
+        self.assertTrue(self.store.release_job("handover", "gpu-1"))
+        job = self.store.get_job("handover")
+        self.assertEqual(job.status, "queued")
+        self.assertIsNone(job.lease_owner)
+        self.assertIsNone(job.lease_expires_at)
+        self.assertEqual(job.attempts, 1)
+        self.assertFalse(self.store.release_job("handover", "gpu-1"))  # no longer running
+        self.assertFalse(self.store.release_job("missing", "gpu-1"))
+        self.assertEqual(self.store.claim_next_job("gpu-3", ["reconstruct"], lease_seconds=60).job_id, "handover")
+
     def test_release_expired_leases_requeues_then_fails_after_max_attempts(self) -> None:
         os.environ["SKETCHSCAPE_JOB_MAX_ATTEMPTS"] = "2"
         try:

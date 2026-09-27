@@ -764,5 +764,84 @@ class AutoGenerateAfterSegmentationTests(unittest.TestCase):
             _drain_queue(client)
 
 
+class JobReleaseAndLeaseSweepTests(unittest.TestCase):
+    """The dispatcher releases a claimed job it couldn't hand over, and the
+    claim path re-queues jobs whose lease expired (a dispatcher that died)."""
+
+    _queued_segment_job = InternalClaimAndLeaseRouteTests._queued_segment_job
+
+    def _claimed(self, client: "TestClient", owner: str = "gpu-1") -> str:
+        _, _, job_id = self._queued_segment_job(client)
+        claimed = client.post("/v1/internal/jobs/claim", json={"worker_id": owner, "kinds": ["segment"]})
+        self.assertEqual(claimed.status_code, 200)
+        self.assertEqual(claimed.json()["job_id"], job_id)
+        return job_id
+
+    def test_owner_releases_a_claimed_job_back_to_the_queue(self) -> None:
+        with TestClient(app) as client:
+            job_id = self._claimed(client)
+            attempts = main.store.get_job(job_id).attempts
+            wrong = client.post(f"/v1/internal/jobs/{job_id}/release", data={"worker_id": "someone-else"})
+            self.assertEqual(wrong.json(), {"released": False})
+            self.assertEqual(main.store.get_job(job_id).status, "running")
+            ok = client.post(f"/v1/internal/jobs/{job_id}/release",
+                             data={"worker_id": "gpu-1", "reason": "worker 503: models not ready"})
+            self.assertEqual(ok.status_code, 200)
+            self.assertEqual(ok.json(), {"released": True})
+            job = main.store.get_job(job_id)
+            self.assertEqual(job.status, "queued")
+            self.assertIsNone(job.lease_owner)
+            self.assertEqual(job.attempts, attempts)  # a failed hand-over is not an attempt
+            again = client.post(f"/v1/internal/jobs/{job_id}/release", data={"worker_id": "gpu-1"})
+            self.assertEqual(again.json(), {"released": False})  # not running any more
+            reclaimed = client.post("/v1/internal/jobs/claim", json={"worker_id": "gpu-2", "kinds": ["segment"]})
+            self.assertEqual(reclaimed.json()["job_id"], job_id)
+            _drain_queue(client)
+
+    def test_release_needs_the_worker_token(self) -> None:
+        with TestClient(app) as client:
+            job_id = self._claimed(client)
+        os.environ["SKETCHSCAPE_WORKER_TOKEN"] = "right-token"
+        try:
+            with TestClient(app) as client:
+                denied = client.post(f"/v1/internal/jobs/{job_id}/release",
+                                     data={"worker_id": "gpu-1", "worker_token": "wrong"})
+                self.assertEqual(denied.status_code, 401)
+                ok = client.post(f"/v1/internal/jobs/{job_id}/release",
+                                 data={"worker_id": "gpu-1", "worker_token": "right-token"})
+                self.assertEqual(ok.json(), {"released": True})
+        finally:
+            del os.environ["SKETCHSCAPE_WORKER_TOKEN"]
+        with TestClient(app) as client:
+            _drain_queue(client)
+
+    def test_claim_sweeps_expired_leases_back_into_the_queue(self) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        with TestClient(app) as client:
+            job_id = self._claimed(client, owner="dead-dispatcher")
+            job = main.store.get_job(job_id)
+            attempts = job.attempts
+            job.lease_expires_at = datetime.now(UTC) - timedelta(seconds=5)  # the dispatcher died
+            self.assertEqual(main.sweep_expired_job_leases(force=True), 1)
+            swept = main.store.get_job(job_id)
+            self.assertEqual(swept.status, "queued")
+            self.assertEqual(swept.attempts, attempts + 1)
+            _drain_queue(client)
+            # And the claim route runs the sweep itself (throttle off for the test), on a fresh job
+            # (a second expiry of the same job would exceed SKETCHSCAPE_JOB_MAX_ATTEMPTS=2 and fail it).
+            fresh = self._claimed(client, owner="dead-dispatcher")
+            main.store.get_job(fresh).lease_expires_at = datetime.now(UTC) - timedelta(seconds=5)
+            os.environ["SKETCHSCAPE_LEASE_SWEEP_SECONDS"] = "0"
+            try:
+                revived = client.post("/v1/internal/jobs/claim", json={"worker_id": "gpu-live", "kinds": ["segment"]})
+            finally:
+                del os.environ["SKETCHSCAPE_LEASE_SWEEP_SECONDS"]
+            self.assertEqual(revived.status_code, 200)
+            self.assertEqual(revived.json()["job_id"], fresh)
+            self.assertEqual(revived.json()["lease_owner"], "gpu-live")
+            _drain_queue(client)
+
+
 if __name__ == "__main__":
     unittest.main()

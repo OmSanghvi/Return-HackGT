@@ -64,7 +64,8 @@ function toRoom(k: KnownProject, i: number, contributors: Contributor[], uploads
       id: c.clerk_user_id === account ? ME.id : c.contributor_id,
       name: c.display_name, email: c.clerk_user_id ?? c.contributor_id,
       status: theirs.length ? 'done' : 'joined', count: theirs.length || undefined,
-      note: theirs.flatMap((u) => u.selections).find((s) => s.memory_text)?.memory_text || undefined,
+      // Their personal note: the upload's own note when the backend keeps it, else the memory text typed with an object.
+      note: theirs.find((u) => u.note?.trim())?.note?.trim() || theirs.flatMap((u) => u.selections).find((s) => s.memory_text)?.memory_text || undefined,
       isOwner: !!createdBy && c.clerk_user_id === createdBy, invitedAt: t(c.joined_at),
     };
   });
@@ -127,8 +128,15 @@ async function loadOne(k: KnownProject, i: number): Promise<Room | null> {
 }
 
 let inflight: Promise<void> | null = null;
-/** Refetch every room this browser knows about into the shared room store. */
-export function syncRooms(): Promise<void> {
+/**
+ * Refetch every room this browser knows about into the shared room store.
+ * `fresh`: the caller just changed something (a new room, a join, photos), so
+ * a sync that started before that change doesn't count -- wait for it, then
+ * run a new one. Without this a new room could miss the store and its page
+ * would bounce back to /rooms.
+ */
+export async function syncRooms(fresh = false): Promise<void> {
+  if (fresh && inflight) await inflight.catch(() => undefined);
   inflight ??= (async () => {
     try {
       const rooms = await Promise.all(listKnownProjects().map(loadOne));
@@ -146,14 +154,14 @@ export async function createRoom(title: string): Promise<string> {
   const account = me();
   const p = await createProject({ name: title.trim() || 'Untitled room', creator_display_name: accountLabel(account) });
   rememberProject({ project_id: p.project_id, name: p.name, invite_code: p.invite_code, creator: account });
-  await syncRooms();
+  await syncRooms(true);
   return p.project_id;
 }
 
 export async function join(id: string) {
   const k = listKnownProjects().find((p) => p.project_id === id);
   await createContributor(id, { display_name: accountLabel(me()), invite_code: k?.invite_code || null });
-  await syncRooms();
+  await syncRooms(true);
 }
 
 export function decline(id: string) {
@@ -176,15 +184,16 @@ export function startBuilding(id: string) {
 /**
  * Upload each photo, then ask for the named objects in it (note becomes each
  * object's memory text). No names given: let the backend suggest the subject.
+ * The note also rides on the upload itself, so an image-only photo keeps it.
  */
 export async function addPhotos(id: string, files: File[], note: string, ownerObjects?: string[]) {
   if (ownerObjects) updateKnownProject(id, { objects: ownerObjects });
   const objects = ownerObjects ?? listKnownProjects().find((p) => p.project_id === id)?.objects ?? [];
   const memory = note.trim().slice(0, 1000) || undefined;
   await Promise.all(files.map(async (f) => {
-    const up = await createUpload(id, f);
+    const up = await createUpload(id, f, undefined, memory);
     if (objects.length) await createSelections(id, up.upload_id, objects.map((text) => ({ selection_id: newId(), prompt: { text }, memory_text: memory })));
     else await detectUploadObjects(id, up.upload_id);
   }));
-  await syncRooms();
+  await syncRooms(true);
 }
