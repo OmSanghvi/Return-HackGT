@@ -1,0 +1,10 @@
+Credits for bed (Assets/SketchScape/AgentRooms/bed.unity)
+
+'Fireplace' HDRI by Greg Zaal, CC0, via Poly Haven
+'Dirty Carpet' texture by Rohit Seervi, CC0, via Poly Haven
+'Room Tone Apartment Small Bachelor' by leonelmail, CC0 1.0, via Freesound/Openverse
+'city hum night' by klankbeeld, CC BY 4.0, via Freesound/Openverse
+Sound: 'Room Tone Apartment Small Bachelor' 'Room Tone Apartment Small Bachelor' by leonelmail, CC0 1.0, via Freesound/Openverse <https://cdn.freesound.org/previews/329/329568_4437257-hq.mp3>
+Sound: 'city hum night' 'city hum night' by klankbeeld, CC BY 4.0, via Freesound/Openverse <https://cdn.freesound.org/previews/346/346658_1648170-hq.mp3>
+Sky (HDRI): <https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/fireplace_2k.hdr>
+Floor texture: <https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dirty_carpet/dirty_carpet_diff_1k.jpg>
