@@ -1,10 +1,11 @@
 {
   "name": "Return.UI.XR",
   "rootNamespace": "Return.UI.XR",
-  "references": ["Return.UI", "Unity.XR.Interaction.Toolkit", "Unity.XR.CoreUtils", "Unity.InputSystem"],
+  "references": ["Return.UI", "Unity.XR.Interaction.Toolkit", "Unity.XR.CoreUtils", "Unity.InputSystem", "Unity.XR.MetaOpenXR"],
   "autoReferenced": true,
   "defineConstraints": ["RETURN_XRI"],
   "versionDefines": [
-    { "name": "com.unity.xr.interaction.toolkit", "expression": "3.0.0", "define": "RETURN_XRI" }
+    { "name": "com.unity.xr.interaction.toolkit", "expression": "3.0.0", "define": "RETURN_XRI" },
+    { "name": "com.unity.xr.meta-openxr", "expression": "1.0.0", "define": "RETURN_META_OPENXR" }
   ]
 }

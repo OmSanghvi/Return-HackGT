@@ -11,6 +11,9 @@ using UnityEngine.XR.Interaction.Toolkit.Interactors;
 using UnityEngine.XR.Interaction.Toolkit.Locomotion.Comfort;
 using UnityEngine.XR.Interaction.Toolkit.Locomotion.Turning;
 using UnityEngine.XR.Interaction.Toolkit.UI;
+#if RETURN_META_OPENXR
+using UnityEngine.XR.OpenXR.Features.Meta; // TryRequestDisplayRefreshRate extension
+#endif
 
 namespace Return.UI.XR
 {
@@ -151,8 +154,10 @@ namespace Return.UI.XR
                 SubsystemManager.GetSubsystems(displays);
                 if (displays.Count == 0) return;
                 var display = displays[0];
+#if RETURN_META_OPENXR
                 if (!display.TryRequestDisplayRefreshRate(DisplayRefreshHz) && !_loggedDisplayFailure)
                 { Debug.LogWarning("Return: could not request a " + DisplayRefreshHz + "Hz display refresh."); _loggedDisplayFailure = true; }
+#endif
                 // Leaving foveatedRenderingFlags at its default (no GazeAllowed) means fixed, not gaze-tracked, foveation.
                 display.foveatedRenderingLevel = 1f; // full strength ("High")
             }
