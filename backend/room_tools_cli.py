@@ -7,6 +7,7 @@ Matches scene_tools_cli.py's pattern.
 Usage:
     python3 room_tools_cli.py get_room_state '<json>'
     python3 room_tools_cli.py propose_room_edit '<json>'
+    python3 room_tools_cli.py draft_room '{"project_id": "...", "connection_insight"?: {...}, "theme"?: "..."}'
 
 Each verb reads one JSON argument (or "-" to read JSON from stdin) and
 prints one JSON result to stdout. Non-zero exit + a JSON {"error": ...} on
@@ -44,9 +45,18 @@ def _cmd_propose_room_edit(payload: dict) -> dict:
     )
 
 
+def _cmd_draft_room(payload: dict) -> dict:
+    return rt.draft_room(
+        payload["project_id"],
+        connection_insight=payload.get("connection_insight"),
+        theme=payload.get("theme"),
+    )
+
+
 _COMMANDS = {
     "get_room_state": _cmd_get_room_state,
     "propose_room_edit": _cmd_propose_room_edit,
+    "draft_room": _cmd_draft_room,
 }
 
 

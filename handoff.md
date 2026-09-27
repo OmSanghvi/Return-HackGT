@@ -8,6 +8,155 @@ The last session (`65c057b2-388a-42b5-a56f-ed1265d08877`) ran on a different
 Claude account, so it can't be resumed from the next one. This file is the
 handoff.
 
+## LATEST+3 (2026-09-26, late night) — 1C + 4A: agent rooms go through the backend into `unity/`
+
+The pipeline is **built and unit-tested; the live run is waiting on one
+step the user runs**:
+
+```bash
+# in WSL, from the repo
+bash scripts/start_local_backend.sh
+```
+
+My run of it was blocked by the permission check as "Unauthorized
+Persistence". The script:
+- starts a long-running server;
+- adds a sandbox egress policy;
+- writes a token into the sandbox.
+
+The user runs it themselves, or grants the permission.
+
+**Flow once it's running:**
+1. Muse Spark's `draft_room(project_id, connection_insight)` (skill
+   `sketchscape-room-tools`, `backend/room_tools.py`) reads the project's
+   ready scans and contributions, then lays them out and stages them.
+   - Real scans get a **uniform** scale equal to their label's size, and
+     sit at y = 0.
+   - Every object is grabbable and attributed.
+   - The room is drafted as a new blueprint revision (with the new
+     `staging` block) through NemoClaw's **service identity: it can read
+     and draft, never publish**.
+2. A member publishes: `python scripts/publish_room.py --project-id <id>`
+   (publishes as `demo-alice` by default). The web app has no publish
+   button yet.
+3. `python scripts/export_unity_experience.py --api-url <url> --project-id <id> --unity-project unity`
+   downloads the compiled scene and PLYs, repairing any non-finite opacity.
+4. In `unity/`: *Tools → SketchScape → Authoring → Build Offline Experience
+   Scene*. The builder now stands Z-up scans upright on a child named
+   `Splat`, with the base on the object's origin and the collider fitted.
+   `meta.staging` drives `ImmersiveStagingDirector`.
+
+**Backend and contract changes:**
+- `ExperienceBlueprintInput.staging` is optional (`StagingPlan` in
+  `main.py`, plus `shared/experience-blueprint.schema.json`), and the
+  compiled scene carries it as `meta.staging`.
+- `propose_room_edit` keeps staging when it edits a room.
+- The room tools read the backend URL and token from env, or from
+  `~/.config/sketchscape/{api-url,nemoclaw-token}`, which
+  `start_local_backend.sh` writes into the sandbox with mode 600. OpenShell
+  has no generic env injection for skill shells.
+
+**`start_local_backend.sh` details:**
+- It runs uvicorn on WSL `eth0:8000`, with DynamoDB `sketchscape-authoring`,
+  S3 artifacts, demo auth, `PIPELINE_MODE=aws-local`, and the NemoClaw
+  labeler.
+- The `sketchscape-backend` policy preset
+  (`config/nemoclaw/policies/*.template`) lets only `python3` reach only
+  the five room-tool routes.
+- The venv needed `botocore[crt]` so `aws login` credentials work. It's
+  installed locally; add it to `requirements.txt` if the team wants it
+  everywhere.
+
+**Demo project:** `02b682878bc045d5a5eadc9837f01865` ("browser e2e"). It
+has a cat, a pink blanket and a remote control, all with contributions.
+`demo-alice` is its member.
+
+**Tests:**
+- `test_room_tools.py`: 12 tests, including 4 for `draft_room` and the
+  config fallback.
+- `test_api.py`: a staging round-trip test.
+- 119 tests pass across the touched suites.
+
+## LATEST+2 (2026-09-26, night) — one-command startup, and live auto-labeling
+
+- **`scripts/Start-SketchScape.ps1`** brings the whole stack up after a
+  reboot, skipping any step that's already fine:
+  1. Docker.
+  2. Unity on HackGTUnity; it waits for the MCP relay.
+  3. The bridge setup.
+  4. A check for the NemoClaw IPv4 patch. It reports a missing patch and
+     never applies it.
+  5. The Muse Spark route, judged by the adapter being alive *and* having
+     registered a route. If that fails, it prompts for the key in the
+     console, then restarts the gateway.
+  6. The skills.
+
+  `-ForceKey` re-enters the key. It was verified end to end on the running
+  stack, where every step correctly skipped. The recovery path after an
+  actual reboot hasn't run yet.
+- **NemoClaw's `Inference: unhealthy` status line is a false alarm with
+  Muse Spark.** Its probe misreads Meta's response. Don't use it as a health
+  check.
+- **`identify_subject` live path (step 4a)**, turned on with
+  `SKETCHSCAPE_SUBJECT_LABELER=nemoclaw`:
+  - The backend (`subject_labeler.NemoClawSubjectLabeler`) stages the photo
+    in WSL, runs `nemoclaw <sb> upload`, then
+    `nemoclaw <sb> exec -- python3 …/sketchscape-subject-labeler/backend/nemoclaw_vision.py`.
+  - That script calls `https://inference.local/v1/chat/completions` with the
+    image, so NemoClaw injects the key and the backend never holds it.
+  - `--mask` names a single masked object, which is how the 11 "object"
+    scans can be relabeled. Spot checks were correct: the blanket mask gave
+    "pink blanket", and the remote mask gave "white tv remote".
+  - "Suggest objects" now adds every object found, deduplicated and capped.
+  - Muse Spark reasons for about 1.6k tokens before answering, so
+    `max_tokens` is 6000. Each call takes 11–25 s.
+  - Tests: `test_nemoclaw_vision.py` (7) and `test_subject_labeler.py` (17).
+
+## LATEST+1 (2026-09-26, night) — rooms now use the real 3D scans from AWS
+
+- **What happened:** the Muse Spark agent built
+  `Assets/SketchScape/AgentRooms/Lazy_Sunday.unity` from one prompt (session
+  `room-real-1`) using **real Fast-SAM3D Gaussian-splat scans**: cat, TV
+  remote control, pink blanket and tomato. Every object is grabbable, and
+  there are 4 teleport hotspots. Verified by a hierarchy dump (each object
+  has a `GsplatRenderer`) and an Editor screenshot.
+- **Getting the assets:** run `python scripts/sync_s3_assets_to_unity.py`
+  (after `aws login`; the account is `820672722003`, region `us-east-1`).
+  - It reads the catalog assets (`ASSET#…`) from DynamoDB
+    `sketchscape-authoring`.
+  - It keeps `ready` reconstructions with a real label (not "object"),
+    newest per label.
+  - It downloads `artifacts/<job>/reconstruction.ply` from
+    `sketchscape-artifacts-20260922133334256700000003`.
+  - It repairs non-finite opacity (the remote had 90 bad values).
+  - It writes the files to `HackGTUnity/Assets/SketchScape/AssetLibrary/`,
+    plus `config/nemoclaw/asset-catalog.json`.
+  - Then refresh the Unity AssetDatabase, and rerun
+    `scripts/nemoclaw-deploy-skills.sh` so the sandbox gets the catalog.
+  - 11 more ready scans are labeled only "object". Label them (in the
+    backend, or by looking at `uploads/<project>/<upload>/source.jpg`) to
+    make them usable.
+- **Room builder:** `compose_room` matches each object to the catalog, by
+  exact `asset_id` or by label words ("our cat Miso" → "cat"). Matches are
+  built as real splats; everything else stays a tinted cube. The plan's
+  `visual` field says which each object got. New CLI verb: `list_assets all`.
+- **Gotchas found (also in the bridge README Gotchas):**
+  - The scans are **Z-up**. With the Gsplat importer's default (RUB) frame,
+    the splat child is rotated +90° about X. This was checked with the
+    tomato stem, which ends up on top, the blanket, which lies flat, and a
+    screenshot.
+  - `Unity_RunCommand` can't reference the Gsplat assembly, so the
+    generated C# reaches `Gsplat.GsplatRenderer` through reflection.
+  - Unity's MCP capture tools and a manual `Camera.Render()` don't draw
+    splats. To check visually, frame the Scene View and take a desktop
+    screenshot.
+  - `GetInstanceID()` is a compile error on Unity 6.6. Use `GetEntityId()`
+    or log the object itself.
+- **Oops:** an orientation-check cleanup saved the active scene, which was
+  still `Smoke_Test.unity` after the user had deleted its file. That save
+  recreated the file. Delete `Assets/SketchScape/AgentRooms/Smoke_Test.unity`
+  again (and `Real_Scan_Check.unity`, a manual test room), by hand.
+
 ## LATEST (2026-09-26, late evening) — Muse Spark agent builds Quest rooms in Unity end-to-end
 
 This supersedes "What's about to happen" in START HERE below. Items 1–3

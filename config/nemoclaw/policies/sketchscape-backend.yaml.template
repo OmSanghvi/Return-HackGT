@@ -1,0 +1,26 @@
+# NemoClaw policy preset: lets the sandbox's room tools (python3 only) reach
+# the local SketchScape backend. Rendered by scripts/start_local_backend.sh,
+# which fills in the backend's current WSL address (it can change on reboot).
+# Only the routes the room tools use are allowed; publishing is not.
+preset:
+  name: sketchscape-backend
+  description: "SketchScape backend room API (read, list assets, draft blueprints)"
+
+network_policies:
+  sketchscape_backend:
+    name: sketchscape_backend
+    endpoints:
+      - host: "__BACKEND_HOST__"
+        port: __BACKEND_PORT__
+        protocol: rest
+        enforcement: enforce
+        allowed_ips: ["__BACKEND_HOST__"]
+        rules:
+          - allow: { method: GET, path: "/v1/rooms/*/state" }
+          - allow: { method: GET, path: "/v1/projects/*/assets" }
+          - allow: { method: GET, path: "/v1/projects/*/contributions" }
+          - allow: { method: GET, path: "/v1/projects/*/blueprints/*" }
+          - allow: { method: POST, path: "/v1/projects/*/blueprints" }
+    binaries:
+      - { path: /usr/bin/python3* }
+      - { path: /usr/local/bin/python3* }

@@ -104,16 +104,33 @@ def _validate_blueprint_input(blueprint_input: dict, *, project_id: str, revisio
 # ---------------------------------------------------------------------------
 
 
+CONFIG_DIR = Path(os.environ.get("SKETCHSCAPE_CONFIG_DIR", "~/.config/sketchscape")).expanduser()
+
+
+def _config_value(name: str) -> Optional[str]:
+    """A per-user setting file (mode 600, written by scripts/start_local_backend.sh
+    into the NemoClaw sandbox). Used when the matching env var isn't set:
+    OpenShell has no generic way to inject env into a skill's shell today."""
+    path = CONFIG_DIR / name
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return value or None
+
+
 def _resolve(
     base_url: str | None, token: str | None, nemoclaw_id: str | None, timeout_seconds: float | None
 ) -> tuple[str, str, Optional[str], float]:
-    base_url = (base_url or os.environ.get("SKETCHSCAPE_API_URL", DEFAULT_BASE_URL)).rstrip("/")
-    token = token or os.environ.get("SKETCHSCAPE_NEMOCLAW_TOKEN")
+    base_url = (
+        base_url or os.environ.get("SKETCHSCAPE_API_URL") or _config_value("api-url") or DEFAULT_BASE_URL
+    ).rstrip("/")
+    token = token or os.environ.get("SKETCHSCAPE_NEMOCLAW_TOKEN") or _config_value("nemoclaw-token")
     if not token:
         raise RoomToolError(
-            "SKETCHSCAPE_NEMOCLAW_TOKEN is not set. Room tools authenticate as NemoClaw's "
-            "service identity (backend/auth.py R14) with this shared bearer token; set it "
-            "in NemoClaw's runtime credential provider, never in this repo."
+            "No NemoClaw service token. Room tools authenticate as NemoClaw's service identity "
+            "(backend/auth.py R14): set SKETCHSCAPE_NEMOCLAW_TOKEN, or run "
+            "scripts/start_local_backend.sh, which provisions it into the sandbox. Never put it in this repo."
         )
     nemoclaw_id = nemoclaw_id or os.environ.get("SKETCHSCAPE_NEMOCLAW_ID")
     timeout = timeout_seconds or float(
@@ -295,6 +312,9 @@ def propose_room_edit(
         "portals": blueprint.get("portals", []),
         "navigation": blueprint["navigation"],
     }
+    if blueprint.get("staging"):
+        # An edit moves objects; it must not silently drop the room's staging.
+        new_input["staging"] = blueprint["staging"]
     _validate_blueprint_input(new_input, project_id=project_id, revision=base_revision + 1)
 
     # 3. Best-effort ownership lookup for the approver's benefit. A failure
@@ -358,6 +378,142 @@ def propose_room_edit(
         "based_on_revision": base_revision,
         "changes": changes,
         "owners": owners,
+        "published": False,
+        "summary": summary,
+    }
+
+
+# ---------------------------------------------------------------------------
+# draft_room (registry id room.draft_from_project)
+# ---------------------------------------------------------------------------
+
+_ROOM_ASSET_KINDS = ("reconstruction", "sketch_card")
+
+
+def draft_room(
+    project_id: str,
+    *,
+    connection_insight: Optional[dict] = None,
+    theme: Optional[str] = None,
+    base_url: str | None = None,
+    token: str | None = None,
+    nemoclaw_id: str | None = None,
+    timeout_seconds: float | None = None,
+) -> dict:
+    """Lay out a project's ready assets as a whole room and draft it as a new
+    blueprint revision on the backend. Never publishes.
+
+    Uses ``place_objects_in_scene`` for layout and, when a
+    ``connection_insight`` is given, ``stage_immersive_reveal`` for the
+    blueprint's ``staging`` (lighting, motif, narration, haptics). Real
+    Fast-SAM3D scans are normalized to about 1 m, so each gets a *uniform*
+    scale equal to its label's real-world size (largest side, metres) and
+    sits at floor level (y = 0); Unity's offline builder stands the Z-up scan
+    upright and rests it on the floor. Every object is grabbable and linked
+    to its contribution, so the room keeps each person's attribution.
+
+    The draft is based on the live revision (0 if nothing is published) and
+    replaces the live layout. On a 409 it raises ``StaleRevisionError``.
+    """
+    import scene_tools as st  # local: keeps get_room_state/propose_room_edit import-light
+
+    base_url, token, nemoclaw_id, timeout = _resolve(base_url, token, nemoclaw_id, timeout_seconds)
+    kwargs = {"token": token, "nemoclaw_id": nemoclaw_id, "timeout": timeout}
+
+    status, assets = _request("GET", f"{base_url}/v1/projects/{project_id}/assets", **kwargs)
+    if status == 404:
+        raise RoomToolError(f"Project {project_id!r} does not exist.")
+    if status != 200:
+        raise RoomToolError(f"Could not list project assets ({status}): {assets}")
+    ready = [a for a in assets or [] if a.get("status") == "ready" and a.get("kind", "reconstruction") in _ROOM_ASSET_KINDS]
+    if not ready:
+        raise RoomToolError(
+            f"Project {project_id!r} has no ready 3D assets yet; wait for its uploads to finish reconstructing."
+        )
+
+    status, contributions = _request("GET", f"{base_url}/v1/projects/{project_id}/contributions", **kwargs)
+    contribution_by_asset = (
+        {c["asset_id"]: c["contribution_id"] for c in contributions if c.get("asset_id")} if status == 200 else {}
+    )
+
+    status, state = _request("GET", f"{base_url}/v1/rooms/{project_id}/state", **kwargs)
+    if status == 200:
+        live_revision = int(state["live_revision"])
+    elif status == 404:
+        live_revision = 0
+    else:
+        raise RoomToolError(f"Could not read the room's live revision ({status}): {state}")
+
+    room_theme = (theme or (connection_insight or {}).get("theme") or "Shared Room")[:200]
+    by_id = {a["asset_id"]: a for a in ready}
+    try:
+        blueprint = st.place_objects_in_scene(
+            [{"asset_id": a["asset_id"], "label": a.get("label") or "object"} for a in ready],
+            project_id=project_id,
+            theme=room_theme,
+        )
+    except st.SceneToolError as exc:
+        raise RoomToolError(f"Layout failed: {exc}") from exc
+
+    for obj in blueprint["objects"]:
+        asset = by_id[obj["asset_id"]]
+        obj["interactions"] = ["highlight", "inspect", "grab"]
+        obj["contribution_id"] = contribution_by_asset.get(obj["asset_id"])
+        if asset.get("kind", "reconstruction") == "reconstruction" and asset.get("artifact_url"):
+            size = max(st._footprint_for_label(asset.get("label") or ""))
+            obj["scale"] = [round(size, 3)] * 3
+            obj["position"][1] = 0.0
+
+    staging = None
+    if connection_insight:
+        staging = st.stage_immersive_reveal(connection_insight, blueprint["objects"])
+        blueprint["staging"] = staging
+        blueprint["environment"]["lighting_preset"] = staging["lighting_preset"]
+    blueprint["navigation"] = {"vr": "teleport", "ar": "surface-placement"}
+    _validate_blueprint_input(blueprint, project_id=project_id, revision=live_revision + 1)
+
+    status, result = _request(
+        "POST",
+        f"{base_url}/v1/projects/{project_id}/blueprints?base_revision={live_revision}",
+        body=blueprint,
+        **kwargs,
+    )
+    if status == 409:
+        latest = (result or {}).get("published_revision", live_revision)
+        raise StaleRevisionError(
+            f"The room changed while drafting (live revision is now {latest}); call draft_room again.",
+            live_revision=latest,
+            room_state={},
+        )
+    if status != 201:
+        raise RoomToolError(f"draft_room failed ({status}): {result}")
+
+    objects = [
+        {
+            "id": obj["id"],
+            "label": by_id[obj["asset_id"]].get("label"),
+            "size_m": obj["scale"][0],
+            "attributed": obj["contribution_id"] is not None,
+        }
+        for obj in blueprint["objects"]
+    ]
+    summary = (
+        f"revision {result['revision']} drafted for project {project_id} from live {live_revision}: "
+        f"{len(objects)} object(s) ({', '.join(str(o['label']) for o in objects)}), all grabbable"
+        + (f", lighting {staging['lighting_preset']}, reveal {' -> '.join(staging['reveal_order'])}" if staging else "")
+        + ". Not published: a project member publishes it (website or scripts/publish_room.py), then "
+        "scripts/export_unity_experience.py + Unity's offline builder turn it into the VR scene."
+    )
+    return {
+        "project_id": project_id,
+        "revision": result["revision"],
+        "based_on_revision": live_revision,
+        "objects": objects,
+        "staging": None if not staging else {
+            "lighting_preset": staging["lighting_preset"],
+            "reveal_order": staging["reveal_order"],
+            "narration": staging["narration"]["text"],
+        },
         "published": False,
         "summary": summary,
     }

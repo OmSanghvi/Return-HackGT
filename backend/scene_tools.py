@@ -105,7 +105,9 @@ def _validate_blueprint_input(blueprint_input: dict, *, project_id: str) -> None
 # ---------------------------------------------------------------------------
 
 _SIZE_CATALOG: list[tuple[re.Pattern, tuple[float, float, float]]] = [
-    (re.compile(r"lamp|candle|vase|mug|cup|plant|photo|frame|book|small", re.I), (0.25, 0.35, 0.25)),
+    (re.compile(r"blanket|quilt|rug|towel|scarf", re.I), (1.4, 0.08, 1.0)),
+    (re.compile(r"\b(cat|kitten|dog|puppy|pet)s?\b", re.I), (0.5, 0.35, 0.3)),
+    (re.compile(r"lamp|candle|vase|mug|cup|plant|photo|frame|book|small|remote|phone|tomato|apple|fruit|toy", re.I), (0.25, 0.35, 0.25)),
     (re.compile(r"chair|stool|backpack|box|suitcase|guitar", re.I), (0.55, 0.85, 0.55)),
     (re.compile(r"table|desk|shelf|dresser|bike|bicycle|bookcase", re.I), (1.1, 0.9, 0.6)),
     (re.compile(r"sofa|couch|bed|piano|car|wardrobe", re.I), (2.0, 0.9, 0.9)),

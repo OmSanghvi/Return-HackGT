@@ -15,6 +15,22 @@ The planner does the layout, scale, depth and staging math and writes the
 Unity C# for you. **Never invent coordinates, sizes, or C#.** Always use what
 the planner printed.
 
+## Real 3D scans
+
+Some contributed objects already have a real 3D scan (a Gaussian splat
+reconstructed from the contributor's photo) imported into Unity. To see
+which labels have one, run:
+
+```
+python3 {baseDir}/backend/unity_room_cli.py list_assets all
+```
+
+`compose_room` automatically uses the real scan for any object whose label
+contains a scanned label ("our cat Miso" uses the "cat" scan), and a
+placeholder cube for the rest. Keep the person's own words in each `label`,
+and make sure it includes the scanned label when that's the object they
+mean. Each plan object's `visual` field says which one it got.
+
 ## Procedure (do every step, in order, without stopping to ask)
 
 This is one continuous job with about 10–20 tool calls. **Don't end your
@@ -81,8 +97,9 @@ but keep calling tools in the same turn until the room is finalized.
    short: the scene path, how many objects are grabbable, the camera rig,
    the hotspot count, the lighting mood, the reveal order, and the
    narration line (spoken in the room, never shown as a text card). Also
-   report anything that failed. Objects are placeholder cubes sized to each
-   object until real 3D assets are imported. Say so if asked about visuals.
+   report anything that failed. Say which objects are real 3D scans and
+   which are still placeholder cubes (from each plan object's `visual`).
+   An object with no scan becomes a cube.
 
 ## Other useful Unity tools
 

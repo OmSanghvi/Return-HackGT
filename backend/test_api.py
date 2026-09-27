@@ -953,6 +953,35 @@ class RevisionConcurrencyApiTests(unittest.TestCase):
             compiled = client.get(f"/v1/projects/{pid}/compiled-scene")
             self.assertEqual(compiled.status_code, 200)
 
+    def test_staging_is_optional_and_compiles_into_meta_staging(self) -> None:
+        staging = {
+            "reveal_order": ["hero"],
+            "lighting_preset": "warm-amber",
+            "connecting_motif": {"type": "light_path", "curve": "catmull_rom", "color": [1.0, 0.72, 0.42],
+                                 "control_points": [[0, 0, 2], [0, 0, 1]]},
+            "narration": {"text": "One slow Sunday.", "voice": "narrator_default", "tts_engine": None},
+            "haptic_signatures": {"hero": "pulse_soft"},
+        }
+        with TestClient(app) as client:
+            pid = self._make_project(client)
+            asset = self._create_ready_asset(client, pid)
+            plain = client.post(f"/v1/projects/{pid}/blueprints", params={"base_revision": 0},
+                                json=self._blueprint_payload(asset["asset_id"]))
+            self.assertEqual(plain.status_code, 201)
+            self.assertIsNone(plain.json()["staging"])
+            staged = client.post(f"/v1/projects/{pid}/blueprints", params={"base_revision": 0},
+                                 json={**self._blueprint_payload(asset["asset_id"]), "staging": staging})
+            self.assertEqual(staged.status_code, 201, staged.text)
+            client.post(f"/v1/projects/{pid}/blueprints/{staged.json()['revision']}/publish")
+            meta = client.get(f"/v1/projects/{pid}/compiled-scene").json()["scene"]["meta"]
+            self.assertEqual(meta["staging"]["lighting_preset"], "warm-amber")
+            self.assertEqual(meta["staging"]["narration"]["text"], "One slow Sunday.")
+            self.assertEqual(meta["staging"]["haptic_signatures"], {"hero": "pulse_soft"})
+            bad = client.post(f"/v1/projects/{pid}/blueprints",
+                              json={**self._blueprint_payload(asset["asset_id"]),
+                                    "staging": {**staging, "connecting_motif": {"color": [1, 2]}}})
+            self.assertEqual(bad.status_code, 422)
+
 
 class MembershipOwnershipApiTests(unittest.TestCase):
     """Build Plan step 17: invites, membership, Clerk binding, ownership."""

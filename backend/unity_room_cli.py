@@ -6,6 +6,11 @@ Usage:
     python3 unity_room_cli.py compose_room '<json>'     # or '-' to read JSON from stdin
     python3 unity_room_cli.py build_code <room-slug>
     python3 unity_room_cli.py finalize_code <room-slug>
+    python3 unity_room_cli.py list_assets all
+
+list_assets prints the real 3D scans (Gaussian splats) available in Unity.
+compose_room builds any object whose label matches one of them (for example
+"our cat Miso" matches "cat") from that scan instead of a placeholder cube.
 
 compose_room takes {"objects": [{"asset_id", "label"}, ...], "theme"?,
 "connection_insight"? {"theme", "explanation"}, "room_name"?,
@@ -71,7 +76,17 @@ def _build_code(slug: str) -> None:
     _print_code("BUILD", path.read_text())
 
 
+def _list_assets(_: str) -> None:
+    assets = ur.load_catalog()
+    print(json.dumps(
+        {"real_assets": [{"label": a["label"], "asset_id": a["asset_id"]} for a in assets],
+         "note": "Objects whose label contains one of these labels are built from the real 3D scan; others are placeholder cubes."},
+        separators=(",", ":"),
+    ))
+
+
 _COMMANDS = {
+    "list_assets": _list_assets,
     "compose_room": _compose,
     "build_code": _build_code,
     "finalize_code": lambda slug: _print_code("FINALIZE", ur.room_finalize_command(slug)),
@@ -81,7 +96,7 @@ _COMMANDS = {
 def main(argv: list[str]) -> int:
     if len(argv) != 3 or argv[1] not in _COMMANDS:
         print(
-            json.dumps({"error": "usage: unity_room_cli.py compose_room '<json>'|- | build_code <slug> | finalize_code <slug>"}),
+            json.dumps({"error": "usage: unity_room_cli.py compose_room '<json>'|- | build_code <slug> | finalize_code <slug> | list_assets all"}),
             file=sys.stderr,
         )
         return 2

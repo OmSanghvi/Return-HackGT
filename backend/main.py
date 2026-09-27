@@ -334,6 +334,31 @@ class PortalSettings(BaseModel):
     scale: list[float] = Field(default_factory=lambda: [1.0, 1.0, 1.0], min_length=3, max_length=3)
 
 
+class StagingMotif(BaseModel):
+    type: str = Field(default="light_path", max_length=40)
+    curve: str = Field(default="catmull_rom", max_length=40)
+    color: list[float] = Field(min_length=3, max_length=3)
+    control_points: list[list[float]] = Field(default_factory=list, max_length=210)
+
+
+class StagingNarration(BaseModel):
+    text: str = Field(max_length=1000)
+    voice: str = Field(default="narrator_default", max_length=80)
+    tts_engine: str | None = Field(default=None, max_length=80)
+
+
+class StagingPlan(BaseModel):
+    """The shape stage_immersive_reveal returns (scene_tools.py), which
+    Unity's StagingPlanParser reads from the compiled scene's meta.staging."""
+
+    reveal_order: list[str] = Field(default_factory=list, max_length=200)
+    lighting_preset: str = Field(default="neutral-glow", max_length=80)
+    connecting_motif: StagingMotif | None = None
+    narration: StagingNarration | None = None
+    haptic_signatures: dict[str, str] = Field(default_factory=dict, max_length=200)
+    summary: str | None = Field(default=None, max_length=1000)
+
+
 class NavigationSettings(BaseModel):
     vr: Literal["teleport", "smooth", "none"] = "none"
     ar: Literal["surface-placement", "world-anchor", "none"] = "none"
@@ -345,6 +370,10 @@ class ExperienceBlueprintInput(BaseModel):
     objects: list[BlueprintObject] = Field(min_length=1, max_length=200)
     portals: list[PortalSettings] = Field(default_factory=list, max_length=20)
     navigation: NavigationSettings = Field(default_factory=NavigationSettings)
+    # Optional immersive staging from NemoClaw's stage_immersive_reveal (Build
+    # Plan step 6). compile_blueprint passes it through as meta.staging, which
+    # Unity's ImmersiveStagingDirector applies; a room without it loads plain.
+    staging: StagingPlan | None = None
 
 
 class ExperienceBlueprint(ExperienceBlueprintInput):
@@ -986,6 +1015,7 @@ def compile_blueprint(blueprint: ExperienceBlueprint) -> SceneDocument:
             "navigation": blueprint.navigation.model_dump(),
             "portals": [portal.model_dump() for portal in blueprint.portals],
             "social": compile_social_manifest(blueprint),
+            **({"staging": blueprint.staging.model_dump()} if blueprint.staging else {}),
         },
     )
 
@@ -2643,16 +2673,28 @@ async def detect_upload_objects(
     if label is None:
         return JobIdResponse(job_id=None)
 
-    selection = UploadSelection(
-        selection_id=uuid.uuid4().hex,
-        prompt=SelectionPrompt(text=label.label),
-        label=label.label,
-        origin="suggested",
-    )
-    max_objects = upload_pipeline.max_objects_per_upload()
-    if len(upload.selections) >= max_objects:
+    # Every object NemoClaw saw becomes a suggestion (most prominent first),
+    # skipping names the person already has, up to the per-upload cap.
+    existing = {item.label.strip().lower() for item in upload.selections if item.label}
+    room = upload_pipeline.max_objects_per_upload() - len(upload.selections)
+    suggestions = []
+    for text in [label.label, *label.alternatives]:
+        if len(suggestions) >= room:
+            break
+        if text.strip().lower() in existing:
+            continue
+        existing.add(text.strip().lower())
+        suggestions.append(
+            UploadSelection(
+                selection_id=uuid.uuid4().hex,
+                prompt=SelectionPrompt(text=text),
+                label=text,
+                origin="suggested",
+            )
+        )
+    if not suggestions:
         return JobIdResponse(job_id=None)
-    upload.selections.append(selection)
+    upload.selections.extend(suggestions)
     store.save_upload_record(upload)
 
     job_id = uuid.uuid4().hex
@@ -2666,7 +2708,7 @@ async def detect_upload_objects(
         project_id=project_id,
         kind="segment",
         upload_id=upload_id,
-        selection_ids=[selection.selection_id],
+        selection_ids=[item.selection_id for item in suggestions],
         image_key=upload.image_key,
         subject_label_backend=label.backend,
     )

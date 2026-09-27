@@ -1,86 +1,83 @@
 ---
 name: sketchscape-room-tools
-description: Read the live state of a SketchScape Collaborative VR room and propose an edit to it (move/rotate/scale objects) as a draft revision. Use when asked what's in a room right now, or to change a live room's layout. Never publishes -- a person approves the publish on the website.
+description: Build, read, and edit a SketchScape project's live VR room through the backend - draft a whole room from a project's uploaded 3D scans, read what's in the room now, or move/rotate/scale objects. Use when asked to build/set up/stage a project's room for the team's VR app (by project id), what's in a room, or to change a room's layout. Drafts only; a project member publishes.
 ---
 
 # SketchScape room tools
 
-Two thin HTTP-client tools live at
-`/sandbox/sketchscape/backend/room_tools_cli.py`. They call this project's
-own backend room API (Build Plan step 24) over HTTPS/HTTP -- never write to
-any store directly and never publish a room. Always shell out to the CLI
-and return its real JSON output; never fabricate object ids, positions, or
-revision numbers.
-
-Requires `SKETCHSCAPE_NEMOCLAW_TOKEN` and `SKETCHSCAPE_API_URL` to be set in
-this sandbox's environment (see the runtime credential provider -- never put
-either value in a file). Optional: `SKETCHSCAPE_NEMOCLAW_ID` to tag which
-NemoClaw instance made a change (shows up as `nemoclaw:<id>` in `author`).
-
-## get_room_state
-
-Call this first, whenever you're asked about a room's current contents or
-before proposing any edit. Read-only, no approval needed.
+These tools are HTTP clients for this project's own backend, run with your
+shell/exec tool:
 
 ```
-python3 /sandbox/sketchscape/backend/room_tools_cli.py get_room_state '{
-  "project_id": "<project id>"
+python3 {baseDir}/backend/room_tools_cli.py <verb> '<json>'
+```
+
+The backend URL and NemoClaw's service token are already configured in
+this sandbox. Never print them, and never pass them as arguments. You act
+as a service: you may read and draft, but **you can never publish**.
+Always return the CLI's real JSON; never invent ids, positions or revision
+numbers.
+
+## draft_room: build a project's whole room
+
+Use this when asked to build, set up, or stage the room for a project (the
+team's VR app, not the Unity Editor). It lays out every ready 3D scan the
+project's contributors uploaded. Pass `connection_insight` when you know
+what ties the objects together, because it drives the lighting, the
+connecting light path, the narration and the haptics.
+
+```
+python3 {baseDir}/backend/room_tools_cli.py draft_room '{
+  "project_id": "<project id>",
+  "connection_insight": {"theme": "Lazy Sunday at home", "explanation": "Everything from one slow afternoon on the couch."}
 }'
 ```
 
-Returns `live_revision`, the object list (id, asset_id, position/rotation/
-scale, who owns each one, whether it is editable by NemoClaw's caller), and
-a short `summary` string. Pass `"response_format": "detailed"` for the full
-raw room-state JSON instead of the concise summary.
+It drafts a new, unpublished revision based on the live one, which replaces
+the live layout once someone publishes it. Every object is grabbable and
+keeps its contributor's attribution, and real scans are sized from their
+labels.
 
-404 means the project has nothing published yet -- there is no live room to
-read or edit.
-
-## propose_room_edit
-
-Call this to move, rotate, or scale one or more existing objects in the
-room. Always call `get_room_state` first (or use its `live_revision`) to
-get the current `base_revision` -- never guess it.
+## get_room_state: what's in the room now
 
 ```
-python3 /sandbox/sketchscape/backend/room_tools_cli.py propose_room_edit '{
+python3 {baseDir}/backend/room_tools_cli.py get_room_state '{"project_id": "<project id>"}'
+```
+
+Returns `live_revision`, the objects (id, asset, transform, owner) and a
+`summary`. A 404 means nothing has been published yet.
+
+## propose_room_edit: move, rotate or scale objects
+
+Call `get_room_state` first to get the current `base_revision`; never
+guess it.
+
+```
+python3 {baseDir}/backend/room_tools_cli.py propose_room_edit '{
   "project_id": "<project id>",
   "base_revision": 7,
-  "edits": [
-    {"object_id": "lamp_1", "position": [0.4, 0, 1.2]},
-    {"object_id": "sofa_1", "rotation": [0, 90, 0], "scale": [1, 1, 1]}
-  ]
+  "edits": [{"object_id": "cat_0", "position": [0.4, 0, 1.2]}]
 }'
 ```
 
-Each edit needs `object_id` plus at least one of `position`/`rotation`/
-`scale` (each a 3-number list; values you omit are left alone). This drafts
-a **new, unpublished revision** built from `base_revision` -- it never
-touches the live room. The result's `summary` says which revision was
-drafted, what changed, and which contributor(s) own the objects moved, so
-whoever reviews it on the website's Room page knows what they're approving.
+Each edit needs `object_id` plus at least one of `position`, `rotation` or
+`scale`.
 
-**If the CLI exits non-zero with a `live_revision` field in its error
-JSON**, the room changed since you read it (someone else's edit or a
-different NemoClaw draft went live). The error already re-read the room for
-you (`room_state` in that same JSON) -- call `get_room_state` again if you
-need the freshest view, then redo `propose_room_edit` with the new
-`base_revision`. Never retry the exact same call; the objects you're
-editing may have moved.
+If the CLI fails with a `live_revision` in its error, the room changed.
+Re-read it and redo the edit against the new revision. Never repeat the
+same call.
 
-## What you must never do with these tools
+## After drafting, tell the person
 
-- Never call a publish endpoint yourself. Publishing a drafted revision
-  (`blueprint.publish`, approval-gated) only happens after a person clicks
-  Approve on the website's Room page.
-- Never write scene state directly (no store access, no Unity MCP Extension
-  call for a live room -- that surface only edits the Editor's own open
-  scene, never a shipped/live room; see top-tier-nemoclaw-tool-design).
+Report the drafted revision number and the objects. Say that it is **not
+published yet**: a project member publishes it (on the website, or with
+`scripts/publish_room.py`), and then `scripts/export_unity_experience.py`
+plus Unity's offline builder turn it into the VR scene. Never claim the
+room is live.
 
-## Reporting results back to the person
+## Never
 
-Keep it short and concrete, e.g.: "Room revision 8 drafted from live 7:
-moved lamp_1 to (0.4, 0, 1.2), rotated sofa_1 90 degrees; sofa_1 is
-demo-bob's contribution. Not published -- needs approval on the website."
-Never fabricate coordinates or revision numbers -- always read them from the
-tool's actual JSON output.
+- Call a publish endpoint (the backend refuses a service identity anyway).
+- Use the Unity MCP tools for a project's live room. They only edit the
+  Editor's open scene. That's the separate `sketchscape-unity-room` skill,
+  for quick Editor previews.

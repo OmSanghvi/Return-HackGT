@@ -89,6 +89,49 @@
           "enum": ["surface-placement", "world-anchor", "none"]
         }
       }
+    },
+    "staging": {
+      "description": "Optional immersive staging from NemoClaw's stage_immersive_reveal (Build Plan step 6). Compiled into meta.staging for Unity's ImmersiveStagingDirector.",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "reveal_order": {
+          "type": "array",
+          "maxItems": 200,
+          "items": { "type": "string" }
+        },
+        "lighting_preset": { "type": "string", "maxLength": 80 },
+        "connecting_motif": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["color"],
+          "properties": {
+            "type": { "type": "string", "maxLength": 40 },
+            "curve": { "type": "string", "maxLength": 40 },
+            "color": { "$ref": "#/$defs/vector3" },
+            "control_points": {
+              "type": "array",
+              "maxItems": 210,
+              "items": { "$ref": "#/$defs/vector3" }
+            }
+          }
+        },
+        "narration": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["text"],
+          "properties": {
+            "text": { "type": "string", "maxLength": 1000 },
+            "voice": { "type": "string", "maxLength": 80 },
+            "tts_engine": { "type": ["string", "null"], "maxLength": 80 }
+          }
+        },
+        "haptic_signatures": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "summary": { "type": ["string", "null"], "maxLength": 1000 }
+      }
     }
   },
   "$defs": {

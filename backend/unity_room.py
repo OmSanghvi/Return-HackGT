@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
+from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
 import scene_tools as st
@@ -43,6 +45,8 @@ __all__ = [
     "room_build_command",
     "room_finalize_command",
     "room_slug",
+    "load_catalog",
+    "match_catalog",
 ]
 
 AGENT_ROOMS_FOLDER = "Assets/SketchScape/AgentRooms"
@@ -224,18 +228,53 @@ internal class CommandScript : IRunCommand
         result.Log("Built {object_count} object(s) under {{0}} and saved " + ScenePath + ".", root);
     }}
 
-    // v = position xyz, rotation xyz (degrees), size xyz (m), tint rgb
-    static void Place(ExecutionResult result, GameObject root, string id, string assetId, params float[] v)
+    // v = position xyz, rotation xyz (degrees), size xyz (m), tint rgb.
+    // splat = a Gsplat .ply asset path, or "" for a tinted placeholder cube.
+    static void Place(ExecutionResult result, GameObject root, string id, string assetId, string splat, params float[] v)
     {{
-        var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        go.name = id;
+        GameObject go = splat.Length > 0 ? PlaceSplat(result, id, splat, Mathf.Max(v[6], Mathf.Max(v[7], v[8]))) : null;
+        if (go == null)
+        {{
+            go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = id;
+            go.transform.localScale = new Vector3(v[6], v[7], v[8]);
+            go.GetComponent<Renderer>().sharedMaterial = Tinted(new Color(v[9], v[10], v[11]), false);
+        }}
+        bool real = go.transform.childCount > 0;
         go.transform.SetParent(root.transform, false);
-        go.transform.localPosition = new Vector3(v[0], v[1], v[2]);
+        // A splat rests on the floor at its own scanned height; a cube uses the planned height.
+        go.transform.localPosition = new Vector3(v[0], real ? go.GetComponent<BoxCollider>().size.y / 2f : v[1], v[2]);
         go.transform.localEulerAngles = new Vector3(v[3], v[4], v[5]);
-        go.transform.localScale = new Vector3(v[6], v[7], v[8]);
-        go.GetComponent<Renderer>().sharedMaterial = Tinted(new Color(v[9], v[10], v[11]), false);
         result.RegisterObjectCreation(go);
-        result.Log("Placed " + id + " (asset=" + assetId + ") at " + go.transform.position);
+        result.Log("Placed " + id + " (asset=" + assetId + (real ? ", real splat" : ", placeholder") + ") at " + go.transform.position);
+    }}
+
+    // A real Fast-SAM3D Gaussian splat, scaled so its largest side is maxSize
+    // metres. Scans are Z-up; with the importer's default (RUB) frame, +90
+    // degrees about X maps them to Unity's Y-up without mirroring. The
+    // parent carries a BoxCollider fitted to the splat, for grabbing.
+    static GameObject PlaceSplat(ExecutionResult result, string id, string path, float maxSize)
+    {{
+        var asset = AssetDatabase.LoadMainAssetAtPath(path);
+        var rendererType = System.Type.GetType("Gsplat.GsplatRenderer, Gsplat");
+        if (asset == null || rendererType == null)
+        {{
+            result.LogWarning(id + ": splat " + path + " is not imported (or Gsplat is missing); using a placeholder cube.");
+            return null;
+        }}
+        var bounds = (Bounds)asset.GetType().GetField("Bounds").GetValue(asset);
+        var size = bounds.size;
+        float scale = maxSize / Mathf.Max(0.001f, Mathf.Max(size.x, Mathf.Max(size.y, size.z)));
+        var go = new GameObject(id);
+        var box = go.AddComponent<BoxCollider>();
+        box.size = new Vector3(size.x, size.z, size.y) * scale;
+        var child = new GameObject("Splat");
+        child.transform.SetParent(go.transform, false);
+        child.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        child.transform.localScale = Vector3.one * scale;
+        child.transform.localPosition = -(child.transform.localRotation * bounds.center) * scale;
+        rendererType.GetField("GsplatAsset").SetValue(child.AddComponent(rendererType), asset);
+        return go;
     }}
 
     static Material Tinted(Color color, bool unlit)
@@ -343,11 +382,19 @@ internal class CommandScript : IRunCommand
 """
 
 
-def room_build_command(blueprint: dict, staging: Optional[Mapping[str, Any]] = None, *, slug: str) -> str:
+def room_build_command(
+    blueprint: dict,
+    staging: Optional[Mapping[str, Any]] = None,
+    *,
+    slug: str,
+    splats: Optional[Mapping[str, str]] = None,
+) -> str:
     """C# for ``Unity_RunCommand`` that builds ``blueprint`` in its own saved scene.
 
     ``blueprint`` must be schema-valid (validated here). ``staging`` is the
     optional ``stage_immersive_reveal`` result for the same objects.
+    ``splats`` maps object id -> Unity asset path of a real Gaussian-splat
+    ``.ply`` (see ``match_catalog``); other objects become placeholder cubes.
     """
     slug = _checked_slug(slug)
     objects: Any = blueprint.get("objects")
@@ -356,10 +403,12 @@ def room_build_command(blueprint: dict, staging: Optional[Mapping[str, Any]] = N
     _validate_blueprint_input(blueprint, project_id="unity-room-preview")
 
     mood = list((staging or {}).get("connecting_motif", {}).get("color") or _NEUTRAL_LIGHT)
+    splats = splats or {}
     place_calls = "\n".join(
-        "        Place(result, root, {id_}, {asset}, {values});".format(
+        "        Place(result, root, {id_}, {asset}, {splat}, {values});".format(
             id_=_cs_string(obj["id"]),
             asset=_cs_string(obj["asset_id"]),
+            splat=_cs_string(splats.get(obj["id"], "")),
             values=_cs_floats(
                 list(obj["position"])
                 + list(obj["rotation"])
@@ -398,6 +447,40 @@ def room_build_command(blueprint: dict, staging: Optional[Mapping[str, Any]] = N
     )
 
 
+_CATALOG_PATH = Path(__file__).resolve().parent.parent / "config" / "nemoclaw" / "asset-catalog.json"
+
+
+def load_catalog(path: Optional[str] = None) -> list[dict]:
+    """Real reconstructed assets imported into Unity by
+    ``scripts/sync_s3_assets_to_unity.py``. Missing file -> empty catalog."""
+    target = Path(path or os.environ.get("SKETCHSCAPE_ASSET_CATALOG") or _CATALOG_PATH)
+    if not target.is_file():
+        return []
+    return list(json.loads(target.read_text(encoding="utf-8")).get("assets", []))
+
+
+def _words(text: str) -> set[str]:
+    return {w[:-1] if len(w) > 3 and w.endswith("s") else w for w in re.findall(r"[a-z0-9]+", (text or "").lower())}
+
+
+def match_catalog(objects: Sequence[Any], catalog: Sequence[Mapping[str, Any]]) -> list[Optional[dict]]:
+    """For each input object, the catalog asset to render it with, or None.
+
+    An exact ``asset_id`` match wins; otherwise the longest catalog label
+    whose words all appear in the object's label ("our cat Miso" -> "cat",
+    "the old TV remote control" -> "remote control")."""
+    by_id = {a.get("asset_id"): a for a in catalog}
+    matches: list[Optional[dict]] = []
+    for raw in objects:
+        found = by_id.get(st._get(raw, "asset_id"))
+        if found is None:
+            words = _words(st._get(raw, "label") or "")
+            candidates = [a for a in catalog if _words(a.get("label", "")) and _words(a["label"]) <= words]
+            found = max(candidates, key=lambda a: len(a["label"]), default=None)
+        matches.append(dict(found) if found else None)
+    return matches
+
+
 def room_finalize_command(slug: str) -> str:
     """C# for ``Unity_RunCommand`` that saves the room's scene and reports its real contents."""
     slug = _checked_slug(slug)
@@ -415,8 +498,12 @@ def compose_room(
     sketch_layout_hint: Optional[st.LayoutHint] = None,
     room_name: Optional[str] = None,
     project_id: str = "preview",
+    catalog: Optional[Sequence[Mapping[str, Any]]] = None,
 ) -> dict:
     """Plan a full Quest room: layout, staging, build C#, and the Meta XR tool calls.
+
+    Objects that match a real asset in ``catalog`` (default: ``load_catalog()``)
+    are built from their Gaussian-splat reconstruction; the rest are cubes.
 
     Returns ``{"summary", "room", "objects", "staging", "unity_steps",
     "build_code"}``. ``unity_steps`` is the ordered list of Unity MCP calls
@@ -427,7 +514,9 @@ def compose_room(
     )
     staging = st.stage_immersive_reveal(connection_insight, blueprint["objects"]) if connection_insight else None
     slug = room_slug(room_name or theme)
-    build_code = room_build_command(blueprint, staging, slug=slug)
+    matches = match_catalog(objects, load_catalog() if catalog is None else catalog)
+    splats = {o["id"]: m["unity_path"] for o, m in zip(blueprint["objects"], matches) if m}
+    build_code = room_build_command(blueprint, staging, slug=slug, splats=splats)
     hotspots = _teleport_hotspots(blueprint["objects"])
 
     steps: list[dict] = [
@@ -455,13 +544,14 @@ def compose_room(
             "label": labels.get(o["id"]) or o["id"],
             "position": o["position"],
             "size_m": [round(o["scale"][k] * _DEFAULT_SIZE[k], 3) for k in range(3)],
+            "visual": f"real 3D scan ({m['label']})" if m else "placeholder cube (no real scan for this label)",
         }
-        for o in blueprint["objects"]
+        for o, m in zip(blueprint["objects"], matches)
     ]
     return {
         "summary": (
             f"Room '{slug}': {len(placed)} object(s) in an arc facing the entry, "
-            f"{len(hotspots)} teleport hotspot(s)"
+            f"{len(splats)} of them real 3D scans, {len(hotspots)} teleport hotspot(s)"
             + (f", lighting={staging['lighting_preset']}" if staging else ", neutral lighting (no connection_insight)")
             + f". Scene: {_scene_path(slug)} (new file; other scenes untouched)."
         ),

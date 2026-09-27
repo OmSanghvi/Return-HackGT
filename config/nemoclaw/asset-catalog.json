@@ -1,0 +1,60 @@
+{
+  "assets": [
+    {
+      "label": "cat",
+      "asset_id": "eebc0a58f9794bf4827432e2c5370191",
+      "project_id": "937c1ce6219b4c7091e4758cac3878a0",
+      "unity_path": "Assets/SketchScape/AssetLibrary/cat_eebc0a58.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/f5ac39de2a9544c8be6562d681b9190b/reconstruction.ply",
+      "vertices": 219296,
+      "repaired_opacity": 0,
+      "native_extent": [
+        0.5974,
+        0.9944,
+        0.2898
+      ]
+    },
+    {
+      "label": "pink blanket",
+      "asset_id": "3ffac273fd654746be2de48d5588e10d",
+      "project_id": "02b682878bc045d5a5eadc9837f01865",
+      "unity_path": "Assets/SketchScape/AssetLibrary/pink_blanket_3ffac273.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/2662e3fff41645889c1309839d999212/reconstruction.ply",
+      "vertices": 146656,
+      "repaired_opacity": 0,
+      "native_extent": [
+        1.003,
+        0.5802,
+        0.0247
+      ]
+    },
+    {
+      "label": "remote control",
+      "asset_id": "fa48cc2de6f5449badfddbfbd333b592",
+      "project_id": "02b682878bc045d5a5eadc9837f01865",
+      "unity_path": "Assets/SketchScape/AssetLibrary/remote_control_fa48cc2d.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/a04a6bd5fa46407aa05e8d2a524a6812/reconstruction.ply",
+      "vertices": 221792,
+      "repaired_opacity": 90,
+      "native_extent": [
+        0.3506,
+        0.999,
+        0.1906
+      ]
+    },
+    {
+      "label": "tomato",
+      "asset_id": "ec2368d70eb44c7eb55628c7dbd3e8d9",
+      "project_id": "30463f74947c4038950716e5089e1a54",
+      "unity_path": "Assets/SketchScape/AssetLibrary/tomato_ec2368d7.ply",
+      "source": "s3://sketchscape-artifacts-20260922133334256700000003/artifacts/cb47febf31f94cc4a268d5fcad5533cb/reconstruction.ply",
+      "vertices": 972128,
+      "repaired_opacity": 0,
+      "native_extent": [
+        0.983,
+        0.9755,
+        0.991
+      ]
+    }
+  ]
+}

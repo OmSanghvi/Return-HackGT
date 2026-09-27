@@ -222,11 +222,25 @@ public static class SketchScapeOfflineExperienceBuilder
         if (splatAsset != null)
         {
             instance = new GameObject(item.id);
-            var renderer = instance.AddComponent<GsplatRenderer>();
+            // Fast-SAM3D scans are Z-up. Under the importer's default (RUB)
+            // frame, +90 degrees about X stands them upright in Unity without
+            // mirroring. The splat lives on a child so the blueprint transform
+            // stays on the object: its origin is the scan's floor contact point
+            // (base centred on the origin), and a uniform scale is the scan's
+            // largest side in metres (scans are normalized to about 1 m).
+            var upright = Quaternion.Euler(90f, 0f, 0f);
+            Bounds bounds = splatAsset.Bounds;
+            Vector3 size = new Vector3(bounds.size.x, bounds.size.z, bounds.size.y);
+            Vector3 center = upright * bounds.center;
+            var splat = new GameObject("Splat");
+            splat.transform.SetParent(instance.transform, false);
+            splat.transform.localRotation = upright;
+            splat.transform.localPosition = new Vector3(-center.x, size.y / 2f - center.y, -center.z);
+            var renderer = splat.AddComponent<GsplatRenderer>();
             renderer.GsplatAsset = splatAsset;
             var collider = instance.AddComponent<BoxCollider>();
-            collider.center = splatAsset.Bounds.center;
-            collider.size = splatAsset.Bounds.size;
+            collider.center = new Vector3(0f, size.y / 2f, 0f);
+            collider.size = size;
         }
         else
         {
